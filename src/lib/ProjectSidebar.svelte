@@ -104,7 +104,7 @@
   aside {
     width: var(--pane-projects);
     flex: 0 0 var(--pane-projects);
-    border-right: 1px solid var(--border);
+    /* The seam to the right is the draggable PaneDivider, not a border. */
     background: var(--panel-bg);
     display: flex;
     flex-direction: column;

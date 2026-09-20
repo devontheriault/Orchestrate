@@ -4,8 +4,16 @@
   import AgentList from "$lib/AgentList.svelte";
   import AgentStream from "$lib/AgentStream.svelte";
   import SpawnModal from "$lib/SpawnModal.svelte";
+  import PaneDivider from "$lib/PaneDivider.svelte";
   import { store } from "$lib/store.svelte";
   import { viewport } from "$lib/viewport.svelte";
+  import {
+    panes,
+    MIN_AGENTS,
+    MIN_DETAIL,
+    MIN_PROJECTS,
+    MIN_PROJECTS_DRAG,
+  } from "$lib/panes.svelte";
 
   let showSpawn = $state(false);
 
@@ -67,6 +75,24 @@
   const narrow = $derived(viewport.layout === "narrow");
   const showList = $derived(!narrow || !store.selectedAgentId);
   const showDetail = $derived(!narrow || !!store.selectedAgentId);
+
+  // Dragged pane widths, held to what the current window can actually fit.
+  const sized = $derived(panes.fit(viewport.width, showList && showDetail));
+
+  // A hand-sized project pane decides for itself whether it's a rail; an
+  // untouched one follows the window.
+  const railed = $derived(
+    sized.projects === null ? viewport.railed : sized.projects < MIN_PROJECTS,
+  );
+
+  const paneStyle = $derived(
+    [
+      sized.projects !== null ? `--pane-projects: ${sized.projects}px` : "",
+      sized.agents !== null ? `--pane-agents: ${sized.agents}px` : "",
+    ]
+      .filter(Boolean)
+      .join("; "),
+  );
 </script>
 
 {#if store.error}
@@ -92,10 +118,26 @@
   </div>
 {/if}
 
-<main>
-  <ProjectSidebar collapsed={viewport.railed} />
+<main style={paneStyle}>
+  <ProjectSidebar collapsed={railed} />
+  <PaneDivider
+    label="Resize project list"
+    min={MIN_PROJECTS_DRAG}
+    minLast={showList && showDetail ? MIN_AGENTS + MIN_DETAIL : MIN_DETAIL}
+    onresize={(w) => panes.setProjects(w)}
+    onreset={() => panes.setProjects(null)}
+  />
   {#if showList}
     <AgentList onSpawn={() => (showSpawn = true)} fill={narrow} />
+  {/if}
+  {#if showList && showDetail}
+    <PaneDivider
+      label="Resize agent list"
+      min={MIN_AGENTS}
+      minLast={MIN_DETAIL}
+      onresize={(w) => panes.setAgents(w)}
+      onreset={() => panes.setAgents(null)}
+    />
   {/if}
   {#if showDetail}
     <AgentStream onBack={narrow ? () => store.selectAgent(null) : undefined} />

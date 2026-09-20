@@ -96,7 +96,7 @@
   section {
     width: var(--pane-agents);
     flex: 0 0 var(--pane-agents);
-    border-right: 1px solid var(--border);
+    /* The seam to the right is the draggable PaneDivider, not a border. */
     background: var(--panel-bg);
     display: flex;
     flex-direction: column;
@@ -107,7 +107,6 @@
   section.fill {
     width: auto;
     flex: 1 1 auto;
-    border-right: none;
   }
 
   header {
