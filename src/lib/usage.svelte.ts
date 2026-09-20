@@ -19,9 +19,15 @@ export type Scope = "all" | "agent";
 class UsageWindow {
   open = $state(false);
   summary = $state<UsageSummary | null>(null);
+  /** A read is in flight, whoever asked for it. */
   loading = $state(false);
+  /** The user pressed Refresh and their read hasn't landed yet. */
+  refreshing = $state(false);
   error = $state<string | null>(null);
   scope = $state<Scope>("all");
+
+  /** The read in flight, so a second asker waits on it instead of starting another. */
+  #inFlight: Promise<void> | null = null;
 
   toggle() {
     if (this.open) this.close();
@@ -37,12 +43,31 @@ class UsageWindow {
     this.open = false;
   }
 
+  /** Re-read the logs, joining a read already under way rather than piling on. */
+  load(): Promise<void> {
+    this.#inFlight ??= this.#read();
+    return this.#inFlight;
+  }
+
   /**
-   * Re-read the logs. Keeps the last good summary on screen if the read fails,
-   * so a hiccup on the refresh timer doesn't blank the window.
+   * The user's own refresh, and the only path that lights the button up. The
+   * timer reads behind the numbers; a button that said "Refreshing…" every few
+   * seconds on its own would read as a glitch.
    */
-  async load() {
-    if (this.loading) return;
+  async refresh() {
+    this.refreshing = true;
+    try {
+      await this.load();
+    } finally {
+      this.refreshing = false;
+    }
+  }
+
+  /**
+   * Keeps the last good summary on screen if the read fails, so a hiccup on
+   * the refresh timer doesn't blank the window.
+   */
+  async #read() {
     this.loading = true;
     try {
       this.summary = await api.usageSummary();
@@ -51,6 +76,7 @@ class UsageWindow {
       this.error = String(e);
     } finally {
       this.loading = false;
+      this.#inFlight = null;
     }
   }
 }

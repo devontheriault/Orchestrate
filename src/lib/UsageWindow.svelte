@@ -343,8 +343,8 @@
 
     <footer>
       <span class="hint">Ctrl+Shift+U or Esc to close</span>
-      <button onclick={() => usage.load()} disabled={usage.loading}>
-        {usage.loading ? "Refreshing…" : "Refresh"}
+      <button onclick={() => usage.refresh()} disabled={usage.refreshing}>
+        {usage.refreshing ? "Refreshing…" : "Refresh"}
       </button>
     </footer>
   </div>
