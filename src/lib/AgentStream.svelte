@@ -8,6 +8,13 @@
   /** Present only when the agent list is off-screen, on a narrow window. */
   let { onBack }: { onBack?: () => void } = $props();
 
+  /** The blank page for an agent that hasn't been spawned yet. */
+  const drafting = $derived(store.drafting && !store.selectedAgent);
+
+  const projectName = $derived(
+    store.projects.find((p) => p.id === store.selectedProjectId)?.name ?? "",
+  );
+
   let showRaw = $state(false);
   let streamEl: HTMLDivElement | undefined = $state();
 
@@ -293,6 +300,17 @@
           </button>
         {/if}
       </div>
+    {:else if drafting}
+      <div class="head-left">
+        <div class="prompt">New agent</div>
+        <div class="meta">
+          <span class="state state-draft">draft</span>
+          <span class="target">in {projectName}</span>
+        </div>
+      </div>
+      <div class="head-right">
+        <button class="cancel" onclick={() => store.cancelDraft()}>Cancel</button>
+      </div>
     {:else}
       <div class="head-left">
         <div class="prompt-empty">No agent selected</div>
@@ -311,7 +329,15 @@
         </div>
       {/if}
 
-      {#if !store.selectedAgent}
+      {#if drafting}
+        <div class="hint draft-hint">
+          <p>This agent's output will appear here.</p>
+          <p class="sub">
+            Describe the task below and spawn it — it gets a fresh worktree and
+            branch of its own.
+          </p>
+        </div>
+      {:else if !store.selectedAgent}
         <div class="hint">Select an agent to see its output.</div>
       {:else if store.eventsForSelected.length === 0}
         <div class="hint">
@@ -477,6 +503,15 @@
   .state-failed { color: #dc2626; }
   .state-orphaned { color: #d97706; }
   .state-stopped { color: #6b7280; }
+  .state-draft { color: var(--accent); }
+
+  .target {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .cancel:hover { border-color: var(--accent); color: var(--accent); }
 
   code {
     font-family: ui-monospace, monospace;
@@ -580,6 +615,25 @@
     text-align: center;
     padding: 3rem 1rem;
     font-size: 0.9rem;
+  }
+
+  /* The blank page is mostly empty on purpose: it's the transcript, waiting.
+     Centre the little it does say in the space the output will fill. */
+  .draft-hint {
+    margin: auto 0;
+    font-style: normal;
+  }
+
+  .draft-hint p {
+    margin: 0;
+  }
+
+  .draft-hint .sub {
+    margin-top: 0.4rem;
+    font-size: 0.82rem;
+    max-width: var(--measure);
+    margin-left: auto;
+    margin-right: auto;
   }
 
   .block {

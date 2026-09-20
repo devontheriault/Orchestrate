@@ -47,6 +47,7 @@
     <span class="title">Agents</span>
     <button
       class="spawn"
+      class:active={store.drafting}
       onclick={onSpawn}
       disabled={!store.selectedProjectId}
       title={store.selectedProjectId ? "Spawn new agent" : "Select a project first"}
@@ -149,6 +150,12 @@
   }
 
   .spawn:hover:not(:disabled) {
+    filter: brightness(1.1);
+  }
+
+  /* While the blank page is open, the button reads as the thing that's showing. */
+  .spawn.active {
+    box-shadow: 0 0 0 2px var(--selected);
     filter: brightness(1.1);
   }
 

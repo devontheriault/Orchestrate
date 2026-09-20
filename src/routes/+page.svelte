@@ -3,7 +3,6 @@
   import ProjectSidebar from "$lib/ProjectSidebar.svelte";
   import AgentList from "$lib/AgentList.svelte";
   import AgentStream from "$lib/AgentStream.svelte";
-  import SpawnModal from "$lib/SpawnModal.svelte";
   import UsageWindow from "$lib/UsageWindow.svelte";
   import PaneDivider from "$lib/PaneDivider.svelte";
   import { store } from "$lib/store.svelte";
@@ -17,8 +16,6 @@
     MIN_PROJECTS_DRAG,
   } from "$lib/panes.svelte";
 
-  let showSpawn = $state(false);
-
   onMount(() => {
     viewport.start();
     store.start();
@@ -29,11 +26,11 @@
     viewport.stop();
   });
 
-  // Global "n" opens the Spawn modal, if a project is selected and the user
-  // is not currently typing in an input.
+  // Global "n" opens the blank page for a new agent, if a project is selected
+  // and the user is not currently typing in an input.
   $effect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (showSpawn || usage.open) return;
+      if (usage.open) return;
       if (e.key !== "n" || e.metaKey || e.ctrlKey || e.altKey) return;
       const active = document.activeElement as HTMLElement | null;
       if (
@@ -46,7 +43,7 @@
       }
       if (store.selectedProjectId) {
         e.preventDefault();
-        showSpawn = true;
+        store.startDraft();
       }
     };
     window.addEventListener("keydown", onKey);
@@ -67,9 +64,9 @@
     return () => window.removeEventListener("keydown", onKey);
   });
 
-  // Ctrl+Alt+R reloads the UI. Deliberately unconditional — it works with the
-  // modal open and while typing, since a reload is the way out of a wedged
-  // view. `code` rather than `key` so it survives non-QWERTY layouts.
+  // Ctrl+Alt+R reloads the UI. Deliberately unconditional — it works while
+  // typing, since a reload is the way out of a wedged view. `code` rather than
+  // `key` so it survives non-QWERTY layouts.
   $effect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!e.ctrlKey || !e.altKey || e.metaKey || e.shiftKey) return;
@@ -86,11 +83,12 @@
   );
 
   // Narrow windows can't hold the agent list and the detail pane side by side,
-  // so they show one at a time: the list until an agent is picked, then the
-  // agent, with a way back.
+  // so they show one at a time: the list until an agent is picked — or a new
+  // one started — then the detail pane, with a way back.
   const narrow = $derived(viewport.layout === "narrow");
-  const showList = $derived(!narrow || !store.selectedAgentId);
-  const showDetail = $derived(!narrow || !!store.selectedAgentId);
+  const detailBusy = $derived(!!store.selectedAgentId || store.drafting);
+  const showList = $derived(!narrow || !detailBusy);
+  const showDetail = $derived(!narrow || detailBusy);
 
   // Dragged pane widths, held to what the current window can actually fit.
   const sized = $derived(panes.fit(viewport.width, showList && showDetail));
@@ -144,7 +142,7 @@
     onreset={() => panes.setProjects(null)}
   />
   {#if showList}
-    <AgentList onSpawn={() => (showSpawn = true)} fill={narrow} />
+    <AgentList onSpawn={() => store.startDraft()} fill={narrow} />
   {/if}
   {#if showList && showDetail}
     <PaneDivider
@@ -159,10 +157,6 @@
     <AgentStream onBack={narrow ? () => store.selectAgent(null) : undefined} />
   {/if}
 </main>
-
-{#if showSpawn}
-  <SpawnModal onClose={() => (showSpawn = false)} />
-{/if}
 
 {#if usage.open}
   <UsageWindow />

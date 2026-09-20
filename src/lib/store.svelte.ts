@@ -48,8 +48,8 @@ function mergeEvents(logged: AgentEvent[], live: AgentEvent[]): AgentEvent[] {
 const RESUME_KEY = "cw:resume-selection";
 
 /**
- * The model the user picked last, for any Turn — a Spawn or a Resume — so the
- * spawn modal opens on their habitual choice instead of resetting every time.
+ * The model the user picked last, for any Turn — a Spawn or a Resume — so a new
+ * agent's page opens on their habitual choice instead of resetting every time.
  * localStorage, not sessionStorage: a preference should outlive the window.
  *
  * The stored value is the picker's own, so the empty string is a real answer —
@@ -99,6 +99,17 @@ class AppStore {
 
   /** A follow-up prompt is in flight for the selected agent. */
   sending = $state<boolean>(false);
+
+  /**
+   * A new agent being composed. The detail pane shows a blank output page with
+   * an empty transcript and the composer waiting for the opening prompt —
+   * the same surface the agent's own output will fill, rather than a dialog
+   * over the top of it. Mutually exclusive with having an agent selected.
+   */
+  drafting = $state<boolean>(false);
+
+  /** The opening prompt is in flight; the draft page is waiting on a spawn. */
+  spawning = $state<boolean>(false);
 
   /** The model the user picked for the most recent Turn. Null = never picked. */
   preferredModel = $state<string | null>(readPreferredModel());
@@ -163,7 +174,7 @@ class AppStore {
   /**
    * The model the most recently spawned Agent ran on, as a picker value. Stands
    * in for a stored preference on a profile that has none yet — the Agents on
-   * disk are a record of the user's picks too, and reading them means the modal
+   * disk are a record of the user's picks too, and reading them means the picker
    * is right on the first spawn after an update rather than the second.
    */
   private lastSpawnedModel = $derived.by(() => {
@@ -176,7 +187,7 @@ class AppStore {
     return latest ? latest.model ?? DEFAULT_MODEL : null;
   });
 
-  /** What the spawn modal's picker opens on: the last model the user ran on. */
+  /** What a new agent's picker opens on: the last model the user ran on. */
   defaultSpawnModel = $derived(
     this.preferredModel ?? this.lastSpawnedModel ?? DEFAULT_MODEL,
   );
@@ -327,10 +338,28 @@ class AppStore {
   }
 
   selectAgent(id: string | null) {
-    if (id === this.selectedAgentId) return;
+    const wasDrafting = this.drafting;
+    this.drafting = false;
+    if (id === this.selectedAgentId && !wasDrafting) return;
     this.selectedAgentId = id;
     this.clearDiff();
     if (id) this.hydrateEvents(id);
+  }
+
+  /**
+   * Open the blank page for a new agent: nothing selected, output tab, and a
+   * composer holding the opening prompt until the user sends it.
+   */
+  startDraft() {
+    if (!this.selectedProjectId) return;
+    this.selectedAgentId = null;
+    this.clearDiff();
+    this.detailTab = "output";
+    this.drafting = true;
+  }
+
+  cancelDraft() {
+    this.drafting = false;
   }
 
   /**
@@ -442,9 +471,15 @@ class AppStore {
     }
   }
 
-  /** `model` is the picker's value; empty means no `--model` at all. */
-  async spawn(prompt: string, model: string) {
-    if (!this.selectedProjectId) return;
+  /**
+   * Start a new agent on the selected project. `model` is the picker's value;
+   * empty means no `--model` at all. Returns whether it started — the draft
+   * page keeps the prompt on failure so the user can retry rather than retype.
+   */
+  async spawn(prompt: string, model: string): Promise<boolean> {
+    if (!this.selectedProjectId || !prompt.trim() || this.spawning) return false;
+    this.spawning = true;
+    this.error = null;
     try {
       const agent = await api.spawnAgent(
         this.selectedProjectId,
@@ -454,8 +489,12 @@ class AppStore {
       this.rememberModel(model);
       this.agents.push(agent);
       this.selectAgent(agent.id);
+      return true;
     } catch (e) {
       this.error = String(e);
+      return false;
+    } finally {
+      this.spawning = false;
     }
   }
 

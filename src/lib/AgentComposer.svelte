@@ -5,8 +5,10 @@
   import ModelPicker from "./ModelPicker.svelte";
 
   const agent = $derived(store.selectedAgent);
+  /** No agent yet: this composer is holding the opening prompt for a new one. */
+  const drafting = $derived(store.drafting && !agent);
   const working = $derived(agent?.state === "running");
-  const busy = $derived(working || store.sending);
+  const busy = $derived(working || store.sending || store.spawning);
 
   let prompt = $state("");
   /** The picker's value; DEFAULT_MODEL passes no --model. */
@@ -26,41 +28,63 @@
     fit();
   });
 
-  // A different agent is a different conversation: don't carry a draft over.
-  // The picker starts on whatever the agent last ran on — untracked, so an
-  // agent record updating mid-edit doesn't undo a model the user just picked.
+  // A different agent — or a blank page for a new one — is a different
+  // conversation: don't carry a draft over. The picker starts on whatever the
+  // agent last ran on, or on the user's habitual model for a new agent —
+  // untracked, so a record updating mid-edit doesn't undo a model just picked.
   $effect(() => {
     store.selectedAgentId;
+    store.drafting;
     prompt = "";
-    model = untrack(() => store.selectedAgent?.model ?? DEFAULT_MODEL);
+    model = untrack(() =>
+      store.drafting && !store.selectedAgent
+        ? store.defaultSpawnModel
+        : store.selectedAgent?.model ?? DEFAULT_MODEL,
+    );
+  });
+
+  // The blank page exists to be typed into, so put the cursor there.
+  $effect(() => {
+    if (drafting) textarea?.focus();
   });
 
   async function send() {
     if (!prompt.trim() || busy) return;
-    const sent = await store.resume(prompt, model);
-    // Keep the text on failure so the user can retry rather than retype.
+    // Keep the text on failure either way, so the user can retry rather
+    // than retype.
+    const sent = drafting
+      ? await store.spawn(prompt, model)
+      : await store.resume(prompt, model);
     if (sent) prompt = "";
   }
 
   function onKeydown(e: KeyboardEvent) {
+    // Esc on an untouched blank page walks back out of it.
+    if (e.key === "Escape" && drafting && !prompt.trim() && !busy) {
+      e.preventDefault();
+      store.cancelDraft();
+      return;
+    }
     if (e.key !== "Enter" || e.shiftKey || e.altKey) return;
     e.preventDefault();
     send();
   }
 </script>
 
-{#if agent}
+{#if agent || drafting}
   <div class="composer" class:busy>
-    {#if store.canContinue || working}
+    {#if drafting || store.canContinue || working}
       <textarea
         bind:this={textarea}
         bind:value={prompt}
         onkeydown={onKeydown}
         rows="1"
         disabled={busy}
-        placeholder={working
-          ? "Working… stop it to change course"
-          : "Reply to this agent…"}
+        placeholder={drafting
+          ? "What should the agent do?"
+          : working
+            ? "Working… stop it to change course"
+            : "Reply to this agent…"}
       ></textarea>
       <div class="side">
         <div class="controls">
@@ -68,26 +92,36 @@
             bind:value={model}
             disabled={busy}
             compact
-            label="Model for the next turn"
+            label={drafting ? "Model for the new agent" : "Model for the next turn"}
           />
           <button
             class="send"
             onclick={send}
             disabled={busy || !prompt.trim()}
-            title={working ? "Wait for the agent to finish" : "Send (Enter)"}
+            title={drafting
+              ? "Spawn this agent (Enter)"
+              : working
+                ? "Wait for the agent to finish"
+                : "Send (Enter)"}
           >
-            {store.sending ? "Sending…" : "Send"}
+            {#if drafting}
+              {store.spawning ? "Spawning…" : "Spawn"}
+            {:else}
+              {store.sending ? "Sending…" : "Send"}
+            {/if}
           </button>
         </div>
         <span class="hint">
-          {#if working}
-            turn {agent.turns}
+          {#if drafting}
+            Enter to spawn · Esc to cancel
+          {:else if working}
+            turn {agent?.turns}
           {:else}
             Enter to send · Shift-Enter for a new line
           {/if}
         </span>
       </div>
-    {:else}
+    {:else if agent}
       <p class="closed">
         This conversation can't be continued
         {#if !agent.session_id}
