@@ -69,31 +69,136 @@
     | { kind: "tool_use"; name: string; input: unknown; id: string }
     | { kind: "tool_result"; tool_use_id: string; content: unknown }
     | { kind: "thinking"; text: string }
-    | { kind: "result"; result: string; is_error: boolean }
+    | {
+        kind: "result";
+        result: string;
+        is_error: boolean;
+        duration_ms?: number;
+        output_tokens?: number;
+      }
     | { kind: "raw"; type?: string };
 
+  /**
+   * Pure telemetry that `claude` emits every turn (sometimes several times)
+   * but carries nothing a user reading the transcript can act on. Dropped
+   * rather than rendered, so the stream doesn't read as the same line
+   * repeated.
+   */
+  const SILENT_EVENT_TYPES = new Set(["rate_limit_event"]);
+  const SILENT_SYSTEM_SUBTYPES = new Set(["thinking_tokens"]);
+
   function classify(ev: AgentEvent): Kind[] {
-    const e = ev.event as { type?: string; message?: any; subtype?: string; result?: string; is_error?: boolean; prompt?: string } | null;
+    const e = ev.event as {
+      type?: string;
+      message?: any;
+      subtype?: string;
+      result?: string;
+      is_error?: boolean;
+      prompt?: string;
+      duration_ms?: number;
+      usage?: { output_tokens?: number };
+    } | null;
     if (!e || typeof e !== "object") return [{ kind: "raw" }];
+    if (SILENT_EVENT_TYPES.has(e.type ?? "")) return [];
     // Our own event, not claude's: the prompt the user sent for this turn.
     if (e.type === "cw_prompt") return [{ kind: "prompt", text: e.prompt ?? "" }];
-    if (e.type === "system") return [{ kind: "system", subtype: e.subtype ?? "?" }];
+    if (e.type === "system") {
+      if (SILENT_SYSTEM_SUBTYPES.has(e.subtype ?? "")) return [];
+      return [{ kind: "system", subtype: e.subtype ?? "?" }];
+    }
     if (e.type === "result")
-      return [{ kind: "result", result: e.result ?? "", is_error: !!e.is_error }];
+      return [
+        {
+          kind: "result",
+          result: e.result ?? "",
+          is_error: !!e.is_error,
+          duration_ms: e.duration_ms,
+          output_tokens: e.usage?.output_tokens,
+        },
+      ];
     if ((e.type === "assistant" || e.type === "user") && e.message?.content) {
       const blocks = Array.isArray(e.message.content) ? e.message.content : [];
-      return blocks.map((b: any): Kind => {
-        if (b.type === "text") return { kind: "text", text: b.text ?? "" };
-        if (b.type === "tool_use")
-          return { kind: "tool_use", name: b.name ?? "?", input: b.input, id: b.id ?? "" };
-        if (b.type === "tool_result")
-          return { kind: "tool_result", tool_use_id: b.tool_use_id ?? "", content: b.content };
-        if (b.type === "thinking") return { kind: "thinking", text: b.thinking ?? "" };
-        return { kind: "raw", type: b.type };
-      });
+      return blocks
+        .map((b: any): Kind => {
+          if (b.type === "text") return { kind: "text", text: b.text ?? "" };
+          if (b.type === "tool_use")
+            return { kind: "tool_use", name: b.name ?? "?", input: b.input, id: b.id ?? "" };
+          if (b.type === "tool_result")
+            return { kind: "tool_result", tool_use_id: b.tool_use_id ?? "", content: b.content };
+          if (b.type === "thinking") return { kind: "thinking", text: b.thinking ?? "" };
+          return { kind: "raw", type: b.type };
+        })
+        // Redacted/interleaved thinking often carries a signature but no
+        // visible text — an empty "thinking" card tells the user nothing.
+        .filter((k: Kind) => !(k.kind === "thinking" && !k.text.trim()));
     }
     return [{ kind: "raw", type: e.type }];
   }
+
+  /** "1h 2m", "3m 4s", or "12s" — for a duration that's already over. */
+  function formatDuration(ms: number): string {
+    const total = Math.max(0, Math.round(ms / 1000));
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    if (h > 0) return `${h}h ${m}m`;
+    if (m > 0) return `${m}m ${s}s`;
+    return `${s}s`;
+  }
+
+  function formatTokens(n: number): string {
+    return n >= 1000 ? `${(n / 1000).toFixed(1).replace(/\.0$/, "")}k` : `${n}`;
+  }
+
+  // Ticks once a second while the selected agent is running, so the elapsed
+  // timer in the header advances without waiting for the next stream event.
+  let now = $state(Date.now());
+  $effect(() => {
+    if (store.selectedAgent?.state !== "running") return;
+    const id = setInterval(() => (now = Date.now()), 1000);
+    return () => clearInterval(id);
+  });
+
+  /**
+   * When the running turn began: the timestamp of the latest prompt the user
+   * sent, falling back to when the agent was first spawned. Either way it's
+   * an event already on the log, so no extra field is needed on the Agent.
+   */
+  const turnStartedAt = $derived.by(() => {
+    const events = store.eventsForSelected;
+    for (let i = events.length - 1; i >= 0; i--) {
+      if ((events[i].event as any)?.type === "cw_prompt") return Date.parse(events[i].ts);
+    }
+    return store.selectedAgent ? Date.parse(store.selectedAgent.spawned_at) : null;
+  });
+
+  const liveElapsedMs = $derived(
+    turnStartedAt != null ? Math.max(0, now - turnStartedAt) : 0,
+  );
+
+  /**
+   * Tokens generated so far in the running turn: `claude` reports usage per
+   * API call rather than as incremental deltas, so this sums each call's
+   * output as it arrives — an estimate that climbs as the turn progresses,
+   * not the exact total the final `result` event reports.
+   */
+  const liveOutputTokens = $derived.by(() => {
+    const events = store.eventsForSelected;
+    let sinceIdx = -1;
+    for (let i = events.length - 1; i >= 0; i--) {
+      if ((events[i].event as any)?.type === "cw_prompt") {
+        sinceIdx = i;
+        break;
+      }
+    }
+    let total = 0;
+    for (let i = sinceIdx + 1; i < events.length; i++) {
+      const e = events[i].event as any;
+      const ot = e?.type === "assistant" ? e.message?.usage?.output_tokens : undefined;
+      if (typeof ot === "number") total += ot;
+    }
+    return total;
+  });
 
   function shortenInput(input: unknown): string {
     const s = typeof input === "string" ? input : JSON.stringify(input);
@@ -125,6 +230,14 @@
           <span class={`state state-${store.selectedAgent.state}`}>
             {store.selectedAgent.state}
           </span>
+          {#if store.selectedAgent.state === "running"}
+            <span class="live-stat" title="Time since this turn started">
+              {formatDuration(liveElapsedMs)}
+            </span>
+            <span class="live-stat" title="Tokens generated so far this turn (estimate)">
+              ~{formatTokens(liveOutputTokens)} tok
+            </span>
+          {/if}
           <code>{store.selectedAgent.id}</code>
           {#if store.selectedAgent.branch}
             <code>{store.selectedAgent.branch}</code>
@@ -235,7 +348,16 @@
               <div class="block system">session: {k.subtype}</div>
             {:else if k.kind === "result"}
               <div class="block done" class:err={k.is_error}>
-                {k.is_error ? "✗ error" : "✓ done"} — {k.result}
+                {k.is_error ? "✗ error" : "✓ done"}
+                {#if k.duration_ms != null}
+                  — {formatDuration(k.duration_ms)}
+                {/if}
+                {#if k.output_tokens != null}
+                  · {formatTokens(k.output_tokens)} tok
+                {/if}
+                {#if k.is_error && k.result}
+                  — {k.result}
+                {/if}
               </div>
             {:else}
               <details class="block raw-detail">
@@ -326,6 +448,11 @@
     border: 1px solid var(--border);
     border-radius: 999px;
     padding: 0.05em 0.5em;
+  }
+
+  .live-stat {
+    font-variant-numeric: tabular-nums;
+    color: var(--fg-muted);
   }
 
   .meta code {
