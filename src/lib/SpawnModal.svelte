@@ -1,12 +1,13 @@
 <script lang="ts">
   import { store } from "./store.svelte";
-  import { MODEL_CHOICES } from "./api";
+  import { DEFAULT_MODEL } from "./api";
+  import ModelPicker from "./ModelPicker.svelte";
 
   let { onClose }: { onClose: () => void } = $props();
 
   let prompt = $state("");
   // Opens on the user's last pick — most people spawn on the same model daily.
-  let model = $state<string | null>(store.preferredModel);
+  let model = $state(store.preferredModel ?? DEFAULT_MODEL);
   let submitting = $state(false);
   let textarea: HTMLTextAreaElement | undefined = $state();
 
@@ -18,7 +19,7 @@
     e.preventDefault();
     if (!prompt.trim() || submitting) return;
     submitting = true;
-    await store.spawn(prompt, model);
+    await store.spawn(prompt, model || null);
     submitting = false;
     onClose();
   }
@@ -72,22 +73,17 @@
       disabled={submitting}
     ></textarea>
 
-    <fieldset class="models" disabled={submitting}>
-      <legend>Model</legend>
-      {#each MODEL_CHOICES as choice (choice.label)}
-        <label class="model" class:picked={model === choice.value}>
-          <input
-            type="radio"
-            name="model"
-            value={choice.value ?? ""}
-            checked={model === choice.value}
-            onchange={() => (model = choice.value)}
-          />
-          <span class="name">{choice.label}</span>
-          <span class="blurb">{choice.blurb}</span>
-        </label>
-      {/each}
-    </fieldset>
+    <div class="model-row">
+      <span class="label">Model</span>
+      <ModelPicker bind:value={model} disabled={submitting} />
+      {#if store.modelsLoading}
+        <span class="note">loading models…</span>
+      {:else if store.modelsError}
+        <span class="note" title={store.modelsError}>
+          couldn't load your models — Default still works
+        </span>
+      {/if}
+    </div>
 
     <footer>
       <span class="hint">⌘/Ctrl-Enter to spawn · Esc to cancel</span>
@@ -185,77 +181,23 @@
     box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
   }
 
-  .models {
-    border: none;
-    margin: 0;
-    padding: 0;
+  .model-row {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.4rem;
+    align-items: center;
+    gap: 0.4rem 0.6rem;
     min-width: 0;
   }
 
-  .models legend {
-    /* The choices label themselves; the legend is for screen readers. */
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
+  .model-row .label {
+    font-size: 0.8rem;
+    color: var(--fg-muted);
   }
 
-  .model {
-    flex: 1 1 8rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.1rem;
-    padding: 0.45rem 0.6rem;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    background: var(--panel-bg);
-    cursor: pointer;
-    min-width: 0;
-  }
-
-  .model:hover {
-    border-color: var(--accent);
-  }
-
-  .model.picked {
-    border-color: var(--accent);
-    box-shadow: inset 0 0 0 1px var(--accent);
-  }
-
-  /* The card is the control; the radio only carries the semantics. It stays in
-     the flow (zero-sized) so arrow-key focus lands here, not at the corner of
-     the screen, and the card shows the ring on its behalf. */
-  .model input {
-    appearance: none;
-    width: 0;
-    height: 0;
-    margin: 0;
-    outline: none;
-  }
-
-  .model:has(input:focus-visible) {
-    border-color: var(--accent);
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
-  }
-
-  .model .name {
-    font-size: 0.85rem;
-    font-weight: 500;
-  }
-
-  .model .blurb {
-    font-size: 0.7rem;
+  .note {
+    font-size: 0.73rem;
     color: var(--fg-muted);
     overflow-wrap: anywhere;
-  }
-
-  .models:disabled .model {
-    opacity: 0.5;
-    cursor: default;
   }
 
   footer {

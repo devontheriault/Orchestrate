@@ -2,7 +2,7 @@
   import { store } from "./store.svelte";
   import AgentDiff from "./AgentDiff.svelte";
   import AgentComposer from "./AgentComposer.svelte";
-  import { modelLabel, type AgentEvent } from "./api";
+  import type { AgentEvent } from "./api";
 
   /** Present only when the agent list is off-screen, on a narrow window. */
   let { onBack }: { onBack?: () => void } = $props();
@@ -131,7 +131,7 @@
           {/if}
           {#if store.selectedAgent.model}
             <span class="model" title="Model this agent runs on">
-              {modelLabel(store.selectedAgent.model)}
+              {store.modelName(store.selectedAgent.model)}
             </span>
           {/if}
         </div>

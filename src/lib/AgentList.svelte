@@ -1,6 +1,6 @@
 <script lang="ts">
   import { store } from "./store.svelte";
-  import { modelLabel, type Agent } from "./api";
+  import type { Agent } from "./api";
 
   let {
     onSpawn,
@@ -83,7 +83,7 @@
               <div class="meta">
                 <code>{a.id}</code>
                 {#if a.model}
-                  <span class="model">{modelLabel(a.model)}</span>
+                  <span class="model">{store.modelName(a.model)}</span>
                 {/if}
                 <span class="time">{relTime(a.spawned_at)}</span>
               </div>

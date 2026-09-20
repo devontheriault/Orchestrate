@@ -39,6 +39,12 @@ pub enum Error {
 
     #[error("commit message is empty")]
     EmptyCommitMessage,
+
+    #[error("not signed in to Claude — run `claude` once, or set ANTHROPIC_API_KEY")]
+    NoCredential,
+
+    #[error("could not ask Anthropic which models are available: {0}")]
+    Models(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

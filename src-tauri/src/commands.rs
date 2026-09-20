@@ -8,6 +8,7 @@ use tauri::State;
 use time::OffsetDateTime;
 
 use crate::model::{new_id, Agent, AgentEvent, AgentState, Project};
+use crate::models::ModelInfo;
 use crate::runtime::AgentRuntime;
 use crate::git::{self, Commit, WorktreeDiff};
 use crate::{paths, storage, worktree};
@@ -153,6 +154,14 @@ pub async fn agent_commit(agent_id: String, message: String) -> Result<Commit, S
         return Err("cannot commit while the agent is running; stop it first".into());
     }
     git::commit(&agent.worktree_path, &message).await.map_err(err)
+}
+
+/// The models this user's account can run, newest first, for the model picker.
+/// Asked of Anthropic rather than hardcoded, so the list matches the account
+/// and picks up models released after this build.
+#[tauri::command]
+pub async fn list_models() -> Result<Vec<ModelInfo>, String> {
+    crate::models::list().await.map_err(err)
 }
 
 #[tauri::command]

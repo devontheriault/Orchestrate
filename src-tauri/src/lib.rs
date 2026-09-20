@@ -2,6 +2,7 @@ pub mod commands;
 pub mod error;
 pub mod git;
 pub mod model;
+pub mod models;
 pub mod paths;
 pub mod runtime;
 pub mod storage;
@@ -79,6 +80,7 @@ pub fn run() {
             commands::agent_diff,
             commands::agent_commit,
             commands::startup_orphans,
+            commands::list_models,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

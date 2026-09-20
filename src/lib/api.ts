@@ -40,30 +40,24 @@ export type Agent = {
 };
 
 /**
- * What the model picker offers. The values are `claude --model` aliases rather
- * than pinned model names, so a picked agent follows Claude Code to the latest
- * model in that family instead of freezing on today's.
+ * One model this user's account can run, as Anthropic's Models API reports it.
+ * The picker is filled from that call rather than a list baked into the app, so
+ * it shows the user's real models — versions included — and picks up new ones
+ * without a release here.
  */
-export type ModelChoice = {
-  /** What `--model` gets. Null passes no flag: Claude Code's own default. */
-  value: string | null;
-  label: string;
-  /** Why a user would reach for it. Shown next to the label. */
-  blurb: string;
+export type ModelInfo = {
+  /** The full model name, e.g. "claude-opus-4-5-20251101". What `--model` takes. */
+  id: string;
+  /** Anthropic's own name, e.g. "Claude Opus 4.5". */
+  display_name: string;
 };
 
-export const MODEL_CHOICES: ModelChoice[] = [
-  { value: null, label: "Default", blurb: "whatever Claude Code is set to" },
-  { value: "opus", label: "Opus", blurb: "most capable — hard, long tasks" },
-  { value: "sonnet", label: "Sonnet", blurb: "balanced — most everyday work" },
-  { value: "haiku", label: "Haiku", blurb: "fastest and cheapest" },
-];
-
-/** The picker label for a recorded model, falling back to the raw value. */
-export function modelLabel(model: string | null | undefined): string {
-  if (!model) return "Default";
-  return MODEL_CHOICES.find((c) => c.value === model)?.label ?? model;
-}
+/**
+ * The picker's value for "no model named", which passes no `--model` and lets
+ * Claude Code use whatever it is configured for. Always available, so the
+ * picker still works when the models call fails.
+ */
+export const DEFAULT_MODEL = "";
 
 export type ChangedFile = {
   path: string;
@@ -118,6 +112,8 @@ export const api = {
   agentDiff: (agentId: string) => invoke<WorktreeDiff>("agent_diff", { agentId }),
   agentCommit: (agentId: string, message: string) =>
     invoke<Commit>("agent_commit", { agentId, message }),
+
+  listModels: () => invoke<ModelInfo[]>("list_models"),
 
   startupOrphans: () => invoke<Agent[]>("startup_orphans"),
 };

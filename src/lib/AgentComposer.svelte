@@ -1,15 +1,16 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import { store } from "./store.svelte";
-  import { MODEL_CHOICES } from "./api";
+  import { DEFAULT_MODEL } from "./api";
+  import ModelPicker from "./ModelPicker.svelte";
 
   const agent = $derived(store.selectedAgent);
   const working = $derived(agent?.state === "running");
   const busy = $derived(working || store.sending);
 
   let prompt = $state("");
-  /** The picker's value; "" is the Default choice, which passes no --model. */
-  let model = $state("");
+  /** The picker's value; DEFAULT_MODEL passes no --model. */
+  let model = $state(DEFAULT_MODEL);
   let textarea: HTMLTextAreaElement | undefined = $state();
 
   // Grow with the text, up to a ceiling — a long follow-up shouldn't need
@@ -31,7 +32,7 @@
   $effect(() => {
     store.selectedAgentId;
     prompt = "";
-    model = untrack(() => store.selectedAgent?.model ?? "");
+    model = untrack(() => store.selectedAgent?.model ?? DEFAULT_MODEL);
   });
 
   async function send() {
@@ -63,17 +64,12 @@
       ></textarea>
       <div class="side">
         <div class="controls">
-          <select
-            class="model"
+          <ModelPicker
             bind:value={model}
             disabled={busy}
-            aria-label="Model for the next turn"
-            title="Model this agent's next turn runs on"
-          >
-            {#each MODEL_CHOICES as choice (choice.label)}
-              <option value={choice.value ?? ""}>{choice.label}</option>
-            {/each}
-          </select>
+            compact
+            label="Model for the next turn"
+          />
           <button
             class="send"
             onclick={send}
@@ -154,27 +150,6 @@
     display: flex;
     align-items: center;
     gap: 0.35rem;
-  }
-
-  .model {
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    background: var(--panel-bg);
-    color: var(--fg);
-    font-family: inherit;
-    font-size: 0.78rem;
-    padding: 0.35rem 0.3rem;
-    max-width: 7rem;
-    cursor: pointer;
-  }
-
-  .model:hover:not(:disabled) {
-    border-color: var(--accent);
-  }
-
-  .model:disabled {
-    opacity: 0.55;
-    cursor: not-allowed;
   }
 
   .send {

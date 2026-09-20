@@ -3,6 +3,7 @@ import {
   events,
   type Agent,
   type AgentEvent,
+  type ModelInfo,
   type Project,
   type WorktreeDiff,
 } from "./api";
@@ -97,6 +98,16 @@ class AppStore {
   /** What the spawn modal's model picker opens on. Null = Claude Code's default. */
   preferredModel = $state<string | null>(readPreferredModel());
 
+  /** The models this account can run, newest first. Empty until loaded. */
+  models = $state<ModelInfo[]>([]);
+  modelsLoading = $state<boolean>(false);
+  /**
+   * Why the model list couldn't be loaded, if it couldn't. Kept out of the
+   * global error banner: the pickers stay usable on their Default option, so
+   * this is a note beside them rather than something to interrupt over.
+   */
+  modelsError = $state<string | null>(null);
+
   orphanBannerDismissed = $state<boolean>(false);
   error = $state<string | null>(null);
 
@@ -177,7 +188,34 @@ class AppStore {
       }),
     );
 
+    // Not awaited: the model list only fills a picker, and blocking the first
+    // paint on a network round-trip would be a poor trade.
+    this.loadModels();
     await this.refresh();
+  }
+
+  /** Ask the backend which models this account can run. */
+  async loadModels() {
+    this.modelsLoading = true;
+    this.modelsError = null;
+    try {
+      this.models = await api.listModels();
+    } catch (e) {
+      this.models = [];
+      this.modelsError = String(e);
+    } finally {
+      this.modelsLoading = false;
+    }
+  }
+
+  /**
+   * Anthropic's name for a model id. Falls back to the id itself, which is what
+   * an agent picked before the model left the account shows — better than
+   * pretending it ran on something else.
+   */
+  modelName(id: string | null | undefined): string {
+    if (!id) return "Default";
+    return this.models.find((m) => m.id === id)?.display_name ?? id;
   }
 
   async stop() {

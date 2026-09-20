@@ -29,7 +29,7 @@ The commit an Agent's branch was cut from at Spawn, recorded on the Agent. Every
 _Avoid_: Parent, Fork point, Origin.
 
 **Model**:
-Which Claude model an Agent's Turns run on, recorded on the Agent and passed to `claude --model`. Stored as an alias (`opus`, `sonnet`, `haiku`) rather than a pinned model name, so an Agent follows Claude Code to the latest model in that family. Picked by the user at Spawn and changeable at Resume — starting cheap and escalating is a normal move, so the Model belongs to the Turn as much as to the Agent. Unset means we pass no `--model` at all and Claude Code's own configured default applies; we never guess one on the user's behalf.
+Which Claude model an Agent's Turns run on, recorded on the Agent and passed to `claude --model` as a full model name (`claude-opus-4-5-20251101`), version included, so an Agent keeps running on the model the user actually picked. The choices come from Anthropic's Models API, asked with the same credential `claude` itself uses — the list is the user's own account, not one baked into this app, so it covers models released after any given build and never offers one the Agent couldn't run. Picked at Spawn and changeable at Resume: starting cheap and escalating is a normal move, so the Model belongs to the Turn as much as to the Agent. Unset means we pass no `--model` at all and Claude Code's own configured default applies; that is also the fallback when the account can't be reached, so the picker always has a working choice.
 _Avoid_: Engine, Backend, Tier.
 
 **Session**:
