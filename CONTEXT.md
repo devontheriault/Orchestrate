@@ -20,6 +20,10 @@ _Avoid_: Workspace, Repo (in UI), Directory.
 An isolated Git worktree created for one Agent, living under a global scratch directory outside the Project. The Worktree is the Agent's sandbox; it is reaped when the Agent stops.
 _Avoid_: Checkout, Clone, Branch dir.
 
+**Base**:
+The commit an Agent's branch was cut from at Spawn, recorded on the Agent. Everything the Agent produced is expressed as a diff against its Base, so committed and uncommitted work read as one change set even if the Project's own branch moves on afterwards.
+_Avoid_: Parent, Fork point, Origin.
+
 **Session**:
 Reserved. Not a V1 concept. When resumable Claude Code conversations (via `claude --resume`) become a feature, "Session" will name that concept. Do not use it as a synonym for Agent.
 
@@ -42,8 +46,12 @@ _Avoid_: Finish, End, Done (as verbs).
 The Agent's unnatural exit — the `claude` process exits non-zero, is killed by the OS, or otherwise crashes. Distinct from Complete (natural exit) and Stop (user-initiated). Like Complete, the Worktree is preserved for post-mortem inspection; the user must explicitly Reap when done. The last JSONL events and exit code are recorded.
 _Avoid_: Crash, Error (as state names).
 
+**Commit**:
+A user action on a Completed, Failed, Stopped, or Orphaned Agent: stage everything in its Worktree and commit it onto the Agent's own branch. This is how work survives a later Reap — the commit stays reachable in the Project's object store. Refused while the Agent is *running*, since it would capture a tree the Agent is still writing. The app never commits on its own; whether an Agent commits its own work is up to Claude Code.
+_Avoid_: Save, Merge (Commit does not touch the Project's branch), Checkpoint.
+
 **Reap**:
-Destroys an Agent's Worktree and removes it from the app's active list. Reap is automatic on Stop; on Complete or Fail it is an explicit user action after review. After Reap, the Agent's on-disk log file (JSONL) is still preserved.
+Destroys an Agent's Worktree and removes it from the app's active list. Reap is automatic on Stop; on Complete or Fail it is an explicit user action after review. Reap deletes the Agent's branch along with its Worktree, so it discards Commits the Agent made as well as uncommitted work. After Reap, the Agent's on-disk log file (JSONL) is still preserved.
 _Avoid_: Cleanup, Delete, Remove.
 
 **Orphan**:

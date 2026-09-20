@@ -26,10 +26,36 @@ export type Agent = {
   state: AgentState;
   worktree_path: string;
   branch: string;
+  base_commit?: string | null;
   spawned_at: string;
   exited_at?: string | null;
   exit_code?: number | null;
   fail_reason?: string | null;
+};
+
+export type ChangedFile = {
+  path: string;
+  /** Git status vs the base: A, M, D, T, … */
+  status: string;
+  /** null for binary files. */
+  insertions: number | null;
+  deletions: number | null;
+};
+
+export type Commit = {
+  sha: string;
+  subject: string;
+};
+
+export type WorktreeDiff = {
+  base: string;
+  files: ChangedFile[];
+  /** Commits on the agent's branch, oldest first. */
+  commits: Commit[];
+  patch: string;
+  truncated: boolean;
+  /** There is work not yet in a commit — a reap now would destroy it. */
+  uncommitted: boolean;
 };
 
 export type AgentEvent = {
@@ -53,6 +79,9 @@ export const api = {
     invoke<Agent>("spawn_agent", { projectId, prompt }),
   stopAgent: (agentId: string) => invoke<void>("stop_agent", { agentId }),
   reapAgent: (agentId: string) => invoke<void>("reap_agent", { agentId }),
+  agentDiff: (agentId: string) => invoke<WorktreeDiff>("agent_diff", { agentId }),
+  agentCommit: (agentId: string, message: string) =>
+    invoke<Commit>("agent_commit", { agentId, message }),
 
   startupOrphans: () => invoke<Agent[]>("startup_orphans"),
 };

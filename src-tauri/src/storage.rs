@@ -129,6 +129,7 @@ mod tests {
             task: Task { prompt: "test".into() },
             state: AgentState::Running,
             worktree_path: "/tmp/wt".into(),
+            base_commit: None,
             branch: "cw/agent-test".into(),
             spawned_at: OffsetDateTime::now_utc(),
             exited_at: None,

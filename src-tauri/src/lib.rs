@@ -1,5 +1,6 @@
 pub mod commands;
 pub mod error;
+pub mod git;
 pub mod model;
 pub mod paths;
 pub mod runtime;
@@ -73,6 +74,8 @@ pub fn run() {
             commands::spawn_agent,
             commands::stop_agent,
             commands::reap_agent,
+            commands::agent_diff,
+            commands::agent_commit,
             commands::startup_orphans,
         ])
         .run(tauri::generate_context!())

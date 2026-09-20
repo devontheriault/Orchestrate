@@ -1,4 +1,11 @@
-import { api, events, type Agent, type AgentEvent, type Project } from "./api";
+import {
+  api,
+  events,
+  type Agent,
+  type AgentEvent,
+  type Project,
+  type WorktreeDiff,
+} from "./api";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 
 class AppStore {
@@ -9,6 +16,15 @@ class AppStore {
 
   selectedProjectId = $state<string | null>(null);
   selectedAgentId = $state<string | null>(null);
+
+  /** Which body the detail pane shows for the selected agent. */
+  detailTab = $state<"output" | "diff">("output");
+
+  /** Diff of the selected agent's worktree. Cleared when the selection moves. */
+  diff = $state<WorktreeDiff | null>(null);
+  diffLoading = $state<boolean>(false);
+  diffError = $state<string | null>(null);
+  committing = $state<boolean>(false);
 
   orphanBannerDismissed = $state<boolean>(false);
   error = $state<string | null>(null);
@@ -48,6 +64,10 @@ class AppStore {
         const i = this.agents.findIndex((a) => a.id === agent.id);
         if (i >= 0) this.agents[i] = agent;
         else this.agents.push(agent);
+        // An agent that just exited has a final diff worth showing.
+        if (agent.id === this.selectedAgentId && this.detailTab === "diff") {
+          this.loadDiff();
+        }
       }),
     );
 
@@ -100,11 +120,65 @@ class AppStore {
 
   selectProject(id: string) {
     this.selectedProjectId = id;
-    this.selectedAgentId = null;
+    this.selectAgent(null);
   }
 
   selectAgent(id: string | null) {
+    if (id === this.selectedAgentId) return;
     this.selectedAgentId = id;
+    this.clearDiff();
+  }
+
+  showTab(tab: "output" | "diff") {
+    this.detailTab = tab;
+    // Always re-read on entry: the worktree may have moved since last time.
+    if (tab === "diff" && !this.diffLoading) this.loadDiff();
+  }
+
+  private clearDiff() {
+    this.diff = null;
+    this.diffError = null;
+    this.diffLoading = false;
+  }
+
+  /**
+   * Load the selected agent's diff. Guards against a slow response landing
+   * after the user has moved to a different agent.
+   */
+  async loadDiff() {
+    const id = this.selectedAgentId;
+    if (!id) return;
+    this.diffLoading = true;
+    this.diffError = null;
+    try {
+      const diff = await api.agentDiff(id);
+      if (this.selectedAgentId !== id) return;
+      this.diff = diff;
+    } catch (e) {
+      if (this.selectedAgentId !== id) return;
+      this.diffError = String(e);
+      this.diff = null;
+    } finally {
+      if (this.selectedAgentId === id) this.diffLoading = false;
+    }
+  }
+
+  /** Commit everything in the selected agent's worktree, then refresh the diff. */
+  async commit(message: string) {
+    const id = this.selectedAgentId;
+    if (!id) return false;
+    this.committing = true;
+    this.diffError = null;
+    try {
+      await api.agentCommit(id, message);
+      if (this.selectedAgentId === id) await this.loadDiff();
+      return true;
+    } catch (e) {
+      if (this.selectedAgentId === id) this.diffError = String(e);
+      return false;
+    } finally {
+      if (this.selectedAgentId === id) this.committing = false;
+    }
   }
 
   jumpToFirstOrphan() {
@@ -113,7 +187,7 @@ class AppStore {
     if (this.projects.some((p) => p.id === first.project_id)) {
       this.selectedProjectId = first.project_id;
     }
-    this.selectedAgentId = first.id;
+    this.selectAgent(first.id);
     this.orphanBannerDismissed = true;
   }
 
@@ -122,7 +196,7 @@ class AppStore {
     try {
       const agent = await api.spawnAgent(this.selectedProjectId, prompt);
       this.agents.push(agent);
-      this.selectedAgentId = agent.id;
+      this.selectAgent(agent.id);
     } catch (e) {
       this.error = String(e);
     }
@@ -141,7 +215,10 @@ class AppStore {
       await api.reapAgent(id);
       this.agents = this.agents.filter((a) => a.id !== id);
       delete this.eventsByAgent[id];
-      if (this.selectedAgentId === id) this.selectedAgentId = null;
+      if (this.selectedAgentId === id) {
+        this.selectedAgentId = null;
+        this.clearDiff();
+      }
     } catch (e) {
       this.error = String(e);
     }

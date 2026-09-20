@@ -49,6 +49,10 @@ pub struct Agent {
     pub state: AgentState,
     pub worktree_path: PathBuf,
     pub branch: String,
+    /// The commit the branch was cut from at Spawn. `None` for Agents recorded
+    /// before base tracking existed; the diff falls back to a merge-base then.
+    #[serde(default)]
+    pub base_commit: Option<String>,
     #[serde(with = "time::serde::rfc3339")]
     pub spawned_at: OffsetDateTime,
     #[serde(default, with = "time::serde::rfc3339::option")]
@@ -109,6 +113,7 @@ mod tests {
                 state,
                 worktree_path: "/tmp/wt".into(),
                 branch: "cw/agent-a3f9c1de".into(),
+                base_commit: Some("deadbeef".into()),
                 spawned_at: datetime!(2026-09-20 14:00:00 UTC),
                 exited_at: Some(datetime!(2026-09-20 14:05:00 UTC)),
                 exit_code: Some(0),

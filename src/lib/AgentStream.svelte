@@ -1,5 +1,6 @@
 <script lang="ts">
   import { store } from "./store.svelte";
+  import AgentDiff from "./AgentDiff.svelte";
   import type { AgentEvent } from "./api";
 
   let showRaw = $state(false);
@@ -91,9 +92,30 @@
         </div>
       </div>
       <div class="head-right">
-        <label class="raw-toggle">
-          <input type="checkbox" bind:checked={showRaw} /> raw
-        </label>
+        <div class="tabs" role="tablist">
+          <button
+            role="tab"
+            aria-selected={store.detailTab === "output"}
+            class:active={store.detailTab === "output"}
+            onclick={() => store.showTab("output")}>Output</button
+          >
+          <button
+            role="tab"
+            aria-selected={store.detailTab === "diff"}
+            class:active={store.detailTab === "diff"}
+            onclick={() => store.showTab("diff")}
+          >
+            Diff
+            {#if store.diff?.uncommitted}
+              <span class="dirty-dot" title="uncommitted work"></span>
+            {/if}
+          </button>
+        </div>
+        {#if store.detailTab === "output"}
+          <label class="raw-toggle">
+            <input type="checkbox" bind:checked={showRaw} /> raw
+          </label>
+        {/if}
         {#if store.selectedAgent.state === "running"}
           <button
             class="stop"
@@ -113,62 +135,66 @@
     {/if}
   </header>
 
-  <div class="stream" bind:this={streamEl}>
-    {#if store.selectedAgent?.state === "failed" && store.selectedAgent.fail_reason}
-      <div class="fail-banner">
-        <span class="label">Failed</span>
-        <span class="reason">{store.selectedAgent.fail_reason}</span>
-      </div>
-    {/if}
+  {#if store.selectedAgent && store.detailTab === "diff"}
+    <AgentDiff />
+  {:else}
+    <div class="stream" bind:this={streamEl}>
+      {#if store.selectedAgent?.state === "failed" && store.selectedAgent.fail_reason}
+        <div class="fail-banner">
+          <span class="label">Failed</span>
+          <span class="reason">{store.selectedAgent.fail_reason}</span>
+        </div>
+      {/if}
 
-    {#if !store.selectedAgent}
-      <div class="hint">Select an agent to see its output.</div>
-    {:else if store.eventsForSelected.length === 0}
-      <div class="hint">
-        {store.selectedAgent.state === "running"
-          ? "Waiting for output…"
-          : "No events on record."}
-      </div>
-    {:else if showRaw}
-      {#each store.eventsForSelected as ev, i (i)}
-        <pre class="raw">{JSON.stringify(ev.event, null, 2)}</pre>
-      {/each}
-    {:else}
-      {#each store.eventsForSelected as ev, i (i)}
-        {#each classify(ev) as k}
-          {#if k.kind === "text"}
-            <div class="block text">{k.text}</div>
-          {:else if k.kind === "tool_use"}
-            <details class="block tool">
-              <summary>→ {k.name} <span class="mono">{shortenInput(k.input)}</span></summary>
-              <pre>{JSON.stringify(k.input, null, 2)}</pre>
-            </details>
-          {:else if k.kind === "tool_result"}
-            <details class="block result">
-              <summary>← result</summary>
-              <pre>{toolResultText(k.content)}</pre>
-            </details>
-          {:else if k.kind === "thinking"}
-            <details class="block thinking">
-              <summary>thinking</summary>
-              <pre>{k.text}</pre>
-            </details>
-          {:else if k.kind === "system"}
-            <div class="block system">session: {k.subtype}</div>
-          {:else if k.kind === "result"}
-            <div class="block done" class:err={k.is_error}>
-              {k.is_error ? "✗ error" : "✓ done"} — {k.result}
-            </div>
-          {:else}
-            <details class="block raw-detail">
-              <summary>event: {k.type ?? "unknown"}</summary>
-              <pre>{JSON.stringify(ev.event, null, 2)}</pre>
-            </details>
-          {/if}
+      {#if !store.selectedAgent}
+        <div class="hint">Select an agent to see its output.</div>
+      {:else if store.eventsForSelected.length === 0}
+        <div class="hint">
+          {store.selectedAgent.state === "running"
+            ? "Waiting for output…"
+            : "No events on record."}
+        </div>
+      {:else if showRaw}
+        {#each store.eventsForSelected as ev, i (i)}
+          <pre class="raw">{JSON.stringify(ev.event, null, 2)}</pre>
         {/each}
-      {/each}
-    {/if}
-  </div>
+      {:else}
+        {#each store.eventsForSelected as ev, i (i)}
+          {#each classify(ev) as k}
+            {#if k.kind === "text"}
+              <div class="block text">{k.text}</div>
+            {:else if k.kind === "tool_use"}
+              <details class="block tool">
+                <summary>→ {k.name} <span class="mono">{shortenInput(k.input)}</span></summary>
+                <pre>{JSON.stringify(k.input, null, 2)}</pre>
+              </details>
+            {:else if k.kind === "tool_result"}
+              <details class="block result">
+                <summary>← result</summary>
+                <pre>{toolResultText(k.content)}</pre>
+              </details>
+            {:else if k.kind === "thinking"}
+              <details class="block thinking">
+                <summary>thinking</summary>
+                <pre>{k.text}</pre>
+              </details>
+            {:else if k.kind === "system"}
+              <div class="block system">session: {k.subtype}</div>
+            {:else if k.kind === "result"}
+              <div class="block done" class:err={k.is_error}>
+                {k.is_error ? "✗ error" : "✓ done"} — {k.result}
+              </div>
+            {:else}
+              <details class="block raw-detail">
+                <summary>event: {k.type ?? "unknown"}</summary>
+                <pre>{JSON.stringify(ev.event, null, 2)}</pre>
+              </details>
+            {/if}
+          {/each}
+        {/each}
+      {/if}
+    </div>
+  {/if}
 </section>
 
 <style>
@@ -266,6 +292,41 @@
     font-family: inherit;
     color: var(--fg);
     cursor: pointer;
+  }
+
+  .tabs {
+    display: inline-flex;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+
+  .tabs button {
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    padding: 0.32rem 0.8rem;
+    font-size: 0.82rem;
+    color: var(--fg-muted);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+
+  .tabs button:hover { color: var(--fg); }
+
+  .tabs button.active {
+    background: var(--selected);
+    color: var(--fg);
+    font-weight: 500;
+  }
+
+  .dirty-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #f59e0b;
   }
 
   .stop:hover { border-color: #ef4444; color: #ef4444; }

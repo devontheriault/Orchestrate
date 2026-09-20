@@ -12,7 +12,7 @@ use tokio::task::JoinHandle;
 
 use crate::error::{Error, Result};
 use crate::model::{new_id, Agent, AgentEvent, AgentState, Id, Project, Task};
-use crate::{paths, storage, worktree};
+use crate::{git, paths, storage, worktree};
 
 /// Grace period between SIGTERM and SIGKILL when stopping an Agent.
 const STOP_GRACE: Duration = Duration::from_secs(5);
@@ -79,6 +79,10 @@ impl AgentRuntime {
             .join(&project.id)
             .join(&agent_id);
 
+        // Record the commit we branched from before the Agent can move HEAD, so
+        // the diff view has a fixed base even if the Project advances later.
+        let base_commit = git::head_commit(&project.path).await.ok();
+
         worktree::create(&project.path, &worktree_path, &branch).await?;
 
         let agent = Agent {
@@ -88,6 +92,7 @@ impl AgentRuntime {
             state: AgentState::Running,
             worktree_path: worktree_path.clone(),
             branch: branch.clone(),
+            base_commit,
             spawned_at: OffsetDateTime::now_utc(),
             exited_at: None,
             exit_code: None,
@@ -333,6 +338,9 @@ mod tests {
             vec!["init", "--initial-branch=main"],
             vec!["config", "user.email", "t@t.t"],
             vec!["config", "user.name", "t"],
+            // Don't let the developer's global config break the fixture.
+            vec!["config", "commit.gpgsign", "false"],
+            vec!["config", "core.hooksPath", "/dev/null"],
             vec!["commit", "--allow-empty", "-m", "init"],
         ] {
             let out = Command::new("git")
@@ -424,6 +432,75 @@ while : ; do sleep 1; done
         assert_eq!(log.lines().count(), 3);
     }
 
+    /// A fake `claude` that behaves like a real one that got partway: it commits
+    /// some work on the Agent's branch and leaves the rest dirty.
+    fn fake_claude_writes_code() -> String {
+        write_script(
+            r#"#!/bin/sh
+echo '{"type":"system","event":"init"}'
+echo 'from the agent' > added.txt
+git add -A
+git commit -qm 'agent: add a file'
+echo 'left dirty' > dirty.txt
+exit 0
+"#,
+        )
+    }
+
+    #[tokio::test]
+    async fn spawned_agents_worktree_is_diffable_after_completion() {
+        let _env = StateEnv::new();
+        let repo = init_repo().await;
+        let project = sample_project(repo.path().to_path_buf());
+        let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_writes_code());
+
+        let agent = rt.spawn(&project, "write some code".into()).await.unwrap();
+        let base = agent
+            .base_commit
+            .clone()
+            .expect("spawn records the commit it branched from");
+
+        let final_agent = loop {
+            match rx.recv().await.expect("channel open") {
+                RuntimeEvent::AgentEvent { .. } => continue,
+                RuntimeEvent::StateChanged { agent, .. } => break agent,
+            }
+        };
+        assert_eq!(final_agent.state, AgentState::Completed);
+        assert_eq!(final_agent.base_commit.as_deref(), Some(base.as_str()));
+
+        // The diff the UI would show: committed and dirty work side by side.
+        let diff = crate::git::diff(
+            Some(&project.path),
+            &final_agent.worktree_path,
+            &final_agent.branch,
+            final_agent.base_commit.as_deref(),
+        )
+        .await
+        .unwrap();
+
+        let paths: Vec<&str> = diff.files.iter().map(|f| f.path.as_str()).collect();
+        assert!(paths.contains(&"added.txt"), "{paths:?}");
+        assert!(paths.contains(&"dirty.txt"), "{paths:?}");
+        assert_eq!(diff.commits.len(), 1, "agent's own commit should show");
+        assert!(diff.uncommitted, "dirty.txt is not committed yet");
+
+        // And committing from the app captures what the Agent left behind.
+        crate::git::commit(&final_agent.worktree_path, "save the rest")
+            .await
+            .unwrap();
+        let after = crate::git::diff(
+            Some(&project.path),
+            &final_agent.worktree_path,
+            &final_agent.branch,
+            final_agent.base_commit.as_deref(),
+        )
+        .await
+        .unwrap();
+        assert!(!after.uncommitted);
+        assert_eq!(after.commits.len(), 2);
+    }
+
     #[tokio::test]
     async fn spawn_run_to_failure() {
         let _env = StateEnv::new();
@@ -485,6 +562,7 @@ while : ; do sleep 1; done
             task: Task { prompt: "x".into() },
             state: AgentState::Running,
             worktree_path: "/tmp/wt".into(),
+            base_commit: None,
             branch: "cw/agent-x".into(),
             spawned_at: OffsetDateTime::now_utc(),
             exited_at: None,

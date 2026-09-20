@@ -9,6 +9,7 @@ use time::OffsetDateTime;
 
 use crate::model::{new_id, Agent, AgentState, Project};
 use crate::runtime::AgentRuntime;
+use crate::git::{self, Commit, WorktreeDiff};
 use crate::{paths, storage, worktree};
 
 /// App-level shared state, managed by Tauri.
@@ -96,6 +97,40 @@ pub async fn reap_agent(agent_id: String) -> Result<(), String> {
         std::fs::remove_file(&meta).map_err(err)?;
     }
     Ok(())
+}
+
+/// Everything the Agent has produced in its Worktree, relative to the commit it
+/// branched from. Safe to call in any state, including while the Agent runs.
+#[tauri::command]
+pub async fn agent_diff(agent_id: String) -> Result<WorktreeDiff, String> {
+    let agent = storage::load_agent(&agent_id).map_err(err)?;
+    let reg = storage::Registry::load().map_err(err)?;
+    let project_path = reg
+        .projects
+        .iter()
+        .find(|p| p.id == agent.project_id)
+        .map(|p| p.path.clone());
+
+    git::diff(
+        project_path.as_deref(),
+        &agent.worktree_path,
+        &agent.branch,
+        agent.base_commit.as_deref(),
+    )
+    .await
+    .map_err(err)
+}
+
+/// Stage and commit everything in the Agent's Worktree, on the Agent's own
+/// branch. Refused while the Agent is running, since it would race the Agent's
+/// own writes and capture a half-finished tree.
+#[tauri::command]
+pub async fn agent_commit(agent_id: String, message: String) -> Result<Commit, String> {
+    let agent = storage::load_agent(&agent_id).map_err(err)?;
+    if agent.state == AgentState::Running {
+        return Err("cannot commit while the agent is running; stop it first".into());
+    }
+    git::commit(&agent.worktree_path, &message).await.map_err(err)
 }
 
 #[tauri::command]

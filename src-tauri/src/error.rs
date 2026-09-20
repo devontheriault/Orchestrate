@@ -21,6 +21,18 @@ pub enum Error {
 
     #[error("agent not found: {0}")]
     AgentNotFound(String),
+
+    #[error("worktree is gone at {path} (already reaped?)")]
+    WorktreeMissing { path: PathBuf },
+
+    #[error("cannot tell which commit `{branch}` was cut from: its project is no longer registered")]
+    NoBaseCommit { branch: String },
+
+    #[error("nothing to commit in {path}")]
+    NothingToCommit { path: PathBuf },
+
+    #[error("commit message is empty")]
+    EmptyCommitMessage,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
