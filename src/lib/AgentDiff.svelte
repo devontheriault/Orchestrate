@@ -112,95 +112,99 @@
       </div>
     </div>
 
-    {#if store.diffError}
-      <div class="diff-error">{store.diffError}</div>
-    {/if}
+    <div class="diff-body">
+      {#if store.diffError}
+        <div class="diff-error">{store.diffError}</div>
+      {/if}
 
-    {#if diff.files.length === 0 && diff.commits.length === 0}
-      <div class="hint">This agent changed nothing in its worktree.</div>
-    {/if}
+      {#if diff.files.length === 0 && diff.commits.length === 0}
+        <div class="hint">This agent changed nothing in its worktree.</div>
+      {/if}
 
-    {#if diff.commits.length > 0}
-      <div class="commits">
-        <div class="section-label">
-          {diff.commits.length} commit{diff.commits.length === 1 ? "" : "s"} on
-          <code>{store.selectedAgent?.branch}</code>
-        </div>
-        {#each diff.commits as c (c.sha)}
-          <div class="commit">
-            <code class="sha">{c.sha}</code>
-            <span class="subject">{c.subject}</span>
+      {#if diff.commits.length > 0}
+        <div class="commits">
+          <div class="section-label">
+            {diff.commits.length} commit{diff.commits.length === 1 ? "" : "s"} on
+            <code>{store.selectedAgent?.branch}</code>
           </div>
-        {/each}
-      </div>
-    {/if}
-
-    {#if diff.uncommitted}
-      <div class="commit-box">
-        <div class="commit-box-head">
-          <span class="warn-dot"></span>
-          <strong>Uncommitted work</strong>
-          <span class="sub">A reap now would discard it.</span>
+          <div class="scroll-list">
+            {#each diff.commits as c (c.sha)}
+              <div class="commit">
+                <code class="sha">{c.sha}</code>
+                <span class="subject">{c.subject}</span>
+              </div>
+            {/each}
+          </div>
         </div>
-        <textarea
-          bind:value={message}
-          oninput={() => (messageEdited = true)}
-          rows="2"
-          placeholder="Commit message"
-          disabled={running || store.committing}
-        ></textarea>
-        <div class="commit-box-foot">
-          {#if running}
-            <span class="sub">Stop the agent before committing — it is still writing.</span>
-          {:else}
-            <span class="sub">Stages everything in the worktree onto the agent's branch.</span>
-          {/if}
-          <button
-            class="primary"
-            disabled={running || store.committing || message.trim().length === 0}
-            onclick={doCommit}
-          >
-            {store.committing ? "Committing…" : "Commit all changes"}
-          </button>
-        </div>
-      </div>
-    {/if}
+      {/if}
 
-    {#if diff.files.length > 0}
-      <div class="files">
-        {#each diff.files as f (f.path)}
-          <div class="file-row">
-            <span class={`badge badge-${f.status.toLowerCase()}`}>{f.status}</span>
-            <span class="path mono">{f.path}</span>
-            {#if f.insertions === null}
-              <span class="binary">binary</span>
+      {#if diff.uncommitted}
+        <div class="commit-box">
+          <div class="commit-box-head">
+            <span class="warn-dot"></span>
+            <strong>Uncommitted work</strong>
+            <span class="sub">A reap now would discard it.</span>
+          </div>
+          <textarea
+            bind:value={message}
+            oninput={() => (messageEdited = true)}
+            rows="2"
+            placeholder="Commit message"
+            disabled={running || store.committing}
+          ></textarea>
+          <div class="commit-box-foot">
+            {#if running}
+              <span class="sub">Stop the agent before committing — it is still writing.</span>
             {:else}
-              <span class="ins">+{f.insertions}</span>
-              <span class="del">−{f.deletions}</span>
+              <span class="sub">Stages everything in the worktree onto the agent's branch.</span>
             {/if}
+            <button
+              class="primary"
+              disabled={running || store.committing || message.trim().length === 0}
+              onclick={doCommit}
+            >
+              {store.committing ? "Committing…" : "Commit all changes"}
+            </button>
           </div>
-        {/each}
-      </div>
-    {/if}
+        </div>
+      {/if}
 
-    {#each patchFiles.files as pf (pf.path)}
-      <details class="patch-file" open>
-        <summary class="mono">{pf.path}</summary>
-        <div class="patch">
-          {#each pf.lines as line, i (i)}
-            <div class={`line ${line.kind}`}>{line.text || " "}</div>
+      {#if diff.files.length > 0}
+        <div class="files scroll-list">
+          {#each diff.files as f (f.path)}
+            <div class="file-row">
+              <span class={`badge badge-${f.status.toLowerCase()}`}>{f.status}</span>
+              <span class="path mono">{f.path}</span>
+              {#if f.insertions === null}
+                <span class="binary">binary</span>
+              {:else}
+                <span class="ins">+{f.insertions}</span>
+                <span class="del">−{f.deletions}</span>
+              {/if}
+            </div>
           {/each}
         </div>
-      </details>
-    {/each}
+      {/if}
 
-    {#if patchFiles.clipped || diff.truncated}
-      <div class="clipped">
-        Patch shown in part only. Open
-        <code>{store.selectedAgent?.worktree_path}</code>
-        to read all of it.
-      </div>
-    {/if}
+      {#each patchFiles.files as pf (pf.path)}
+        <details class="patch-file" open>
+          <summary class="mono">{pf.path}</summary>
+          <div class="patch">
+            {#each pf.lines as line, i (i)}
+              <div class={`line ${line.kind}`}>{line.text || " "}</div>
+            {/each}
+          </div>
+        </details>
+      {/each}
+
+      {#if patchFiles.clipped || diff.truncated}
+        <div class="clipped">
+          Patch shown in part only. Open
+          <code>{store.selectedAgent?.worktree_path}</code>
+          to read all of it.
+        </div>
+      {/if}
+    </div>
   {/if}
 </div>
 
@@ -209,12 +213,33 @@
     flex: 1;
     min-height: 0;
     min-width: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Everything below the summary bar scrolls, so the counts and Refresh
+     stay reachable however long the patch runs. */
+  .diff-body {
+    flex: 1;
+    min-height: 0;
     overflow-y: auto;
     overflow-x: hidden;
-    padding: 1rem var(--pad-x) 2rem;
+    padding: 0.85rem var(--pad-x) 2rem;
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
+  }
+
+  /* A long list gets its own scrollbar rather than pushing the rest away. */
+  .scroll-list {
+    max-height: 13rem;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .diff-pane > .diff-error {
+    margin: 1rem var(--pad-x);
   }
 
   .hint {
@@ -237,6 +262,10 @@
   }
 
   .summary {
+    flex: none;
+    padding: 0.7rem var(--pad-x);
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -310,6 +339,7 @@
     border-radius: 6px;
     background: var(--panel-bg);
     padding: 0.6rem 0.8rem;
+    min-width: 0;
   }
 
   .commit {
@@ -422,7 +452,6 @@
   .files {
     border: 1px solid var(--border);
     border-radius: 6px;
-    overflow: hidden;
   }
 
   .file-row {
@@ -478,7 +507,7 @@
   .patch-file {
     border: 1px solid var(--border);
     border-radius: 6px;
-    overflow: hidden;
+    min-width: 0;
   }
 
   .patch-file summary {
@@ -488,11 +517,24 @@
     font-size: 0.82rem;
     color: var(--fg-muted);
     overflow-wrap: anywhere;
+    border-radius: 5px 5px 0 0;
+    /* Stays put while its own patch scrolls past underneath. */
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }
+
+  .patch-file[open] summary {
+    border-bottom: 1px solid var(--border);
   }
 
   .patch {
-    /* The only pane that scrolls sideways: code lines keep their shape. */
-    overflow-x: auto;
+    /* Code lines keep their shape: this scrolls both ways on its own, so one
+       big file can't swallow the pane. */
+    overflow: auto;
+    overscroll-behavior: contain;
+    max-height: clamp(10rem, 50vh, 32rem);
+    border-radius: 0 0 5px 5px;
     font-family: ui-monospace, monospace;
     font-size: 0.78rem;
     line-height: 1.55;
