@@ -37,7 +37,7 @@
 
   async function send() {
     if (!prompt.trim() || busy) return;
-    const sent = await store.resume(prompt, model || null);
+    const sent = await store.resume(prompt, model);
     // Keep the text on failure so the user can retry rather than retype.
     if (sent) prompt = "";
   }

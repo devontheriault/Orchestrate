@@ -1,13 +1,14 @@
 <script lang="ts">
   import { store } from "./store.svelte";
-  import { DEFAULT_MODEL } from "./api";
   import ModelPicker from "./ModelPicker.svelte";
 
   let { onClose }: { onClose: () => void } = $props();
 
   let prompt = $state("");
-  // Opens on the user's last pick — most people spawn on the same model daily.
-  let model = $state(store.preferredModel ?? DEFAULT_MODEL);
+  // Opens on the model the user last ran a turn on — most people spawn on the
+  // same one day after day, and the modal is remounted per open, so this is the
+  // current answer rather than whatever it was at startup.
+  let model = $state(store.defaultSpawnModel);
   let submitting = $state(false);
   let textarea: HTMLTextAreaElement | undefined = $state();
 
@@ -19,7 +20,7 @@
     e.preventDefault();
     if (!prompt.trim() || submitting) return;
     submitting = true;
-    await store.spawn(prompt, model || null);
+    await store.spawn(prompt, model);
     submitting = false;
     onClose();
   }

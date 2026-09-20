@@ -1,5 +1,6 @@
 import {
   api,
+  DEFAULT_MODEL,
   events,
   type Agent,
   type AgentEvent,
@@ -47,9 +48,13 @@ function mergeEvents(logged: AgentEvent[], live: AgentEvent[]): AgentEvent[] {
 const RESUME_KEY = "cw:resume-selection";
 
 /**
- * The model the user picked last, remembered across launches so the spawn modal
- * opens on their habitual choice instead of resetting every time. localStorage,
- * not sessionStorage: a preference should outlive the window.
+ * The model the user picked last, for any Turn — a Spawn or a Resume — so the
+ * spawn modal opens on their habitual choice instead of resetting every time.
+ * localStorage, not sessionStorage: a preference should outlive the window.
+ *
+ * The stored value is the picker's own, so the empty string is a real answer —
+ * the user asking for Claude Code's default. Only a missing key means they have
+ * never picked, which is the one case the fallback below gets to speak.
  */
 const MODEL_KEY = "cw:preferred-model";
 
@@ -95,7 +100,7 @@ class AppStore {
   /** A follow-up prompt is in flight for the selected agent. */
   sending = $state<boolean>(false);
 
-  /** What the spawn modal's model picker opens on. Null = Claude Code's default. */
+  /** The model the user picked for the most recent Turn. Null = never picked. */
   preferredModel = $state<string | null>(readPreferredModel());
 
   /** The models this account can run, newest first. Empty until loaded. */
@@ -153,6 +158,27 @@ class AppStore {
 
   eventsForSelected = $derived(
     this.selectedAgentId ? this.eventsByAgent[this.selectedAgentId] ?? [] : [],
+  );
+
+  /**
+   * The model the most recently spawned Agent ran on, as a picker value. Stands
+   * in for a stored preference on a profile that has none yet — the Agents on
+   * disk are a record of the user's picks too, and reading them means the modal
+   * is right on the first spawn after an update rather than the second.
+   */
+  private lastSpawnedModel = $derived.by(() => {
+    let latest: Agent | null = null;
+    for (const a of this.agents) {
+      if (!latest || Date.parse(a.spawned_at) >= Date.parse(latest.spawned_at)) {
+        latest = a;
+      }
+    }
+    return latest ? latest.model ?? DEFAULT_MODEL : null;
+  });
+
+  /** What the spawn modal's picker opens on: the last model the user ran on. */
+  defaultSpawnModel = $derived(
+    this.preferredModel ?? this.lastSpawnedModel ?? DEFAULT_MODEL,
   );
 
   /**
@@ -387,21 +413,29 @@ class AppStore {
     this.orphanBannerDismissed = true;
   }
 
-  /** Remember a model pick as the default for the next spawn. */
-  rememberModel(model: string | null) {
+  /**
+   * Remember a model pick as the default for the next Spawn. Called for every
+   * Turn the user starts, so "the model I ran last" is what the next one opens
+   * on, whether that Turn was a Spawn or a reply to a running conversation.
+   */
+  rememberModel(model: string) {
     this.preferredModel = model;
     try {
-      if (model) localStorage.setItem(MODEL_KEY, model);
-      else localStorage.removeItem(MODEL_KEY);
+      localStorage.setItem(MODEL_KEY, model);
     } catch {
-      // A preference isn't worth failing a spawn over.
+      // A preference isn't worth failing a turn over.
     }
   }
 
-  async spawn(prompt: string, model: string | null) {
+  /** `model` is the picker's value; empty means no `--model` at all. */
+  async spawn(prompt: string, model: string) {
     if (!this.selectedProjectId) return;
     try {
-      const agent = await api.spawnAgent(this.selectedProjectId, prompt, model);
+      const agent = await api.spawnAgent(
+        this.selectedProjectId,
+        prompt,
+        model || null,
+      );
       this.rememberModel(model);
       this.agents.push(agent);
       this.selectAgent(agent.id);
@@ -414,13 +448,14 @@ class AppStore {
    * Send a follow-up prompt to the selected agent, putting it back to work in
    * the worktree it already has, on `model`. Returns whether the agent took it.
    */
-  async resume(prompt: string, model: string | null) {
+  async resume(prompt: string, model: string) {
     const id = this.selectedAgentId;
     if (!id || !prompt.trim() || this.sending) return false;
     this.sending = true;
     this.error = null;
     try {
-      const agent = await api.resumeAgent(id, prompt, model);
+      const agent = await api.resumeAgent(id, prompt, model || null);
+      this.rememberModel(model);
       const i = this.agents.findIndex((a) => a.id === agent.id);
       if (i >= 0) this.agents[i] = agent;
       // It's working again, so it's nobody's leftover any more.
