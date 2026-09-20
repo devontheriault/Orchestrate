@@ -17,9 +17,12 @@ pub async fn create(project_path: &Path, worktree_path: &Path, branch: &str) -> 
     }
 
     let output = Command::new("git")
-        .arg("-C").arg(project_path)
-        .arg("worktree").arg("add")
-        .arg("-b").arg(branch)
+        .arg("-C")
+        .arg(project_path)
+        .arg("worktree")
+        .arg("add")
+        .arg("-b")
+        .arg(branch)
         .arg(worktree_path)
         .arg("HEAD")
         .output()
@@ -42,8 +45,10 @@ pub async fn create(project_path: &Path, worktree_path: &Path, branch: &str) -> 
 /// branch. Errors from any individual step are swallowed — reap is best-effort.
 pub async fn reap(project_path: &Path, worktree_path: &Path, branch: &str) -> Result<()> {
     let _ = Command::new("git")
-        .arg("-C").arg(project_path)
-        .arg("worktree").arg("remove")
+        .arg("-C")
+        .arg(project_path)
+        .arg("worktree")
+        .arg("remove")
         .arg("--force")
         .arg(worktree_path)
         .output()
@@ -55,16 +60,20 @@ pub async fn reap(project_path: &Path, worktree_path: &Path, branch: &str) -> Re
     }
 
     let _ = Command::new("git")
-        .arg("-C").arg(project_path)
-        .arg("branch").arg("-D")
+        .arg("-C")
+        .arg(project_path)
+        .arg("branch")
+        .arg("-D")
         .arg(branch)
         .output()
         .await;
 
     // Prune stale worktree metadata.
     let _ = Command::new("git")
-        .arg("-C").arg(project_path)
-        .arg("worktree").arg("prune")
+        .arg("-C")
+        .arg(project_path)
+        .arg("worktree")
+        .arg("prune")
         .output()
         .await;
 
@@ -85,7 +94,8 @@ mod tests {
             vec!["commit", "--allow-empty", "-m", "init"],
         ] {
             let out = Command::new("git")
-                .arg("-C").arg(dir.path())
+                .arg("-C")
+                .arg(dir.path())
                 .args(&args)
                 .output()
                 .await
@@ -108,7 +118,10 @@ mod tests {
 
         create(repo.path(), &wt_path, branch).await.unwrap();
         assert!(wt_path.exists(), "worktree dir should exist");
-        assert!(wt_path.join(".git").exists(), "worktree should have a .git file");
+        assert!(
+            wt_path.join(".git").exists(),
+            "worktree should have a .git file"
+        );
 
         reap(repo.path(), &wt_path, branch).await.unwrap();
         assert!(!wt_path.exists(), "worktree dir should be gone");

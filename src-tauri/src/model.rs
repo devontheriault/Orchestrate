@@ -145,7 +145,9 @@ mod tests {
             let a = Agent {
                 id: "a3f9c1de".into(),
                 project_id: "proj0001".into(),
-                task: Task { prompt: "do the thing".into() },
+                task: Task {
+                    prompt: "do the thing".into(),
+                },
                 state,
                 worktree_path: "/tmp/wt".into(),
                 branch: "cw/agent-a3f9c1de".into(),
@@ -168,7 +170,10 @@ mod tests {
     fn new_session_id_looks_like_a_v4_uuid() {
         let id = new_session_id();
         let parts: Vec<&str> = id.split('-').collect();
-        assert_eq!(parts.iter().map(|p| p.len()).collect::<Vec<_>>(), vec![8, 4, 4, 4, 12]);
+        assert_eq!(
+            parts.iter().map(|p| p.len()).collect::<Vec<_>>(),
+            vec![8, 4, 4, 4, 12]
+        );
         assert!(id.chars().all(|c| c.is_ascii_hexdigit() || c == '-'));
         assert!(parts[2].starts_with('4'), "version nibble: {id}");
         assert!(
@@ -193,14 +198,23 @@ mod tests {
         }"#;
         let a: Agent = serde_json::from_str(json).unwrap();
         assert_eq!(a.session_id, None);
-        assert_eq!(a.model, None, "no recorded model means Claude Code's own default");
+        assert_eq!(
+            a.model, None,
+            "no recorded model means Claude Code's own default"
+        );
         assert_eq!(a.turns, 1, "a pre-Session agent had exactly one turn");
     }
 
     #[test]
     fn agent_state_serializes_as_snake_case() {
-        assert_eq!(serde_json::to_string(&AgentState::Running).unwrap(), "\"running\"");
-        assert_eq!(serde_json::to_string(&AgentState::Orphaned).unwrap(), "\"orphaned\"");
+        assert_eq!(
+            serde_json::to_string(&AgentState::Running).unwrap(),
+            "\"running\""
+        );
+        assert_eq!(
+            serde_json::to_string(&AgentState::Orphaned).unwrap(),
+            "\"orphaned\""
+        );
     }
 
     #[test]

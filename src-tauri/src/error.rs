@@ -31,7 +31,9 @@ pub enum Error {
     #[error("worktree is gone at {path} (already reaped?)")]
     WorktreeMissing { path: PathBuf },
 
-    #[error("cannot tell which commit `{branch}` was cut from: its project is no longer registered")]
+    #[error(
+        "cannot tell which commit `{branch}` was cut from: its project is no longer registered"
+    )]
     NoBaseCommit { branch: String },
 
     #[error("nothing to commit in {path}")]

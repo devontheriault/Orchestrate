@@ -24,7 +24,10 @@ impl StateEnv {
         unsafe {
             std::env::set_var("CLAUDEWRAPPER_STATE_DIR", dir.path());
         }
-        Self { _dir: dir, _guard: guard }
+        Self {
+            _dir: dir,
+            _guard: guard,
+        }
     }
 }
 

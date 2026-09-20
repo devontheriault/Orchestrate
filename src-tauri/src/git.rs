@@ -138,7 +138,11 @@ pub async fn resolve_base(
     recorded: Option<&str>,
 ) -> Result<String> {
     if let Some(sha) = recorded {
-        let verified = stdout(worktree_path, &["rev-parse", "--verify", &format!("{sha}^{{commit}}")]).await?;
+        let verified = stdout(
+            worktree_path,
+            &["rev-parse", "--verify", &format!("{sha}^{{commit}}")],
+        )
+        .await?;
         return Ok(verified.trim().to_owned());
     }
     let project_path = project_path.ok_or_else(|| Error::NoBaseCommit {
@@ -181,21 +185,22 @@ pub async fn diff(
         index,
     )
     .await?;
-    let patch =
-        stdout_with_index(worktree_path, &["diff", "--no-renames", &base], index).await?;
+    let patch = stdout_with_index(worktree_path, &["diff", "--no-renames", &base], index).await?;
     let log = stdout(
         worktree_path,
         &["log", "--format=%h%x1f%s", &format!("{base}..HEAD")],
     )
     .await?;
-    let status =
-        stdout_with_index(worktree_path, &["status", "--porcelain", "-z"], index).await?;
+    let status = stdout_with_index(worktree_path, &["status", "--porcelain", "-z"], index).await?;
 
     let statuses = parse_name_status(&name_status);
     let files = parse_numstat(&numstat)
         .into_iter()
         .map(|(path, insertions, deletions)| ChangedFile {
-            status: statuses.get(&path).cloned().unwrap_or_else(|| "M".to_owned()),
+            status: statuses
+                .get(&path)
+                .cloned()
+                .unwrap_or_else(|| "M".to_owned()),
             path,
             insertions,
             deletions,
@@ -238,12 +243,10 @@ pub async fn commit(worktree_path: &Path, message: &str) -> Result<Commit> {
     stdout(worktree_path, &["commit", "-m", message]).await?;
 
     let out = stdout(worktree_path, &["log", "-1", "--format=%h%x1f%s"]).await?;
-    parse_log(&out)
-        .pop()
-        .ok_or_else(|| Error::Git {
-            command: "log -1".to_owned(),
-            stderr: "commit succeeded but could not be read back".to_owned(),
-        })
+    parse_log(&out).pop().ok_or_else(|| Error::Git {
+        command: "log -1".to_owned(),
+        stderr: "commit succeeded but could not be read back".to_owned(),
+    })
 }
 
 /// Parse `git diff --numstat -z`: NUL-separated `insertions\tdeletions\tpath`
@@ -334,7 +337,9 @@ mod tests {
             }
             std::fs::write(repo.path().join("tracked.txt"), "base\n").unwrap();
             stdout(repo.path(), &["add", "-A"]).await.unwrap();
-            stdout(repo.path(), &["commit", "-m", "init"]).await.unwrap();
+            stdout(repo.path(), &["commit", "-m", "init"])
+                .await
+                .unwrap();
 
             let wt = TempDir::new().unwrap();
             let wt_path = wt.path().join("agent");
@@ -409,7 +414,8 @@ mod tests {
     #[tokio::test]
     async fn clean_worktree_reports_no_uncommitted_work() {
         let f = Fixture::new().await;
-        f.agent_commits("added.txt", "all tidy\n", "agent: tidy").await;
+        f.agent_commits("added.txt", "all tidy\n", "agent: tidy")
+            .await;
 
         let d = f.diff().await;
         assert!(!d.uncommitted);
@@ -422,16 +428,23 @@ mod tests {
         let f = Fixture::new().await;
         std::fs::write(f.wt_path().join("untracked.txt"), "new\n").unwrap();
 
-        let before = stdout(&f.wt_path(), &["status", "--porcelain"]).await.unwrap();
+        let before = stdout(&f.wt_path(), &["status", "--porcelain"])
+            .await
+            .unwrap();
         let d = f.diff().await;
-        let after = stdout(&f.wt_path(), &["status", "--porcelain"]).await.unwrap();
+        let after = stdout(&f.wt_path(), &["status", "--porcelain"])
+            .await
+            .unwrap();
 
         assert!(
             d.files.iter().any(|c| c.path == "untracked.txt"),
             "the untracked file still has to show up in the diff"
         );
         assert_eq!(before.trim(), "?? untracked.txt");
-        assert_eq!(before, after, "diff must not stage anything in the worktree");
+        assert_eq!(
+            before, after,
+            "diff must not stage anything in the worktree"
+        );
     }
 
     #[tokio::test]
@@ -481,14 +494,9 @@ mod tests {
             .await
             .unwrap();
 
-        let resolved = resolve_base(
-            Some(f.repo.path()),
-            &f.wt_path(),
-            Fixture::BRANCH,
-            None,
-        )
-        .await
-        .unwrap();
+        let resolved = resolve_base(Some(f.repo.path()), &f.wt_path(), Fixture::BRANCH, None)
+            .await
+            .unwrap();
         assert_eq!(resolved, spawn_head, "merge-base should be the spawn point");
 
         // And the diff built on it shows only the Agent's own file.

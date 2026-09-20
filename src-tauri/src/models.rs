@@ -181,7 +181,10 @@ mod tests {
         let page = parse_page(PAGE).unwrap();
         assert!(!page.has_more);
         let ids: Vec<&str> = page.data.iter().map(|m| m.id.as_str()).collect();
-        assert_eq!(ids, vec!["claude-opus-4-5-20251101", "claude-haiku-4-5-20251001"]);
+        assert_eq!(
+            ids,
+            vec!["claude-opus-4-5-20251101", "claude-haiku-4-5-20251001"]
+        );
         assert_eq!(page.data[0].display_name, "Claude Opus 4.5");
     }
 
@@ -190,12 +193,19 @@ mod tests {
     #[test]
     fn model_ids_keep_their_version_suffix() {
         let page = parse_page(PAGE).unwrap();
-        assert!(page.data[0].id.ends_with("-20251101"), "{}", page.data[0].id);
+        assert!(
+            page.data[0].id.ends_with("-20251101"),
+            "{}",
+            page.data[0].id
+        );
     }
 
     #[test]
     fn the_first_page_has_no_cursor_and_later_ones_do() {
-        assert_eq!(page_url(None), "https://api.anthropic.com/v1/models?limit=100");
+        assert_eq!(
+            page_url(None),
+            "https://api.anthropic.com/v1/models?limit=100"
+        );
         assert_eq!(
             page_url(Some("claude-haiku-4-5-20251001")),
             "https://api.anthropic.com/v1/models?limit=100&after_id=claude-haiku-4-5-20251001"
@@ -212,34 +222,52 @@ mod tests {
     /// Guards the env precedence, which decides which account's models we show.
     #[test]
     fn an_api_key_outranks_an_auth_token() {
-        temp_env(&[
-            ("ANTHROPIC_API_KEY", Some("sk-ant-key")),
-            ("ANTHROPIC_AUTH_TOKEN", Some("sk-ant-oat")),
-        ], || {
-            assert_eq!(find_credential(), Some(Credential::ApiKey("sk-ant-key".into())));
-        });
+        temp_env(
+            &[
+                ("ANTHROPIC_API_KEY", Some("sk-ant-key")),
+                ("ANTHROPIC_AUTH_TOKEN", Some("sk-ant-oat")),
+            ],
+            || {
+                assert_eq!(
+                    find_credential(),
+                    Some(Credential::ApiKey("sk-ant-key".into()))
+                );
+            },
+        );
     }
 
     #[test]
     fn an_auth_token_is_sent_as_a_bearer() {
-        temp_env(&[
-            ("ANTHROPIC_API_KEY", None),
-            ("ANTHROPIC_AUTH_TOKEN", Some("sk-ant-oat")),
-        ], || {
-            assert_eq!(find_credential(), Some(Credential::Bearer("sk-ant-oat".into())));
-        });
+        temp_env(
+            &[
+                ("ANTHROPIC_API_KEY", None),
+                ("ANTHROPIC_AUTH_TOKEN", Some("sk-ant-oat")),
+            ],
+            || {
+                assert_eq!(
+                    find_credential(),
+                    Some(Credential::Bearer("sk-ant-oat".into()))
+                );
+            },
+        );
     }
 
     /// An exported-but-empty key is how a shell profile "unsets" one; treating
     /// it as a credential would send an empty x-api-key and 401.
     #[test]
     fn a_blank_env_var_is_not_a_credential() {
-        temp_env(&[
-            ("ANTHROPIC_API_KEY", Some("   ")),
-            ("ANTHROPIC_AUTH_TOKEN", Some("sk-ant-oat")),
-        ], || {
-            assert_eq!(find_credential(), Some(Credential::Bearer("sk-ant-oat".into())));
-        });
+        temp_env(
+            &[
+                ("ANTHROPIC_API_KEY", Some("   ")),
+                ("ANTHROPIC_AUTH_TOKEN", Some("sk-ant-oat")),
+            ],
+            || {
+                assert_eq!(
+                    find_credential(),
+                    Some(Credential::Bearer("sk-ant-oat".into()))
+                );
+            },
+        );
     }
 
     /// Set env vars, run, restore. Serialised because the process environment

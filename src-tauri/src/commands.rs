@@ -7,11 +7,11 @@ use std::path::PathBuf;
 use tauri::State;
 use time::OffsetDateTime;
 
+use crate::git::{self, Commit, WorktreeDiff};
 use crate::model::{new_id, Agent, AgentEvent, AgentState, Project};
 use crate::models::ModelInfo;
 use crate::runtime::AgentRuntime;
 use crate::usage::UsageSummary;
-use crate::git::{self, Commit, WorktreeDiff};
 use crate::{paths, storage, worktree};
 
 /// App-level shared state, managed by Tauri.
@@ -70,7 +70,11 @@ pub async fn spawn_agent(
         .iter()
         .find(|p| p.id == project_id)
         .ok_or_else(|| format!("project not found: {project_id}"))?;
-    state.runtime.spawn(project, prompt, model).await.map_err(err)
+    state
+        .runtime
+        .spawn(project, prompt, model)
+        .await
+        .map_err(err)
 }
 
 /// Continue a conversation with an Agent that has stopped working: a follow-up
@@ -83,7 +87,11 @@ pub async fn resume_agent(
     prompt: String,
     model: Option<String>,
 ) -> Result<Agent, String> {
-    state.runtime.resume(&agent_id, prompt, model).await.map_err(err)
+    state
+        .runtime
+        .resume(&agent_id, prompt, model)
+        .await
+        .map_err(err)
 }
 
 #[tauri::command]
@@ -154,7 +162,9 @@ pub async fn agent_commit(agent_id: String, message: String) -> Result<Commit, S
     if agent.state == AgentState::Running {
         return Err("cannot commit while the agent is running; stop it first".into());
     }
-    git::commit(&agent.worktree_path, &message).await.map_err(err)
+    git::commit(&agent.worktree_path, &message)
+        .await
+        .map_err(err)
 }
 
 /// The models this user's account can run, newest first, for the model picker.

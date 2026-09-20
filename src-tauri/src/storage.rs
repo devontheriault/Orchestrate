@@ -142,7 +142,9 @@ mod tests {
         Agent {
             id: new_id(),
             project_id: new_id(),
-            task: Task { prompt: "test".into() },
+            task: Task {
+                prompt: "test".into(),
+            },
             state: AgentState::Running,
             worktree_path: "/tmp/wt".into(),
             base_commit: None,
