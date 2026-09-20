@@ -9,8 +9,12 @@ One `claude` process, bound to one Worktree, running one Task. Its lifetime is t
 _Avoid_: Session (has a different, later meaning), Runner, Job, Worker.
 
 **Task**:
-The prompt or work item a user hands an Agent when spawning it. In V1, an Agent runs exactly one Task.
+The work item a user hands an Agent at Spawn — its opening prompt, and the label the UI identifies the Agent by. An Agent has exactly one Task for its whole life; follow-ups refine it rather than replace it.
 _Avoid_: Job, Prompt (too narrow — the Task is the *unit of work*, not just the string), Instruction.
+
+**Turn**:
+One prompt-and-answer exchange within an Agent: one `claude` process, from Spawn or Resume until it exits. Turn 1 carries the Task; later Turns carry follow-up prompts. Turns are counted on the Agent and recorded in its log, so the output pane reads as a conversation.
+_Avoid_: Run, Iteration, Round, Message (a Turn contains many messages).
 
 **Project**:
 A local Git repository the user has explicitly registered with the app. A Project may contain many Agents over time (spawned across separate Worktrees), and the Project's own working tree is never touched by an Agent.
@@ -25,25 +29,30 @@ The commit an Agent's branch was cut from at Spawn, recorded on the Agent. Every
 _Avoid_: Parent, Fork point, Origin.
 
 **Session**:
-Reserved. Not a V1 concept. When resumable Claude Code conversations (via `claude --resume`) become a feature, "Session" will name that concept. Do not use it as a synonym for Agent.
+The Claude Code conversation history behind an Agent, named by the UUID we mint at Spawn and pass as `--session-id`. Claude Code owns the transcript; we only keep the ID, and Resume hands it back via `--resume`. A Session is scoped to the directory it started in, which is why it survives exactly as long as the Agent's Worktree does.
+_Avoid_: using it as a synonym for Agent (an Agent is the thing the user talks to; the Session is the history that makes talking again possible), Thread, History, Context.
 
 ## Agent lifecycle
 
 An Agent moves through these states, and each transition has a specific verb.
 
 **Spawn**:
-The transition that creates a new Agent: allocate a Worktree, start the `claude` subprocess, wire up streaming. After Spawn, the Agent is *running*.
+The transition that creates a new Agent: allocate a Worktree, mint a Session ID, start the `claude` subprocess, wire up streaming. After Spawn, the Agent is *running* its first Turn.
+
+**Resume**:
+Putting a stopped Agent back to work with a follow-up prompt: start a new `claude` in the Agent's existing Worktree with `--resume <session>`, and return the Agent to *running* for another Turn. Available from Completed, Failed, Stopped, and Orphaned — anything with a Session and a Worktree still on disk. Refused while the Agent is already working; Stop it first to change course. Resume is how a user keeps talking to one Agent instead of Spawning another.
+_Avoid_: Continue, Restart (a Resume keeps the conversation; a restart would discard it), Retry, Follow-up (as a verb).
 
 **Stop**:
-A user-initiated destructive exit. The `claude` process is terminated and the Worktree is Reaped in the same action. Any in-progress work is discarded. Contrast with Complete.
+A user-initiated end to the current Turn. The `claude` process is terminated (SIGTERM, then SIGKILL after a grace period) and the Agent goes to *stopped*. The Worktree and Session are preserved, so a Stopped Agent can be inspected, Committed, or Resumed with a corrected prompt — Stop is how a user interrupts an Agent heading the wrong way. Only Reap destroys anything.
 _Avoid_: Kill, Cancel, Abort.
 
 **Complete**:
-The Agent's natural exit — the `claude` process exits on its own after finishing its Task. The Worktree is *preserved* so the user can inspect the diff and merge or copy work out. Distinct from Stop: Complete is constructive, Stop is destructive.
+A Turn's natural end — the `claude` process exits zero on its own. The Worktree is preserved so the user can inspect the diff and merge or copy work out, and the Session is preserved so the user can Resume with a follow-up. The common case is an Agent that sits Completed between Turns for as long as the user wants.
 _Avoid_: Finish, End, Done (as verbs).
 
 **Fail**:
-The Agent's unnatural exit — the `claude` process exits non-zero, is killed by the OS, or otherwise crashes. Distinct from Complete (natural exit) and Stop (user-initiated). Like Complete, the Worktree is preserved for post-mortem inspection; the user must explicitly Reap when done. The last JSONL events and exit code are recorded.
+A Turn's unnatural end — the `claude` process exits non-zero, cannot be started at all, is killed by the OS, or otherwise crashes. Distinct from Complete (clean exit) and Stop (user-initiated). Like Complete, the Worktree and Session are preserved: the user can read the stderr in `fail_reason`, then Reap or Resume. The last JSONL events and exit code are recorded.
 _Avoid_: Crash, Error (as state names).
 
 **Commit**:
@@ -51,9 +60,9 @@ A user action on a Completed, Failed, Stopped, or Orphaned Agent: stage everythi
 _Avoid_: Save, Merge (Commit does not touch the Project's branch), Checkpoint.
 
 **Reap**:
-Destroys an Agent's Worktree and removes it from the app's active list. Reap is automatic on Stop; on Complete or Fail it is an explicit user action after review. Reap deletes the Agent's branch along with its Worktree, so it discards Commits the Agent made as well as uncommitted work. After Reap, the Agent's on-disk log file (JSONL) is still preserved.
+Ends an Agent for good: destroys its Worktree, deletes its branch, and removes it from the app's list. Always an explicit user action, and the only action that destroys anything — so it discards Commits the Agent made as well as uncommitted work, and takes the Session with it (a Session cannot outlive the directory it ran in). Refused while the Agent is working. After Reap, the Agent's on-disk log file (JSONL) is still preserved.
 _Avoid_: Cleanup, Delete, Remove.
 
 **Orphan**:
-An Agent that was running when the app was closed. The `claude` process is dead (SIGKILL on close), but the Worktree and log file are preserved. On next launch, the app surfaces Orphans in the UI for the user to inspect or Reap. Distinct from Fail (which exits abnormally *on its own*) and Stop (user-initiated).
+An Agent that was working when the app was closed. The `claude` process is dead (SIGKILL on close), but the Worktree, Session, and log file are preserved. On next launch, the app surfaces Orphans in the UI for the user to inspect, Resume, or Reap. Distinct from Fail (which exits abnormally *on its own*) and Stop (user-initiated).
 _Avoid_: Abandoned, Dropped, Zombie.

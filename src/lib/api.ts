@@ -27,6 +27,10 @@ export type Agent = {
   worktree_path: string;
   branch: string;
   base_commit?: string | null;
+  /** The Claude Code session to resume. Absent means this agent can't continue. */
+  session_id?: string | null;
+  /** Turns started so far, including the opening one. */
+  turns: number;
   spawned_at: string;
   exited_at?: string | null;
   exit_code?: number | null;
@@ -77,6 +81,8 @@ export const api = {
   listAgents: () => invoke<Agent[]>("list_agents"),
   spawnAgent: (projectId: string, prompt: string) =>
     invoke<Agent>("spawn_agent", { projectId, prompt }),
+  resumeAgent: (agentId: string, prompt: string) =>
+    invoke<Agent>("resume_agent", { agentId, prompt }),
   stopAgent: (agentId: string) => invoke<void>("stop_agent", { agentId }),
   reapAgent: (agentId: string) => invoke<void>("reap_agent", { agentId }),
   agentEvents: (agentId: string) =>

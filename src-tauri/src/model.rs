@@ -12,6 +12,24 @@ pub fn new_id() -> Id {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
+/// Generate a random v4 UUID string, the form `claude --session-id` accepts.
+/// We mint the Session's ID ourselves at Spawn so an Agent is resumable from
+/// the moment it starts, even if it never emits a line of output.
+pub fn new_session_id() -> String {
+    let mut b: [u8; 16] = rand::random();
+    b[6] = (b[6] & 0x0f) | 0x40; // version 4
+    b[8] = (b[8] & 0x3f) | 0x80; // RFC 4122 variant
+    let hex: String = b.iter().map(|x| format!("{x:02x}")).collect();
+    format!(
+        "{}-{}-{}-{}-{}",
+        &hex[0..8],
+        &hex[8..12],
+        &hex[12..16],
+        &hex[16..20],
+        &hex[20..32]
+    )
+}
+
 /// A local Git repository the user has registered with the app.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Project {
@@ -22,8 +40,8 @@ pub struct Project {
     pub added_at: OffsetDateTime,
 }
 
-/// The prompt the user hands an Agent at spawn time. V1 is one-shot: fully
-/// specified up front, no follow-ups.
+/// The opening prompt the user hands an Agent at Spawn. Later Turns are
+/// separate prompts, recorded in the Agent's log rather than here.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Task {
     pub prompt: String,
@@ -40,7 +58,8 @@ pub enum AgentState {
     Orphaned,
 }
 
-/// One `claude` process, bound to one Worktree, running one Task.
+/// One Claude Code conversation, bound to one Worktree. An Agent outlives the
+/// individual `claude` processes that run its Turns.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Agent {
     pub id: Id,
@@ -53,6 +72,14 @@ pub struct Agent {
     /// before base tracking existed; the diff falls back to a merge-base then.
     #[serde(default)]
     pub base_commit: Option<String>,
+    /// The Claude Code session backing this Agent, used to Resume it. Minted at
+    /// Spawn; refreshed if the stream ever reports a different one. `None` for
+    /// Agents recorded before Sessions existed — those cannot be Resumed.
+    #[serde(default)]
+    pub session_id: Option<String>,
+    /// How many Turns have been started, including the opening one.
+    #[serde(default = "one")]
+    pub turns: u32,
     #[serde(with = "time::serde::rfc3339")]
     pub spawned_at: OffsetDateTime,
     #[serde(default, with = "time::serde::rfc3339::option")]
@@ -61,6 +88,10 @@ pub struct Agent {
     pub exit_code: Option<i32>,
     #[serde(default)]
     pub fail_reason: Option<String>,
+}
+
+fn one() -> u32 {
+    1
 }
 
 /// One line in an Agent's JSONL log: a wall-clock timestamp plus the raw
@@ -114,6 +145,8 @@ mod tests {
                 worktree_path: "/tmp/wt".into(),
                 branch: "cw/agent-a3f9c1de".into(),
                 base_commit: Some("deadbeef".into()),
+                session_id: Some("0b8b3a6e-5d2f-4a71-8c3e-1f9d7a2b4c60".into()),
+                turns: 3,
                 spawned_at: datetime!(2026-09-20 14:00:00 UTC),
                 exited_at: Some(datetime!(2026-09-20 14:05:00 UTC)),
                 exit_code: Some(0),
@@ -123,6 +156,38 @@ mod tests {
             let back: Agent = serde_json::from_str(&s).unwrap();
             assert_eq!(a, back);
         }
+    }
+
+    #[test]
+    fn new_session_id_looks_like_a_v4_uuid() {
+        let id = new_session_id();
+        let parts: Vec<&str> = id.split('-').collect();
+        assert_eq!(parts.iter().map(|p| p.len()).collect::<Vec<_>>(), vec![8, 4, 4, 4, 12]);
+        assert!(id.chars().all(|c| c.is_ascii_hexdigit() || c == '-'));
+        assert!(parts[2].starts_with('4'), "version nibble: {id}");
+        assert!(
+            matches!(parts[3].chars().next(), Some('8' | '9' | 'a' | 'b')),
+            "variant nibble: {id}"
+        );
+        assert_ne!(new_session_id(), new_session_id());
+    }
+
+    /// Meta files written before Sessions existed must still load: they simply
+    /// have no Session, which the UI reads as "cannot be continued".
+    #[test]
+    fn agent_without_session_fields_still_deserializes() {
+        let json = r#"{
+            "id": "a3f9c1de",
+            "project_id": "proj0001",
+            "task": { "prompt": "old agent" },
+            "state": "completed",
+            "worktree_path": "/tmp/wt",
+            "branch": "cw/agent-a3f9c1de",
+            "spawned_at": "2026-09-20T14:00:00Z"
+        }"#;
+        let a: Agent = serde_json::from_str(json).unwrap();
+        assert_eq!(a.session_id, None);
+        assert_eq!(a.turns, 1, "a pre-Session agent had exactly one turn");
     }
 
     #[test]

@@ -76,6 +76,9 @@ class AppStore {
   diffError = $state<string | null>(null);
   committing = $state<boolean>(false);
 
+  /** A follow-up prompt is in flight for the selected agent. */
+  sending = $state<boolean>(false);
+
   orphanBannerDismissed = $state<boolean>(false);
   error = $state<string | null>(null);
 
@@ -122,6 +125,16 @@ class AppStore {
   eventsForSelected = $derived(
     this.selectedAgentId ? this.eventsByAgent[this.selectedAgentId] ?? [] : [],
   );
+
+  /**
+   * Whether the selected agent's conversation can be picked back up. Needs a
+   * session to resume and a worktree to run in — the backend has the last word
+   * on the worktree, since only it can see the disk.
+   */
+  canContinue = $derived.by(() => {
+    const a = this.selectedAgent;
+    return !!a && a.state !== "running" && !!a.session_id;
+  });
 
   async start() {
     if (this.started) return;
@@ -326,6 +339,30 @@ class AppStore {
       this.selectAgent(agent.id);
     } catch (e) {
       this.error = String(e);
+    }
+  }
+
+  /**
+   * Send a follow-up prompt to the selected agent, putting it back to work in
+   * the worktree it already has. Returns whether the agent took it.
+   */
+  async resume(prompt: string) {
+    const id = this.selectedAgentId;
+    if (!id || !prompt.trim() || this.sending) return false;
+    this.sending = true;
+    this.error = null;
+    try {
+      const agent = await api.resumeAgent(id, prompt);
+      const i = this.agents.findIndex((a) => a.id === agent.id);
+      if (i >= 0) this.agents[i] = agent;
+      // It's working again, so it's nobody's leftover any more.
+      this.orphans = this.orphans.filter((o) => o.id !== id);
+      return true;
+    } catch (e) {
+      this.error = String(e);
+      return false;
+    } finally {
+      this.sending = false;
     }
   }
 

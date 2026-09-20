@@ -70,6 +70,17 @@ pub async fn spawn_agent(
     state.runtime.spawn(project, prompt).await.map_err(err)
 }
 
+/// Continue a conversation with an Agent that has stopped working: a follow-up
+/// prompt, answered in the Agent's existing Worktree with its Session resumed.
+#[tauri::command]
+pub async fn resume_agent(
+    state: State<'_, AppState>,
+    agent_id: String,
+    prompt: String,
+) -> Result<Agent, String> {
+    state.runtime.resume(&agent_id, prompt).await.map_err(err)
+}
+
 #[tauri::command]
 pub async fn stop_agent(state: State<'_, AppState>, agent_id: String) -> Result<(), String> {
     state.runtime.stop(&agent_id).await.map_err(err)

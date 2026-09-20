@@ -22,6 +22,12 @@ pub enum Error {
     #[error("agent not found: {0}")]
     AgentNotFound(String),
 
+    #[error("agent {0} is still working; wait for it to finish or stop it first")]
+    AgentBusy(String),
+
+    #[error("cannot continue agent {id}: {why}")]
+    NotResumable { id: String, why: String },
+
     #[error("worktree is gone at {path} (already reaped?)")]
     WorktreeMissing { path: PathBuf },
 

@@ -11,13 +11,30 @@ use tokio::sync::{mpsc, Notify, RwLock};
 use tokio::task::JoinHandle;
 
 use crate::error::{Error, Result};
-use crate::model::{new_id, Agent, AgentEvent, AgentState, Id, Project, Task};
+use crate::model::{new_id, new_session_id, Agent, AgentEvent, AgentState, Id, Project, Task};
 use crate::{git, paths, storage, worktree};
 
 /// Grace period between SIGTERM and SIGKILL when stopping an Agent.
 const STOP_GRACE: Duration = Duration::from_secs(5);
 /// How long shutdown() waits for supervisor tasks to finish per Agent.
 const SHUTDOWN_TIMEOUT_PER_AGENT: Duration = Duration::from_secs(5);
+
+/// Event type for a prompt the *user* sent. Our own invention — `claude` never
+/// emits it — so the transcript can show both sides of the conversation.
+pub const PROMPT_EVENT_TYPE: &str = "cw_prompt";
+
+/// Record a user prompt as a log event, so a Turn's question sits above its
+/// answer in the output pane and survives a reload.
+fn prompt_event(prompt: &str, turn: u32) -> AgentEvent {
+    AgentEvent {
+        ts: OffsetDateTime::now_utc(),
+        event: serde_json::json!({
+            "type": PROMPT_EVENT_TYPE,
+            "prompt": prompt,
+            "turn": turn,
+        }),
+    }
+}
 
 /// Events emitted by the runtime for consumers (Tauri IPC in Phase 3).
 #[derive(Debug, Clone)]
@@ -27,6 +44,10 @@ pub enum RuntimeEvent {
     /// The Agent's persisted state changed (state, exit_code, exited_at).
     StateChanged { agent_id: Id, agent: Agent },
 }
+
+/// The live-Agent map, held for writing. Taken across a busy check and the
+/// launch that follows it, so the two can't interleave.
+type Live<'a> = tokio::sync::RwLockWriteGuard<'a, HashMap<Id, AgentHandle>>;
 
 /// Internal handle held by the runtime for one live Agent.
 struct AgentHandle {
@@ -70,8 +91,8 @@ impl AgentRuntime {
         (rt, rx)
     }
 
-    /// Spawn a new Agent for the given Project and prompt. Returns the Agent
-    /// record once the process is running and its meta file is on disk.
+    /// Spawn a new Agent for the given Project and opening prompt. Returns the
+    /// Agent record once the process is running and its meta file is on disk.
     pub async fn spawn(&self, project: &Project, prompt: String) -> Result<Agent> {
         let agent_id = new_id();
         let branch = format!("cw/agent-{agent_id}");
@@ -93,50 +114,150 @@ impl AgentRuntime {
             worktree_path: worktree_path.clone(),
             branch: branch.clone(),
             base_commit,
+            // Mint the Session ID rather than waiting to read it off the
+            // stream, so the Agent is resumable even if it dies mid-first-line.
+            session_id: Some(new_session_id()),
+            turns: 1,
             spawned_at: OffsetDateTime::now_utc(),
             exited_at: None,
             exit_code: None,
             fail_reason: None,
         };
         storage::save_agent(&agent)?;
+        self.record_prompt(&agent, &prompt);
 
-        let child = Command::new(self.claude_bin.as_str())
-            .arg("--print")
-            .arg(&prompt)
+        let mut live = self.inner.write().await;
+        self.launch(agent, &prompt, Continuity::Fresh, &mut live)
+    }
+
+    /// Continue an Agent's conversation with a follow-up prompt: start a new
+    /// `claude` in the Agent's existing Worktree, resuming its Session, and put
+    /// the Agent back into `Running`.
+    ///
+    /// Refused while the Agent is working, and for an Agent with no Session or
+    /// no Worktree left to work in.
+    pub async fn resume(&self, agent_id: &str, prompt: String) -> Result<Agent> {
+        // Held from the busy check through the launch: two windows resuming the
+        // same Agent at once must not both get past the check and put two
+        // `claude`s to work in one Worktree.
+        let mut live = self.inner.write().await;
+        if live.contains_key(agent_id) {
+            return Err(Error::AgentBusy(agent_id.to_string()));
+        }
+        let mut agent = storage::load_agent(agent_id)?;
+        // Meta says Running but no supervisor owns it: a stale record this
+        // launch never adopted. Refuse rather than run two `claude`s at once.
+        if agent.state == AgentState::Running {
+            return Err(Error::AgentBusy(agent_id.to_string()));
+        }
+        let why = |why: &str| Error::NotResumable {
+            id: agent_id.to_string(),
+            why: why.to_string(),
+        };
+        if agent.session_id.is_none() {
+            return Err(why("it has no recorded session"));
+        }
+        if !agent.worktree_path.exists() {
+            return Err(why("its worktree is gone"));
+        }
+
+        agent.turns += 1;
+        agent.state = AgentState::Running;
+        agent.exited_at = None;
+        agent.exit_code = None;
+        agent.fail_reason = None;
+        storage::save_agent(&agent)?;
+        self.record_prompt(&agent, &prompt);
+        self.announce(&agent);
+
+        self.launch(agent, &prompt, Continuity::Resumed, &mut live)
+    }
+
+    /// Append the user's prompt to the Agent's log and push it to the UI.
+    fn record_prompt(&self, agent: &Agent, prompt: &str) {
+        let event = prompt_event(prompt, agent.turns);
+        let _ = storage::append_event(&agent.id, &event);
+        let _ = self.events_tx.send(RuntimeEvent::AgentEvent {
+            agent_id: agent.id.clone(),
+            event,
+        });
+    }
+
+    /// Tell consumers the Agent's persisted record moved.
+    fn announce(&self, agent: &Agent) {
+        let _ = self.events_tx.send(RuntimeEvent::StateChanged {
+            agent_id: agent.id.clone(),
+            agent: agent.clone(),
+        });
+    }
+
+    /// Start one Turn: spin up `claude` in the Agent's Worktree and hand the
+    /// child to a supervisor. A Turn that cannot even be started is a Fail, so
+    /// the Agent never sits in `Running` with no process behind it.
+    fn launch(
+        &self,
+        agent: Agent,
+        prompt: &str,
+        how: Continuity,
+        live: &mut Live<'_>,
+    ) -> Result<Agent> {
+        let mut cmd = Command::new(self.claude_bin.as_str());
+        cmd.arg("--print")
+            .arg(prompt)
             .arg("--output-format").arg("stream-json")
             .arg("--verbose")
-            .arg("--permission-mode").arg("bypassPermissions")
-            .current_dir(&worktree_path)
+            .arg("--permission-mode").arg("bypassPermissions");
+        if let Some(session) = &agent.session_id {
+            match how {
+                Continuity::Fresh => cmd.arg("--session-id").arg(session),
+                Continuity::Resumed => cmd.arg("--resume").arg(session),
+            };
+        }
+        let child = cmd
+            .current_dir(&agent.worktree_path)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true)
-            .spawn()
-            .map_err(|source| Error::Io {
-                path: worktree_path.clone(),
-                source,
-            })?;
+            .spawn();
+
+        let child = match child {
+            Ok(child) => child,
+            Err(source) => {
+                let mut failed = agent.clone();
+                failed.state = AgentState::Failed;
+                failed.exited_at = Some(OffsetDateTime::now_utc());
+                failed.fail_reason = Some(format!("could not start `claude`: {source}"));
+                let _ = storage::save_agent(&failed);
+                self.announce(&failed);
+                return Err(Error::Io {
+                    path: agent.worktree_path.clone(),
+                    source,
+                });
+            }
+        };
 
         let cancel = Arc::new(Notify::new());
         let cancel_task = cancel.clone();
         let events_tx = self.events_tx.clone();
         let inner = self.inner.clone();
-        let project_path = project.path.clone();
         let agent_for_task = agent.clone();
 
         let task = tokio::spawn(async move {
-            supervise(child, agent_for_task, project_path, cancel_task, events_tx, inner).await;
+            supervise(child, agent_for_task, cancel_task, events_tx, inner).await;
         });
 
-        self.inner.write().await.insert(
-            agent_id,
+        live.insert(
+            agent.id.clone(),
             AgentHandle { agent: agent.clone(), cancel, task },
         );
         Ok(agent)
     }
 
-    /// Request Stop for a running Agent. Returns when the supervisor has
-    /// finished (worktree reaped, meta persisted, state=Stopped).
+    /// Request Stop for a working Agent. Returns when the supervisor has
+    /// finished (meta persisted, state=Stopped). The Worktree is left alone so
+    /// the Turn's work survives and the Agent can be Resumed; Reap is a
+    /// separate, explicit action.
     pub async fn stop(&self, agent_id: &str) -> Result<()> {
         let handle = self.inner.write().await.remove(agent_id);
         match handle {
@@ -186,12 +307,11 @@ impl AgentRuntime {
     }
 }
 
-/// The per-Agent supervisor. Runs in a spawned task; owns the Child and
+/// The supervisor for one Turn. Runs in a spawned task; owns the Child and
 /// reads its stdout to EOF, watching for cancel in the meantime.
 async fn supervise(
     mut child: Child,
     mut agent: Agent,
-    project_path: std::path::PathBuf,
     cancel: Arc<Notify>,
     events_tx: mpsc::UnboundedSender<RuntimeEvent>,
     inner: Arc<RwLock<HashMap<Id, AgentHandle>>>,
@@ -203,11 +323,19 @@ async fn supervise(
     // Task: drain stdout as stream-json events.
     let agent_id_out = agent.id.clone();
     let events_tx_out = events_tx.clone();
+    // Whatever session the stream last claimed to be. We told `claude` which ID
+    // to use, but trust its own reporting over ours so a version that forks or
+    // renames the session stays resumable.
+    let observed_session: Arc<std::sync::Mutex<Option<String>>> = Arc::default();
+    let observed_out = observed_session.clone();
     let read_stdout = tokio::spawn(async move {
         let mut lines = BufReader::new(stdout).lines();
         while let Ok(Some(line)) = lines.next_line().await {
             let parsed: Value = serde_json::from_str(&line)
                 .unwrap_or_else(|_| Value::String(line.clone()));
+            if let Some(sid) = parsed.get("session_id").and_then(|v| v.as_str()) {
+                *observed_out.lock().unwrap() = Some(sid.to_string());
+            }
             let event = AgentEvent {
                 ts: OffsetDateTime::now_utc(),
                 event: parsed,
@@ -255,14 +383,18 @@ async fn supervise(
     let _ = read_stdout.await;
     let stderr_buf = read_stderr.await.unwrap_or_default();
 
+    if let Some(sid) = observed_session.lock().unwrap().take() {
+        agent.session_id = Some(sid);
+    }
+
     // Compute final Agent state.
     let now = OffsetDateTime::now_utc();
     agent.exited_at = Some(now);
     match outcome {
         Outcome::Stopped => {
+            // The Worktree stays: a Stopped Turn may have left work behind, and
+            // the Agent can be Resumed to redirect it. Reap is explicit.
             agent.state = AgentState::Stopped;
-            // On Stop, reap the worktree per V1 design.
-            let _ = worktree::reap(&project_path, &agent.worktree_path, &agent.branch).await;
         }
         Outcome::Exited(Ok(status)) => {
             agent.exit_code = status.code();
@@ -284,19 +416,28 @@ async fn supervise(
     }
 
     let _ = storage::save_agent(&agent);
+
+    // Leave the live map *before* announcing, so a UI that reacts to the exit by
+    // sending a follow-up doesn't race the removal and be told we're still busy.
+    // A no-op if stop() already took us out.
+    inner.write().await.remove(&agent.id);
+
     let _ = events_tx.send(RuntimeEvent::StateChanged {
         agent_id: agent.id.clone(),
         agent: agent.clone(),
     });
-
-    // Remove from live map if we haven't been removed by stop() already.
-    let mut inner = inner.write().await;
-    inner.remove(&agent.id);
 }
 
 enum Outcome {
     Stopped,
     Exited(std::io::Result<std::process::ExitStatus>),
+}
+
+/// Whether a Turn opens the Agent's Session or continues it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Continuity {
+    Fresh,
+    Resumed,
 }
 
 #[cfg(unix)]
@@ -427,9 +568,12 @@ while : ; do sleep 1; done
         assert_eq!(final_agent.exit_code, Some(0));
         assert!(rt.running().await.is_empty());
 
-        // Log file has 3 lines.
+        // Log file has the user's prompt plus the three streamed events.
         let log = std::fs::read_to_string(paths::agent_log_path(&agent.id).unwrap()).unwrap();
-        assert_eq!(log.lines().count(), 3);
+        assert_eq!(log.lines().count(), 4);
+        let first: AgentEvent = serde_json::from_str(log.lines().next().unwrap()).unwrap();
+        assert_eq!(first.event["type"], PROMPT_EVENT_TYPE);
+        assert_eq!(first.event["prompt"], "hello");
     }
 
     /// A fake `claude` that behaves like a real one that got partway: it commits
@@ -528,7 +672,7 @@ exit 0
     }
 
     #[tokio::test]
-    async fn stop_reaps_worktree() {
+    async fn stop_preserves_the_worktree_for_review() {
         let _env = StateEnv::new();
         let repo = init_repo().await;
         let project = sample_project(repo.path().to_path_buf());
@@ -549,7 +693,199 @@ exit 0
                 break;
             }
         }
-        assert!(!agent.worktree_path.exists(), "worktree should be reaped on Stop");
+        assert!(
+            agent.worktree_path.exists(),
+            "Stop leaves the worktree; Reap is the explicit action that removes it"
+        );
+    }
+
+    /// Waits for the Turn to end — skipping the `Running` announcement a Resume
+    /// makes on its way in.
+    async fn wait_for_exit(rx: &mut mpsc::UnboundedReceiver<RuntimeEvent>) -> Agent {
+        loop {
+            match rx.recv().await.expect("channel open") {
+                RuntimeEvent::StateChanged { agent, .. }
+                    if agent.state != AgentState::Running =>
+                {
+                    break agent
+                }
+                _ => continue,
+            }
+        }
+    }
+
+    /// A fake `claude` that appends its argv to `args_log` before replying, so a
+    /// test can check which session flags we passed.
+    fn fake_claude_recording(args_log: &std::path::Path) -> String {
+        write_script(&format!(
+            r#"#!/bin/sh
+echo "$@" >> {log}
+echo '{{"type":"assistant","message":"hi"}}'
+echo '{{"type":"result","status":"complete"}}'
+exit 0
+"#,
+            log = args_log.display()
+        ))
+    }
+
+    #[tokio::test]
+    async fn resume_continues_the_same_session_and_worktree() {
+        let _env = StateEnv::new();
+        let repo = init_repo().await;
+        let project = sample_project(repo.path().to_path_buf());
+        let args_log = std::env::temp_dir().join(format!("cw-args-{}.txt", new_id()));
+        let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_recording(&args_log));
+
+        let agent = rt.spawn(&project, "first".into()).await.unwrap();
+        let session = agent.session_id.clone().expect("spawn mints a session");
+        let after_first = wait_for_exit(&mut rx).await;
+        assert_eq!(after_first.state, AgentState::Completed);
+        assert_eq!(after_first.turns, 1);
+
+        let resumed = rt.resume(&agent.id, "second".into()).await.unwrap();
+        assert_eq!(resumed.state, AgentState::Running);
+        assert_eq!(resumed.turns, 2, "a follow-up is a new Turn on the same Agent");
+        assert_eq!(resumed.worktree_path, agent.worktree_path, "same sandbox");
+        assert_eq!(resumed.session_id.as_deref(), Some(session.as_str()));
+
+        let after_second = wait_for_exit(&mut rx).await;
+        assert_eq!(after_second.state, AgentState::Completed);
+        assert_eq!(after_second.turns, 2);
+
+        // The opening Turn started the session; the follow-up resumed it.
+        let args = std::fs::read_to_string(&args_log).unwrap();
+        let lines: Vec<&str> = args.lines().collect();
+        assert_eq!(lines.len(), 2, "one `claude` per Turn: {args}");
+        assert!(lines[0].contains(&format!("--session-id {session}")), "{}", lines[0]);
+        assert!(lines[1].contains(&format!("--resume {session}")), "{}", lines[1]);
+        assert!(!lines[1].contains("--session-id"), "{}", lines[1]);
+
+        // Both prompts are in the transcript, each tagged with its Turn.
+        let logged = storage::read_events(&agent.id).unwrap();
+        let prompts: Vec<(&str, u64)> = logged
+            .iter()
+            .filter(|e| e.event["type"] == PROMPT_EVENT_TYPE)
+            .map(|e| {
+                (
+                    e.event["prompt"].as_str().unwrap(),
+                    e.event["turn"].as_u64().unwrap(),
+                )
+            })
+            .collect();
+        assert_eq!(prompts, vec![("first", 1), ("second", 2)]);
+    }
+
+    #[tokio::test]
+    async fn resume_is_refused_while_the_agent_is_working() {
+        let _env = StateEnv::new();
+        let repo = init_repo().await;
+        let project = sample_project(repo.path().to_path_buf());
+        let (rt, _rx) = AgentRuntime::with_bin(fake_claude_hang());
+
+        let agent = rt.spawn(&project, "hang".into()).await.unwrap();
+        let err = rt.resume(&agent.id, "hurry up".into()).await.unwrap_err();
+        assert!(matches!(err, Error::AgentBusy(_)), "{err:?}");
+
+        rt.stop(&agent.id).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_stopped_agent_can_still_be_resumed() {
+        let _env = StateEnv::new();
+        let repo = init_repo().await;
+        let project = sample_project(repo.path().to_path_buf());
+        let args_log = std::env::temp_dir().join(format!("cw-args-{}.txt", new_id()));
+        let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_hang());
+
+        let agent = rt.spawn(&project, "go off the rails".into()).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        rt.stop(&agent.id).await.unwrap();
+        let stopped = wait_for_exit(&mut rx).await;
+        assert_eq!(stopped.state, AgentState::Stopped);
+
+        // Redirecting a Stopped Agent is the point of keeping its worktree.
+        let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_recording(&args_log));
+        let resumed = rt.resume(&agent.id, "do it differently".into()).await.unwrap();
+        assert_eq!(resumed.turns, 2);
+        assert_eq!(wait_for_exit(&mut rx).await.state, AgentState::Completed);
+    }
+
+    #[tokio::test]
+    async fn resume_is_refused_when_the_worktree_is_gone() {
+        let _env = StateEnv::new();
+        let repo = init_repo().await;
+        let project = sample_project(repo.path().to_path_buf());
+        let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_ok());
+
+        let agent = rt.spawn(&project, "hello".into()).await.unwrap();
+        wait_for_exit(&mut rx).await;
+        worktree::reap(&project.path, &agent.worktree_path, &agent.branch)
+            .await
+            .unwrap();
+
+        let err = rt.resume(&agent.id, "more".into()).await.unwrap_err();
+        assert!(
+            matches!(&err, Error::NotResumable { why, .. } if why.contains("worktree")),
+            "{err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn resume_is_refused_for_an_agent_with_no_session() {
+        let _env = StateEnv::new();
+        let a = Agent {
+            id: new_id(),
+            project_id: new_id(),
+            task: Task { prompt: "from before sessions existed".into() },
+            state: AgentState::Completed,
+            worktree_path: std::env::temp_dir(),
+            base_commit: None,
+            session_id: None,
+            turns: 1,
+            branch: "cw/agent-old".into(),
+            spawned_at: OffsetDateTime::now_utc(),
+            exited_at: Some(OffsetDateTime::now_utc()),
+            exit_code: Some(0),
+            fail_reason: None,
+        };
+        storage::save_agent(&a).unwrap();
+        let (rt, _rx) = AgentRuntime::with_bin(fake_claude_ok());
+
+        let err = rt.resume(&a.id, "carry on".into()).await.unwrap_err();
+        assert!(
+            matches!(&err, Error::NotResumable { why, .. } if why.contains("session")),
+            "{err:?}"
+        );
+    }
+
+    /// If `claude` reports a session other than the one we asked for, believe it
+    /// — that ID is what a later Resume has to pass.
+    #[tokio::test]
+    async fn a_session_id_from_the_stream_wins_over_ours() {
+        let _env = StateEnv::new();
+        let repo = init_repo().await;
+        let project = sample_project(repo.path().to_path_buf());
+        let bin = write_script(
+            r#"#!/bin/sh
+echo '{"type":"system","subtype":"init","session_id":"deadbeef-0000-4000-8000-000000000001"}'
+exit 0
+"#,
+        );
+        let (rt, mut rx) = AgentRuntime::with_bin(bin);
+
+        let agent = rt.spawn(&project, "hello".into()).await.unwrap();
+        let minted = agent.session_id.clone().unwrap();
+        let done = wait_for_exit(&mut rx).await;
+        assert_ne!(done.session_id.as_deref(), Some(minted.as_str()));
+        assert_eq!(
+            done.session_id.as_deref(),
+            Some("deadbeef-0000-4000-8000-000000000001")
+        );
+        assert_eq!(
+            storage::load_agent(&agent.id).unwrap().session_id,
+            done.session_id,
+            "the corrected session must be persisted, or Resume passes the wrong one"
+        );
     }
 
     #[tokio::test]
@@ -563,6 +899,8 @@ exit 0
             state: AgentState::Running,
             worktree_path: "/tmp/wt".into(),
             base_commit: None,
+            session_id: Some("11111111-2222-4333-8444-555555555555".into()),
+            turns: 1,
             branch: "cw/agent-x".into(),
             spawned_at: OffsetDateTime::now_utc(),
             exited_at: None,

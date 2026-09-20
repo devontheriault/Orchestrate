@@ -1,6 +1,7 @@
 <script lang="ts">
   import { store } from "./store.svelte";
   import AgentDiff from "./AgentDiff.svelte";
+  import AgentComposer from "./AgentComposer.svelte";
   import type { AgentEvent } from "./api";
 
   /** Present only when the agent list is off-screen, on a narrow window. */
@@ -8,6 +9,34 @@
 
   let showRaw = $state(false);
   let streamEl: HTMLDivElement | undefined = $state();
+
+  /**
+   * Reap deletes the worktree, the branch, and with it the agent's session —
+   * everything not merged out is gone. It used to happen only as part of an
+   * explicit Stop; now that Stop preserves work, Reap is the one destructive
+   * button in the app, so it takes two clicks.
+   */
+  let reapArmed = $state(false);
+  let disarm: ReturnType<typeof setTimeout> | undefined;
+
+  function armReap() {
+    reapArmed = true;
+    clearTimeout(disarm);
+    disarm = setTimeout(() => (reapArmed = false), 4000);
+  }
+
+  function reap() {
+    clearTimeout(disarm);
+    reapArmed = false;
+    store.reapAgent(store.selectedAgent!.id);
+  }
+
+  // Never leave the trigger armed across a change of agent.
+  $effect(() => {
+    store.selectedAgentId;
+    clearTimeout(disarm);
+    reapArmed = false;
+  });
 
   // On new events, only auto-scroll if the user is already near the bottom.
   $effect(() => {
@@ -34,6 +63,7 @@
   // Helpers to decode common stream-json event shapes without breaking on
   // unknowns. Anything unrecognised falls through to the raw-JSON card.
   type Kind =
+    | { kind: "prompt"; text: string }
     | { kind: "system"; subtype: string }
     | { kind: "text"; text: string }
     | { kind: "tool_use"; name: string; input: unknown; id: string }
@@ -43,8 +73,10 @@
     | { kind: "raw"; type?: string };
 
   function classify(ev: AgentEvent): Kind[] {
-    const e = ev.event as { type?: string; message?: any; subtype?: string; result?: string; is_error?: boolean } | null;
+    const e = ev.event as { type?: string; message?: any; subtype?: string; result?: string; is_error?: boolean; prompt?: string } | null;
     if (!e || typeof e !== "object") return [{ kind: "raw" }];
+    // Our own event, not claude's: the prompt the user sent for this turn.
+    if (e.type === "cw_prompt") return [{ kind: "prompt", text: e.prompt ?? "" }];
     if (e.type === "system") return [{ kind: "system", subtype: e.subtype ?? "?" }];
     if (e.type === "result")
       return [{ kind: "result", result: e.result ?? "", is_error: !!e.is_error }];
@@ -133,8 +165,13 @@
         {:else}
           <button
             class="reap"
-            onclick={() => store.reapAgent(store.selectedAgent!.id)}>Reap</button
+            class:armed={reapArmed}
+            onclick={() => (reapArmed ? reap() : armReap())}
+            onblur={() => (reapArmed = false)}
+            title="Delete this agent's worktree and branch — uncommitted work and its conversation go with them"
           >
+            {reapArmed ? "Reap for good?" : "Reap"}
+          </button>
         {/if}
       </div>
     {:else}
@@ -170,7 +207,9 @@
       {:else}
         {#each store.eventsForSelected as ev, i (i)}
           {#each classify(ev) as k}
-            {#if k.kind === "text"}
+            {#if k.kind === "prompt"}
+              <div class="block prompt-block">{k.text}</div>
+            {:else if k.kind === "text"}
               <div class="block text">{k.text}</div>
             {:else if k.kind === "tool_use"}
               <details class="block tool">
@@ -203,6 +242,7 @@
         {/each}
       {/if}
     </div>
+    <AgentComposer />
   {/if}
 </section>
 
@@ -376,6 +416,14 @@
   .stop:hover { border-color: #ef4444; color: #ef4444; }
   .reap:hover { border-color: var(--accent); color: var(--accent); }
 
+  .reap.armed,
+  .reap.armed:hover {
+    border-color: #ef4444;
+    background: #ef4444;
+    color: #fff;
+    font-weight: 500;
+  }
+
   .stream {
     flex: 1;
     min-height: 0;
@@ -407,6 +455,21 @@
     padding: 0.15rem 0;
     /* Prose stops at a readable measure however wide the window gets. */
     max-width: min(100%, var(--measure));
+  }
+
+  /* The user's side of the conversation: indented, so turns are easy to find
+     when scanning a long transcript. */
+  .prompt-block {
+    align-self: flex-start;
+    max-width: min(100%, var(--measure));
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    background: var(--selected);
+    border-left: 2px solid var(--accent);
+    border-radius: 0 6px 6px 0;
+    padding: 0.45rem 0.7rem;
+    margin: 0.45rem 0 0.2rem;
+    font-size: 0.88rem;
   }
 
   details.block {

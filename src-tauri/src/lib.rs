@@ -72,6 +72,7 @@ pub fn run() {
             commands::remove_project,
             commands::list_agents,
             commands::spawn_agent,
+            commands::resume_agent,
             commands::stop_agent,
             commands::reap_agent,
             commands::agent_events,
