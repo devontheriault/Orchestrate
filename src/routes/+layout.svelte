@@ -15,6 +15,10 @@
     --selected: #e6efff;
     --accent: #3b82f6;
     --code-bg: #eef0f3;
+    --running: #16a34a;
+    --running-bg: rgba(34, 197, 94, 0.14);
+    --attention: #d97706;
+    --attention-bg: rgba(245, 158, 11, 0.16);
 
     font-family:
       -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", Roboto, sans-serif;
@@ -47,6 +51,10 @@
       --selected: #253044;
       --accent: #60a5fa;
       --code-bg: #23262e;
+      --running: #4ade80;
+      --running-bg: rgba(34, 197, 94, 0.18);
+      --attention: #fbbf24;
+      --attention-bg: rgba(245, 158, 11, 0.2);
     }
   }
 

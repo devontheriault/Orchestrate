@@ -8,6 +8,21 @@ import {
 } from "./api";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 
+/** What a project's agents are doing right now, summarised for the sidebar. */
+export type ProjectActivity = {
+  running: number;
+  /** Agents that exited needing a human look: failed or orphaned. */
+  attention: number;
+  /** The most recently spawned running agent, for a "what's it doing" line. */
+  latestRunning: Agent | null;
+};
+
+const NO_ACTIVITY: ProjectActivity = {
+  running: 0,
+  attention: 0,
+  latestRunning: null,
+};
+
 class AppStore {
   projects = $state<Project[]>([]);
   agents = $state<Agent[]>([]);
@@ -37,6 +52,28 @@ class AppStore {
       ? this.agents.filter((a) => a.project_id === this.selectedProjectId)
       : [],
   );
+
+  activityByProject = $derived.by(() => {
+    const map = new Map<string, ProjectActivity>();
+    for (const a of this.agents) {
+      const entry = map.get(a.project_id) ?? { ...NO_ACTIVITY };
+      if (a.state === "running") {
+        entry.running += 1;
+        const newer =
+          !entry.latestRunning ||
+          Date.parse(a.spawned_at) >= Date.parse(entry.latestRunning.spawned_at);
+        if (newer) entry.latestRunning = a;
+      } else if (a.state === "failed" || a.state === "orphaned") {
+        entry.attention += 1;
+      }
+      map.set(a.project_id, entry);
+    }
+    return map;
+  });
+
+  activityFor(projectId: string): ProjectActivity {
+    return this.activityByProject.get(projectId) ?? NO_ACTIVITY;
+  }
 
   selectedAgent = $derived(
     this.selectedAgentId

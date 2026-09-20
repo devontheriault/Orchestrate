@@ -8,6 +8,15 @@
     const name = picked.split("/").filter(Boolean).pop() ?? picked;
     await store.addProject(name, picked);
   }
+
+  /** The line under a project name: what's running, or the path when idle. */
+  function subtitle(projectId: string, path: string): string {
+    const { running, latestRunning } = store.activityFor(projectId);
+    if (running === 0) return path;
+    if (running > 1) return `${running} agents running`;
+    const first = latestRunning?.task.prompt.split("\n")[0]?.trim();
+    return first ? first : "1 agent running";
+  }
 </script>
 
 <aside>
@@ -24,14 +33,37 @@
   {:else}
     <ul>
       {#each store.projects as p (p.id)}
+        {@const activity = store.activityFor(p.id)}
         <li class:selected={store.selectedProjectId === p.id}>
           <button
             class="row"
+            class:active={activity.running > 0}
             onclick={() => store.selectProject(p.id)}
             aria-current={store.selectedProjectId === p.id ? "true" : undefined}
+            title={p.path}
           >
-            <span class="name">{p.name}</span>
-            <span class="path">{p.path}</span>
+            <span class="name-row">
+              <span class="name">{p.name}</span>
+              {#if activity.running > 0}
+                <span
+                  class="badge running"
+                  title={`${activity.running} agent${activity.running === 1 ? "" : "s"} running`}
+                >
+                  <span class="dot"></span>
+                  {activity.running}
+                </span>
+              {:else if activity.attention > 0}
+                <span
+                  class="badge attention"
+                  title={`${activity.attention} agent${activity.attention === 1 ? "" : "s"} need attention`}
+                >
+                  {activity.attention}
+                </span>
+              {/if}
+            </span>
+            <span class="sub" class:path={activity.running === 0}>
+              {subtitle(p.id, p.path)}
+            </span>
           </button>
           <button
             class="remove"
@@ -145,7 +177,7 @@
     display: flex;
     flex-direction: column;
     gap: 0.15rem;
-    padding: 0.55rem 0.9rem;
+    padding: 0.55rem 1.7rem 0.55rem 0.9rem;
     background: transparent;
     border: none;
     text-align: left;
@@ -154,18 +186,86 @@
     min-width: 0;
   }
 
+  .name-row {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    min-width: 0;
+  }
+
   .name {
     font-size: 0.9rem;
     font-weight: 500;
-  }
-
-  .path {
-    font-size: 0.72rem;
-    color: var(--fg-muted);
-    font-family: ui-monospace, monospace;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  .row.active .name {
+    font-weight: 600;
+  }
+
+  .badge {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.28rem;
+    font-size: 0.68rem;
+    font-weight: 600;
+    line-height: 1;
+    padding: 0.16rem 0.38rem;
+    border-radius: 999px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .badge.running {
+    color: var(--running);
+    background: var(--running-bg);
+  }
+
+  .badge.attention {
+    color: var(--attention);
+    background: var(--attention-bg);
+  }
+
+  .badge .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--running);
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.35;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .badge .dot {
+      animation: none;
+    }
+  }
+
+  .sub {
+    font-size: 0.72rem;
+    color: var(--fg-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .row.active .sub {
+    color: var(--running);
+  }
+
+  .sub.path {
+    font-family: ui-monospace, monospace;
   }
 
   .remove {
