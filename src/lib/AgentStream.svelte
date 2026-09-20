@@ -2,6 +2,7 @@
   import { store } from "./store.svelte";
   import AgentDiff from "./AgentDiff.svelte";
   import AgentComposer from "./AgentComposer.svelte";
+  import Markdown from "./Markdown.svelte";
   import type { AgentEvent } from "./api";
 
   /** Present only when the agent list is off-screen, on a narrow window. */
@@ -328,7 +329,7 @@
             {#if k.kind === "prompt"}
               <div class="block prompt-block">{k.text}</div>
             {:else if k.kind === "text"}
-              <div class="block text">{k.text}</div>
+              <div class="block text"><Markdown text={k.text} /></div>
             {:else if k.kind === "tool_use"}
               <details class="block tool">
                 <summary>→ {k.name} <span class="mono">{shortenInput(k.input)}</span></summary>
@@ -342,7 +343,7 @@
             {:else if k.kind === "thinking"}
               <details class="block thinking">
                 <summary>thinking</summary>
-                <pre>{k.text}</pre>
+                <div class="thinking-body"><Markdown text={k.text} /></div>
               </details>
             {:else if k.kind === "system"}
               <div class="block system">session: {k.subtype}</div>
@@ -587,9 +588,9 @@
     min-width: 0;
   }
 
+  /* Claude answers in markdown, so the transcript renders it as a document
+     rather than as the source. `Markdown` brings its own spacing. */
   .text {
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
     padding: 0.15rem 0;
     /* Prose stops at a readable measure however wide the window gets. */
     max-width: min(100%, var(--measure));
@@ -636,6 +637,15 @@
     overflow-wrap: anywhere;
     color: var(--fg);
     /* A very long line scrolls inside the card instead of stretching it. */
+    max-height: min(60vh, 34rem);
+    overflow: auto;
+  }
+
+  /* Thinking is prose too, but a long stretch of it scrolls inside its card
+     instead of burying the answer that follows. */
+  .thinking-body {
+    font-size: 0.86rem;
+    color: var(--fg-muted);
     max-height: min(60vh, 34rem);
     overflow: auto;
   }
