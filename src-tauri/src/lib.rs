@@ -1,3 +1,4 @@
+pub mod commands;
 pub mod error;
 pub mod model;
 pub mod paths;
@@ -8,17 +9,73 @@ pub mod worktree;
 #[cfg(test)]
 pub(crate) mod test_util;
 
-// Placeholder command wired in Phase 3; kept so the scaffold page still renders.
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {name}! You've been greeted from Rust!")
+use serde::Serialize;
+use tauri::{Emitter, Manager};
+
+use commands::AppState;
+use model::{Agent, AgentEvent};
+use runtime::{AgentRuntime, RuntimeEvent};
+
+/// Payload for the `agent-event` Tauri event: one stream-json line from a
+/// running Agent, timestamped and tagged with which Agent produced it.
+#[derive(Serialize, Clone)]
+struct AgentEventPayload {
+    agent_id: String,
+    event: AgentEvent,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let startup_orphans = runtime::adopt_orphans_on_launch().unwrap_or_default();
+    let (rt, rx) = AgentRuntime::new();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet])
+        .plugin(tauri_plugin_dialog::init())
+        .setup(move |app| {
+            let handle = app.handle().clone();
+            let mut rx = rx;
+            tauri::async_runtime::spawn(async move {
+                while let Some(ev) = rx.recv().await {
+                    match ev {
+                        RuntimeEvent::AgentEvent { agent_id, event } => {
+                            let _ =
+                                handle.emit("agent-event", AgentEventPayload { agent_id, event });
+                        }
+                        RuntimeEvent::StateChanged { agent, .. } => {
+                            let _ = handle.emit::<Agent>("agent-state-changed", agent);
+                        }
+                    }
+                }
+            });
+            Ok(())
+        })
+        .manage(AppState {
+            runtime: rt,
+            startup_orphans,
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { .. } = event {
+                // Best-effort: mark live Agents as Orphaned before the process
+                // dies. If this race is lost, adopt_orphans_on_launch catches
+                // them on the next start.
+                let state = window.state::<AppState>();
+                let runtime = state.runtime.clone();
+                tauri::async_runtime::block_on(async move {
+                    runtime.shutdown().await;
+                });
+            }
+        })
+        .invoke_handler(tauri::generate_handler![
+            commands::list_projects,
+            commands::add_project,
+            commands::remove_project,
+            commands::list_agents,
+            commands::spawn_agent,
+            commands::stop_agent,
+            commands::reap_agent,
+            commands::startup_orphans,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

@@ -1,110 +1,72 @@
 <script lang="ts">
-  import { invoke } from "@tauri-apps/api/core";
+  import { onMount, onDestroy } from "svelte";
+  import ProjectSidebar from "$lib/ProjectSidebar.svelte";
+  import AgentList from "$lib/AgentList.svelte";
+  import AgentStream from "$lib/AgentStream.svelte";
+  import SpawnModal from "$lib/SpawnModal.svelte";
+  import { store } from "$lib/store.svelte";
 
-  let name = $state("");
-  let greetMsg = $state("");
+  let showSpawn = $state(false);
 
-  async function greet(event: SubmitEvent) {
-    event.preventDefault();
-    greetMsg = await invoke<string>("greet", { name });
-  }
+  onMount(() => {
+    store.start();
+  });
+
+  onDestroy(() => {
+    store.stop();
+  });
 </script>
 
-<main class="container">
-  <h1>Claude Wrapper</h1>
-  <p>Scaffold placeholder — replaced in Phase 4.</p>
+{#if store.error}
+  <div class="error" role="alert">
+    {store.error}
+    <button onclick={() => (store.error = null)}>×</button>
+  </div>
+{/if}
 
-  <form class="row" onsubmit={greet}>
-    <input id="greet-input" placeholder="Enter a name..." bind:value={name} />
-    <button type="submit">Greet</button>
-  </form>
-  <p>{greetMsg}</p>
+<main>
+  <ProjectSidebar />
+  <AgentList onSpawn={() => (showSpawn = true)} />
+  <AgentStream />
 </main>
 
+{#if showSpawn}
+  <SpawnModal onClose={() => (showSpawn = false)} />
+{/if}
+
 <style>
-  :root {
-    font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
-    font-size: 16px;
-    line-height: 24px;
-    font-weight: 400;
-
-    color: #0f0f0f;
-    background-color: #f6f6f6;
-
-    font-synthesis: none;
-    text-rendering: optimizeLegibility;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    -webkit-text-size-adjust: 100%;
-  }
-
-  .container {
-    margin: 0;
-    padding-top: 10vh;
+  main {
     display: flex;
-    flex-direction: column;
-    justify-content: center;
-    text-align: center;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
   }
 
-  .row {
+  .error {
+    background: #fee2e2;
+    color: #991b1b;
+    padding: 0.55rem 0.9rem;
     display: flex;
-    justify-content: center;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.85rem;
+    border-bottom: 1px solid #fca5a5;
   }
 
-  h1 {
-    text-align: center;
-  }
-
-  input,
-  button {
-    border-radius: 8px;
-    border: 1px solid transparent;
-    padding: 0.6em 1.2em;
-    font-size: 1em;
-    font-weight: 500;
-    font-family: inherit;
-    color: #0f0f0f;
-    background-color: #ffffff;
-    transition: border-color 0.25s;
-    box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2);
-  }
-
-  button {
+  .error button {
+    background: transparent;
+    border: none;
+    color: inherit;
     cursor: pointer;
-  }
-
-  button:hover {
-    border-color: #396cd8;
-  }
-
-  button:active {
-    border-color: #396cd8;
-    background-color: #e8e8e8;
-  }
-
-  input,
-  button {
-    outline: none;
-  }
-
-  #greet-input {
-    margin-right: 5px;
+    font-size: 1.1rem;
+    padding: 0 0.5rem;
   }
 
   @media (prefers-color-scheme: dark) {
-    :root {
-      color: #f6f6f6;
-      background-color: #2f2f2f;
-    }
-
-    input,
-    button {
-      color: #ffffff;
-      background-color: #0f0f0f98;
-    }
-    button:active {
-      background-color: #0f0f0f69;
+    .error {
+      background: #451a1a;
+      color: #fca5a5;
+      border-color: #7f1d1d;
     }
   }
 </style>

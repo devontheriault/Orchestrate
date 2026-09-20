@@ -105,7 +105,7 @@ impl AgentRuntime {
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .kill_on_drop(false)
+            .kill_on_drop(true)
             .spawn()
             .map_err(|source| Error::Io {
                 path: worktree_path.clone(),
