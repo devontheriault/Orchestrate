@@ -74,6 +74,7 @@ pub fn run() {
             commands::spawn_agent,
             commands::stop_agent,
             commands::reap_agent,
+            commands::agent_events,
             commands::agent_diff,
             commands::agent_commit,
             commands::startup_orphans,

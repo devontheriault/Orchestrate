@@ -72,6 +72,22 @@ pub fn append_event(agent_id: &str, event: &AgentEvent) -> Result<()> {
         .map_err(|source| Error::Io { path, source })
 }
 
+/// Replay an Agent's event log, oldest first. A missing log means the Agent
+/// has not produced output yet, which is not an error. Lines that fail to parse
+/// are skipped: the last line of a live log can be half-written.
+pub fn read_events(agent_id: &str) -> Result<Vec<AgentEvent>> {
+    let path = paths::agent_log_path(agent_id)?;
+    let contents = match fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(source) => return Err(Error::Io { path, source }),
+    };
+    Ok(contents
+        .lines()
+        .filter_map(|line| serde_json::from_str(line).ok())
+        .collect())
+}
+
 /// List all Agents on disk by scanning meta files. Order is unspecified.
 pub fn list_agents() -> Result<Vec<Agent>> {
     let dir = paths::logs_dir()?;
@@ -184,6 +200,44 @@ mod tests {
         }
         let log = fs::read_to_string(paths::agent_log_path(&a.id).unwrap()).unwrap();
         assert_eq!(log.lines().count(), 3);
+    }
+
+    #[test]
+    fn read_events_replays_in_order() {
+        let _env = StateEnv::new();
+        let a = sample_agent();
+        for i in 0..3 {
+            let e = AgentEvent {
+                ts: OffsetDateTime::now_utc(),
+                event: serde_json::json!({"n": i}),
+            };
+            append_event(&a.id, &e).unwrap();
+        }
+        let back = read_events(&a.id).unwrap();
+        assert_eq!(back.len(), 3);
+        assert_eq!(back[0].event, serde_json::json!({"n": 0}));
+        assert_eq!(back[2].event, serde_json::json!({"n": 2}));
+    }
+
+    #[test]
+    fn read_events_empty_when_no_log() {
+        let _env = StateEnv::new();
+        assert!(read_events("nope").unwrap().is_empty());
+    }
+
+    #[test]
+    fn read_events_skips_a_half_written_line() {
+        let _env = StateEnv::new();
+        let a = sample_agent();
+        let e = AgentEvent {
+            ts: OffsetDateTime::now_utc(),
+            event: serde_json::json!({"n": 0}),
+        };
+        append_event(&a.id, &e).unwrap();
+        let path = paths::agent_log_path(&a.id).unwrap();
+        let mut f = fs::OpenOptions::new().append(true).open(&path).unwrap();
+        f.write_all(b"{\"ts\":\"2026-09-20T14:00:00").unwrap();
+        assert_eq!(read_events(&a.id).unwrap().len(), 1);
     }
 
     #[test]

@@ -79,6 +79,8 @@ export const api = {
     invoke<Agent>("spawn_agent", { projectId, prompt }),
   stopAgent: (agentId: string) => invoke<void>("stop_agent", { agentId }),
   reapAgent: (agentId: string) => invoke<void>("reap_agent", { agentId }),
+  agentEvents: (agentId: string) =>
+    invoke<AgentEvent[]>("agent_events", { agentId }),
   agentDiff: (agentId: string) => invoke<WorktreeDiff>("agent_diff", { agentId }),
   agentCommit: (agentId: string, message: string) =>
     invoke<Commit>("agent_commit", { agentId, message }),

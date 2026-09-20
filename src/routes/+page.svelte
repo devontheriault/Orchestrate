@@ -40,6 +40,20 @@
     return () => window.removeEventListener("keydown", onKey);
   });
 
+  // Ctrl+Alt+R reloads the UI. Deliberately unconditional — it works with the
+  // modal open and while typing, since a reload is the way out of a wedged
+  // view. `code` rather than `key` so it survives non-QWERTY layouts.
+  $effect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.ctrlKey || !e.altKey || e.metaKey || e.shiftKey) return;
+      if (e.code !== "KeyR" && e.key.toLowerCase() !== "r") return;
+      e.preventDefault();
+      store.reload();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
   const showOrphanBanner = $derived(
     store.orphans.length > 0 && !store.orphanBannerDismissed,
   );

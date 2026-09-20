@@ -23,6 +23,41 @@ const NO_ACTIVITY: ProjectActivity = {
   latestRunning: null,
 };
 
+/** Identity of an event, for reconciling a replayed log with live arrivals. */
+function eventKey(e: AgentEvent): string {
+  return `${e.ts}:${JSON.stringify(e.event)}`;
+}
+
+/**
+ * The log is written before an event is emitted, so a replay is a superset of
+ * what arrived live — except for anything emitted after the read. Keep the
+ * log's order and append only the live events it doesn't already contain.
+ */
+function mergeEvents(logged: AgentEvent[], live: AgentEvent[]): AgentEvent[] {
+  if (live.length === 0) return logged;
+  const seen = new Set(logged.map(eventKey));
+  return [...logged, ...live.filter((e) => !seen.has(eventKey(e)))];
+}
+
+/**
+ * Where the user was, stashed across a reload. sessionStorage is scoped to this
+ * webview session, so it survives Ctrl+Alt+R and is gone on the next launch.
+ */
+const RESUME_KEY = "cw:resume-selection";
+
+type Selection = { project: string | null; agent: string | null };
+
+function takeResumeSelection(): Selection | null {
+  try {
+    const raw = sessionStorage.getItem(RESUME_KEY);
+    if (!raw) return null;
+    sessionStorage.removeItem(RESUME_KEY);
+    return JSON.parse(raw) as Selection;
+  } catch {
+    return null;
+  }
+}
+
 class AppStore {
   projects = $state<Project[]>([]);
   agents = $state<Agent[]>([]);
@@ -43,6 +78,9 @@ class AppStore {
 
   orphanBannerDismissed = $state<boolean>(false);
   error = $state<string | null>(null);
+
+  /** Agents whose on-disk log has been replayed into `eventsByAgent`. */
+  private hydrated = new Set<string>();
 
   private unlisteners: UnlistenFn[] = [];
   private started = false;
@@ -125,12 +163,45 @@ class AppStore {
         api.listAgents(),
         api.startupOrphans(),
       ]);
-      if (!this.selectedProjectId && this.projects.length > 0) {
-        this.selectedProjectId = this.projects[0].id;
-      }
+      this.applyInitialSelection();
     } catch (e) {
       this.error = String(e);
     }
+  }
+
+  /**
+   * Pick what to show on a fresh load: whatever a reload asked us to resume,
+   * else the first project.
+   */
+  private applyInitialSelection() {
+    if (this.selectedProjectId) return;
+    const resume = takeResumeSelection();
+    const project =
+      resume?.project && this.projects.some((p) => p.id === resume.project)
+        ? resume.project
+        : this.projects[0]?.id ?? null;
+    this.selectedProjectId = project;
+
+    const resumable =
+      resume?.agent &&
+      this.agents.some((a) => a.id === resume.agent && a.project_id === project);
+    if (resumable) this.selectAgent(resume.agent);
+  }
+
+  /** Stash the current selection, then reload the webview. */
+  reload() {
+    try {
+      sessionStorage.setItem(
+        RESUME_KEY,
+        JSON.stringify({
+          project: this.selectedProjectId,
+          agent: this.selectedAgentId,
+        } satisfies Selection),
+      );
+    } catch {
+      // Not worth blocking the reload over.
+    }
+    window.location.reload();
   }
 
   async addProject(name: string, path: string) {
@@ -164,6 +235,25 @@ class AppStore {
     if (id === this.selectedAgentId) return;
     this.selectedAgentId = id;
     this.clearDiff();
+    if (id) this.hydrateEvents(id);
+  }
+
+  /**
+   * Fill an Agent's output pane from its log on disk. Only the events streamed
+   * to this window are held in memory, so after a reload — or for an Agent that
+   * ran before this window opened — the pane would otherwise start empty.
+   */
+  async hydrateEvents(id: string) {
+    if (this.hydrated.has(id)) return;
+    this.hydrated.add(id);
+    try {
+      const logged = await api.agentEvents(id);
+      this.eventsByAgent[id] = mergeEvents(logged, this.eventsByAgent[id] ?? []);
+    } catch (e) {
+      // Leave it unhydrated so re-selecting the Agent tries again.
+      this.hydrated.delete(id);
+      this.error = String(e);
+    }
   }
 
   showTab(tab: "output" | "diff") {
@@ -252,6 +342,7 @@ class AppStore {
       await api.reapAgent(id);
       this.agents = this.agents.filter((a) => a.id !== id);
       delete this.eventsByAgent[id];
+      this.hydrated.delete(id);
       if (this.selectedAgentId === id) {
         this.selectedAgentId = null;
         this.clearDiff();

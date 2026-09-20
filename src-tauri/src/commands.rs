@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use tauri::State;
 use time::OffsetDateTime;
 
-use crate::model::{new_id, Agent, AgentState, Project};
+use crate::model::{new_id, Agent, AgentEvent, AgentState, Project};
 use crate::runtime::AgentRuntime;
 use crate::git::{self, Commit, WorktreeDiff};
 use crate::{paths, storage, worktree};
@@ -97,6 +97,14 @@ pub async fn reap_agent(agent_id: String) -> Result<(), String> {
         std::fs::remove_file(&meta).map_err(err)?;
     }
     Ok(())
+}
+
+/// Replay of the Agent's output, read back from its log on disk. Lets the UI
+/// rebuild the output pane after a reload without disturbing a running Agent —
+/// live events keep arriving on the `agent-event` channel either way.
+#[tauri::command]
+pub async fn agent_events(agent_id: String) -> Result<Vec<AgentEvent>, String> {
+    storage::read_events(&agent_id).map_err(err)
 }
 
 /// Everything the Agent has produced in its Worktree, relative to the commit it
