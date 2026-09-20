@@ -36,6 +36,10 @@ _Avoid_: Engine, Backend, Tier.
 The Claude Code conversation history behind an Agent, named by the UUID we mint at Spawn and pass as `--session-id`. Claude Code owns the transcript; we only keep the ID, and Resume hands it back via `--resume`. A Session is scoped to the directory it started in, which is why it survives exactly as long as the Agent's Worktree does.
 _Avoid_: using it as a synonym for Agent (an Agent is the thing the user talks to; the Session is the history that makes talking again possible), Thread, History, Context.
 
+**Usage**:
+What Turns have cost: tokens and dollars per Model, plus how much of the account's rate-limit windows is spent. Read back out of the Agent logs rather than tallied as events arrive — Claude Code reports a Turn's per-model totals on its `result` event and the account's windows on `rate_limit_event`, so the logs are the record and the numbers are right after a restart. Account-wide rather than per-Project: every Agent spends against the same limits, which is why the usage window totals across Agents by default, and why a log that outlived its Reaped Agent still counts toward the total.
+_Avoid_: Cost (only half of it), Quota, Budget (nothing here enforces one), Stats.
+
 ## Agent lifecycle
 
 An Agent moves through these states, and each transition has a specific verb.

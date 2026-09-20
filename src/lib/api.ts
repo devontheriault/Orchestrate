@@ -84,6 +84,52 @@ export type WorktreeDiff = {
   uncommitted: boolean;
 };
 
+/** What one Model cost across the Turns that used it. */
+export type ModelUsage = {
+  /** The model as `--model` names it. */
+  model: string;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_creation_tokens: number;
+  /** Claude Code's own cost figure for those tokens, in USD. */
+  cost_usd: number;
+  context_window: number | null;
+};
+
+/** One Agent's share of the total, biggest spender first. */
+export type AgentUsage = {
+  agent_id: string;
+  models: ModelUsage[];
+  /** Turns that reached an answer. */
+  turns: number;
+  last_at: string | null;
+};
+
+/** One rate-limit window on the account. */
+export type LimitWindow = {
+  /** Claude Code's name for it: `five_hour`, `seven_day`, … */
+  kind: string;
+  /** How much of the window is spent, 0–1. */
+  utilization: number;
+  /** Unix seconds at which it rolls over. */
+  resets_at: number;
+};
+
+export type Limits = {
+  windows: LimitWindow[];
+  /** When an Agent was last told this — a snapshot, not a live reading. */
+  observed_at: string;
+  using_overage: boolean;
+  status: string | null;
+};
+
+export type UsageSummary = {
+  agents: AgentUsage[];
+  /** Null until some Agent has been told the account's limits. */
+  limits: Limits | null;
+};
+
 export type AgentEvent = {
   ts: string;
   event: unknown;
@@ -114,6 +160,8 @@ export const api = {
     invoke<Commit>("agent_commit", { agentId, message }),
 
   listModels: () => invoke<ModelInfo[]>("list_models"),
+
+  usageSummary: () => invoke<UsageSummary>("usage_summary"),
 
   startupOrphans: () => invoke<Agent[]>("startup_orphans"),
 };

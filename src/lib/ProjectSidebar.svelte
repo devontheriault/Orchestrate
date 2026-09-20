@@ -1,6 +1,7 @@
 <script lang="ts">
   import { open } from "@tauri-apps/plugin-dialog";
   import { store } from "./store.svelte";
+  import { usage } from "./usage.svelte";
 
   /** Rail mode: initials only, for windows too narrow to spare the width. */
   let { collapsed = false }: { collapsed?: boolean } = $props();
@@ -98,6 +99,18 @@
       {/each}
     </ul>
   {/if}
+
+  <footer>
+    <button
+      class="usage"
+      onclick={() => usage.show()}
+      title="Token usage (Ctrl+Shift+U)"
+      aria-label="Token usage"
+    >
+      <span class="gauge">◔</span>
+      {#if !collapsed}<span class="label">Usage</span><kbd>⌃⇧U</kbd>{/if}
+    </button>
+  </footer>
 </aside>
 
 <style>
@@ -218,6 +231,57 @@
     overflow-x: hidden;
     flex: 1;
     min-height: 0;
+  }
+
+  /* Always reachable: the list above it scrolls, this doesn't. */
+  footer {
+    flex: none;
+    margin-top: auto;
+    border-top: 1px solid var(--border);
+    padding: 0.35rem;
+  }
+
+  .usage {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    background: transparent;
+    border: none;
+    border-radius: 5px;
+    padding: 0.35rem 0.45rem;
+    color: var(--fg-muted);
+    font-size: 0.8rem;
+    cursor: pointer;
+  }
+
+  .usage:hover {
+    background: var(--hover);
+    color: var(--fg);
+  }
+
+  aside.collapsed .usage {
+    justify-content: center;
+    padding: 0.35rem 0;
+  }
+
+  .usage .gauge {
+    font-size: 0.95rem;
+    line-height: 1;
+  }
+
+  .usage .label {
+    flex: 1;
+    text-align: left;
+  }
+
+  .usage kbd {
+    font-family: ui-monospace, monospace;
+    font-size: 0.68rem;
+    color: var(--fg-muted);
+    background: var(--code-bg);
+    border-radius: 3px;
+    padding: 0.05em 0.3em;
   }
 
   li {

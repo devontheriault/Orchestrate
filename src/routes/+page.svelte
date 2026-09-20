@@ -4,8 +4,10 @@
   import AgentList from "$lib/AgentList.svelte";
   import AgentStream from "$lib/AgentStream.svelte";
   import SpawnModal from "$lib/SpawnModal.svelte";
+  import UsageWindow from "$lib/UsageWindow.svelte";
   import PaneDivider from "$lib/PaneDivider.svelte";
   import { store } from "$lib/store.svelte";
+  import { usage } from "$lib/usage.svelte";
   import { viewport } from "$lib/viewport.svelte";
   import {
     panes,
@@ -31,7 +33,7 @@
   // is not currently typing in an input.
   $effect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (showSpawn) return;
+      if (showSpawn || usage.open) return;
       if (e.key !== "n" || e.metaKey || e.ctrlKey || e.altKey) return;
       const active = document.activeElement as HTMLElement | null;
       if (
@@ -46,6 +48,20 @@
         e.preventDefault();
         showSpawn = true;
       }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
+  // Ctrl+Shift+U toggles the token-usage window. Unconditional like the reload
+  // below — a glance at what the agents are spending shouldn't depend on where
+  // the focus happens to be. `code` so it survives non-QWERTY layouts.
+  $effect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.ctrlKey || !e.shiftKey || e.metaKey || e.altKey) return;
+      if (e.code !== "KeyU" && e.key.toLowerCase() !== "u") return;
+      e.preventDefault();
+      usage.toggle();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -146,6 +162,10 @@
 
 {#if showSpawn}
   <SpawnModal onClose={() => (showSpawn = false)} />
+{/if}
+
+{#if usage.open}
+  <UsageWindow />
 {/if}
 
 <style>

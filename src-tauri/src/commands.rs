@@ -10,6 +10,7 @@ use time::OffsetDateTime;
 use crate::model::{new_id, Agent, AgentEvent, AgentState, Project};
 use crate::models::ModelInfo;
 use crate::runtime::AgentRuntime;
+use crate::usage::UsageSummary;
 use crate::git::{self, Commit, WorktreeDiff};
 use crate::{paths, storage, worktree};
 
@@ -162,6 +163,15 @@ pub async fn agent_commit(agent_id: String, message: String) -> Result<Commit, S
 #[tauri::command]
 pub async fn list_models() -> Result<Vec<ModelInfo>, String> {
     crate::models::list().await.map_err(err)
+}
+
+/// What every Agent has spent — tokens and money per Model — plus the account's
+/// rate-limit windows as last reported. Read from the logs on each call rather
+/// than tallied as events arrive, so the numbers are right after a restart and
+/// cover Agents this window never opened.
+#[tauri::command]
+pub async fn usage_summary() -> Result<UsageSummary, String> {
+    crate::usage::summary().map_err(err)
 }
 
 #[tauri::command]

@@ -403,6 +403,21 @@ class AppStore {
     }
   }
 
+  /**
+   * Bring an Agent on screen wherever it lives: switch to its Project, then
+   * select it. False if there is no such Agent any more — its log can outlive
+   * it, so a caller working from the logs can be holding a Reaped id.
+   */
+  showAgent(id: string): boolean {
+    const agent = this.agents.find((a) => a.id === id);
+    if (!agent) return false;
+    if (this.projects.some((p) => p.id === agent.project_id)) {
+      this.selectedProjectId = agent.project_id;
+    }
+    this.selectAgent(id);
+    return true;
+  }
+
   jumpToFirstOrphan() {
     if (this.orphans.length === 0) return;
     const first = this.orphans[0];
