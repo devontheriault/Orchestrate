@@ -15,6 +15,12 @@ pub enum Error {
 
     #[error("no state directory available (no $HOME?)")]
     NoStateDir,
+
+    #[error("git `{command}` failed: {stderr}")]
+    Git { command: String, stderr: String },
+
+    #[error("agent not found: {0}")]
+    AgentNotFound(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

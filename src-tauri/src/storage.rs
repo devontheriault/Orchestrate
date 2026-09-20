@@ -119,33 +119,8 @@ fn atomic_write(path: &Path, contents: &str) -> Result<()> {
 mod tests {
     use super::*;
     use crate::model::{new_id, AgentState, Task};
-    use tempfile::TempDir;
+    use crate::test_util::StateEnv;
     use time::OffsetDateTime;
-
-    /// Scope a test to a temp state dir by setting `CLAUDEWRAPPER_STATE_DIR`.
-    /// Serialised via a mutex because env vars are process-wide.
-    struct StateEnv {
-        _dir: TempDir,
-        _guard: std::sync::MutexGuard<'static, ()>,
-    }
-
-    static ENV_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-    impl StateEnv {
-        fn new() -> Self {
-            let guard = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
-            let dir = TempDir::new().unwrap();
-            // SAFETY: guarded by ENV_MUTEX for the lifetime of this StateEnv.
-            unsafe { std::env::set_var("CLAUDEWRAPPER_STATE_DIR", dir.path()); }
-            Self { _dir: dir, _guard: guard }
-        }
-    }
-
-    impl Drop for StateEnv {
-        fn drop(&mut self) {
-            unsafe { std::env::remove_var("CLAUDEWRAPPER_STATE_DIR"); }
-        }
-    }
 
     fn sample_agent() -> Agent {
         Agent {

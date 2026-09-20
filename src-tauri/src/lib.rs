@@ -1,7 +1,12 @@
 pub mod error;
 pub mod model;
 pub mod paths;
+pub mod runtime;
 pub mod storage;
+pub mod worktree;
+
+#[cfg(test)]
+pub(crate) mod test_util;
 
 // Placeholder command wired in Phase 3; kept so the scaffold page still renders.
 #[tauri::command]
