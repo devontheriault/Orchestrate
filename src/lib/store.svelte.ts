@@ -10,6 +10,7 @@ class AppStore {
   selectedProjectId = $state<string | null>(null);
   selectedAgentId = $state<string | null>(null);
 
+  orphanBannerDismissed = $state<boolean>(false);
   error = $state<string | null>(null);
 
   private unlisteners: UnlistenFn[] = [];
@@ -104,6 +105,16 @@ class AppStore {
 
   selectAgent(id: string | null) {
     this.selectedAgentId = id;
+  }
+
+  jumpToFirstOrphan() {
+    if (this.orphans.length === 0) return;
+    const first = this.orphans[0];
+    if (this.projects.some((p) => p.id === first.project_id)) {
+      this.selectedProjectId = first.project_id;
+    }
+    this.selectedAgentId = first.id;
+    this.orphanBannerDismissed = true;
   }
 
   async spawn(prompt: string) {

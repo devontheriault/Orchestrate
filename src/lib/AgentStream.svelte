@@ -3,6 +3,29 @@
   import type { AgentEvent } from "./api";
 
   let showRaw = $state(false);
+  let streamEl: HTMLDivElement | undefined = $state();
+
+  // On new events, only auto-scroll if the user is already near the bottom.
+  $effect(() => {
+    const len = store.eventsForSelected.length;
+    if (!streamEl || len === 0) return;
+    const el = streamEl;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    if (nearBottom) {
+      requestAnimationFrame(() => {
+        el.scrollTop = el.scrollHeight;
+      });
+    }
+  });
+
+  // On selection change, always jump to the bottom of the new stream.
+  $effect(() => {
+    const id = store.selectedAgentId;
+    if (!streamEl || !id) return;
+    requestAnimationFrame(() => {
+      streamEl!.scrollTop = streamEl!.scrollHeight;
+    });
+  });
 
   // Helpers to decode common stream-json event shapes without breaking on
   // unknowns. Anything unrecognised falls through to the raw-JSON card.
@@ -90,7 +113,14 @@
     {/if}
   </header>
 
-  <div class="stream">
+  <div class="stream" bind:this={streamEl}>
+    {#if store.selectedAgent?.state === "failed" && store.selectedAgent.fail_reason}
+      <div class="fail-banner">
+        <span class="label">Failed</span>
+        <span class="reason">{store.selectedAgent.fail_reason}</span>
+      </div>
+    {/if}
+
     {#if !store.selectedAgent}
       <div class="hint">Select an agent to see its output.</div>
     {:else if store.eventsForSelected.length === 0}
@@ -314,6 +344,32 @@
     border-radius: 5px;
     font-size: 0.78rem;
     margin: 0;
+    white-space: pre-wrap;
+  }
+
+  .fail-banner {
+    background: rgba(239, 68, 68, 0.08);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    border-radius: 6px;
+    padding: 0.55rem 0.85rem;
+    font-size: 0.85rem;
+    display: flex;
+    gap: 0.6rem;
+    align-items: baseline;
+  }
+
+  .fail-banner .label {
+    color: #dc2626;
+    font-weight: 600;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .fail-banner .reason {
+    color: var(--fg);
+    font-family: ui-monospace, monospace;
+    font-size: 0.82rem;
     white-space: pre-wrap;
   }
 </style>
