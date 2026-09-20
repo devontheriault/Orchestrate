@@ -93,6 +93,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
+    padding: 1rem;
     z-index: 100;
     backdrop-filter: blur(2px);
   }
@@ -102,18 +103,30 @@
     border: 1px solid var(--border);
     border-radius: 10px;
     padding: 1.25rem 1.5rem 1rem;
-    width: min(560px, 90vw);
+    /* Grows with the window, but never past a comfortable reading width. */
+    width: min(40rem, 100%);
+    max-height: 100%;
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
     display: flex;
     flex-direction: column;
     gap: 0.85rem;
+    overflow: hidden;
+  }
+
+  .dialog form {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 0.85rem;
+    min-height: 0;
   }
 
   header {
     display: flex;
+    flex-wrap: wrap;
     align-items: baseline;
     justify-content: space-between;
-    gap: 1rem;
+    gap: 0.25rem 1rem;
   }
 
   h2 {
@@ -125,6 +138,7 @@
   .target {
     font-size: 0.8rem;
     color: var(--fg-muted);
+    overflow-wrap: anywhere;
   }
 
   textarea {
@@ -137,7 +151,10 @@
     font-size: 0.93rem;
     line-height: 1.5;
     resize: vertical;
-    min-height: 8rem;
+    /* Takes the height the window can spare, shrinking on a short one. */
+    flex: 1 1 auto;
+    height: clamp(5rem, 34vh, 16rem);
+    min-height: 3rem;
     background: var(--panel-bg);
     color: var(--fg);
   }
@@ -150,9 +167,10 @@
 
   footer {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
-    gap: 1rem;
+    gap: 0.5rem 1rem;
   }
 
   .hint {
@@ -163,6 +181,7 @@
   .buttons {
     display: flex;
     gap: 0.5rem;
+    margin-left: auto;
   }
 
   .buttons button {

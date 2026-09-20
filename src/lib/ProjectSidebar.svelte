@@ -2,6 +2,9 @@
   import { open } from "@tauri-apps/plugin-dialog";
   import { store } from "./store.svelte";
 
+  /** Rail mode: initials only, for windows too narrow to spare the width. */
+  let { collapsed = false }: { collapsed?: boolean } = $props();
+
   async function pickAndAdd() {
     const picked = await open({ directory: true, multiple: false });
     if (typeof picked !== "string") return;
@@ -17,19 +20,35 @@
     const first = latestRunning?.task.prompt.split("\n")[0]?.trim();
     return first ? first : "1 agent running";
   }
+
+  /** Stand-in for the name in rail mode. */
+  function initials(name: string): string {
+    const parts = name.split(/[\s._/-]+/).filter(Boolean);
+    const from =
+      parts.length > 1 ? parts[0][0] + parts[1][0] : name.replace(/\W/g, "").slice(0, 2);
+    return (from || name.slice(0, 2)).toUpperCase();
+  }
 </script>
 
-<aside>
+<aside class:collapsed>
   <header>
-    <span class="title">Projects</span>
-    <button class="add" onclick={pickAndAdd} title="Add project">+</button>
+    {#if !collapsed}<span class="title">Projects</span>{/if}
+    <button class="add" onclick={pickAndAdd} title="Add project" aria-label="Add project"
+      >+</button
+    >
   </header>
 
   {#if store.projects.length === 0}
-    <div class="empty">
-      No projects yet.<br />
-      <button onclick={pickAndAdd}>Add a project</button>
-    </div>
+    {#if collapsed}
+      <div class="empty-rail">
+        <button onclick={pickAndAdd} title="Add a project" aria-label="Add a project">+</button>
+      </div>
+    {:else}
+      <div class="empty">
+        No projects yet.<br />
+        <button onclick={pickAndAdd}>Add a project</button>
+      </div>
+    {/if}
   {:else}
     <ul>
       {#each store.projects as p (p.id)}
@@ -40,17 +59,17 @@
             class:active={activity.running > 0}
             onclick={() => store.selectProject(p.id)}
             aria-current={store.selectedProjectId === p.id ? "true" : undefined}
-            title={p.path}
+            title={collapsed ? `${p.name} — ${p.path}` : p.path}
           >
             <span class="name-row">
-              <span class="name">{p.name}</span>
+              <span class="name">{collapsed ? initials(p.name) : p.name}</span>
               {#if activity.running > 0}
                 <span
                   class="badge running"
                   title={`${activity.running} agent${activity.running === 1 ? "" : "s"} running`}
                 >
                   <span class="dot"></span>
-                  {activity.running}
+                  {#if !collapsed}{activity.running}{/if}
                 </span>
               {:else if activity.attention > 0}
                 <span
@@ -61,16 +80,20 @@
                 </span>
               {/if}
             </span>
-            <span class="sub" class:path={activity.running === 0}>
-              {subtitle(p.id, p.path)}
-            </span>
+            {#if !collapsed}
+              <span class="sub" class:path={activity.running === 0}>
+                {subtitle(p.id, p.path)}
+              </span>
+            {/if}
           </button>
-          <button
-            class="remove"
-            onclick={() => store.removeProject(p.id)}
-            title="Remove from list"
-            aria-label={`Remove ${p.name}`}>×</button
-          >
+          {#if !collapsed}
+            <button
+              class="remove"
+              onclick={() => store.removeProject(p.id)}
+              title="Remove from list"
+              aria-label={`Remove ${p.name}`}>×</button
+            >
+          {/if}
         </li>
       {/each}
     </ul>
@@ -79,8 +102,8 @@
 
 <style>
   aside {
-    width: 240px;
-    flex: 0 0 240px;
+    width: var(--pane-projects);
+    flex: 0 0 var(--pane-projects);
     border-right: 1px solid var(--border);
     background: var(--panel-bg);
     display: flex;
@@ -88,12 +111,24 @@
     overflow: hidden;
   }
 
+  aside.collapsed {
+    width: var(--rail);
+    flex-basis: var(--rail);
+  }
+
   header {
-    padding: 0.75rem 0.9rem;
+    padding: var(--pad-y) var(--pad-x);
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 0.4rem;
     border-bottom: 1px solid var(--border);
+    min-height: 2.8rem;
+  }
+
+  aside.collapsed header {
+    justify-content: center;
+    padding-inline: 0.25rem;
   }
 
   .title {
@@ -102,14 +137,18 @@
     color: var(--fg-muted);
     text-transform: uppercase;
     letter-spacing: 0.05em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .add {
     background: transparent;
     border: 1px solid var(--border);
     border-radius: 4px;
-    width: 22px;
-    height: 22px;
+    width: 1.6rem;
+    height: 1.6rem;
+    flex: none;
     padding: 0;
     color: var(--fg);
     cursor: pointer;
@@ -148,12 +187,37 @@
     border-color: var(--accent);
   }
 
+  .empty-rail {
+    display: flex;
+    justify-content: center;
+    padding: 0.75rem 0;
+  }
+
+  .empty-rail button {
+    width: 2rem;
+    height: 2rem;
+    border-radius: 6px;
+    border: 1px dashed var(--border);
+    background: transparent;
+    color: var(--fg-muted);
+    cursor: pointer;
+    font-size: 1rem;
+    line-height: 1;
+  }
+
+  .empty-rail button:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
   ul {
     list-style: none;
     padding: 0.25rem 0;
     margin: 0;
     overflow-y: auto;
+    overflow-x: hidden;
     flex: 1;
+    min-height: 0;
   }
 
   li {
@@ -177,13 +241,18 @@
     display: flex;
     flex-direction: column;
     gap: 0.15rem;
-    padding: 0.55rem 1.7rem 0.55rem 0.9rem;
+    padding: 0.55rem 1.7rem 0.55rem var(--pad-x);
     background: transparent;
     border: none;
     text-align: left;
     cursor: pointer;
     color: var(--fg);
     min-width: 0;
+  }
+
+  aside.collapsed .row {
+    padding: 0.5rem 0.25rem;
+    align-items: center;
   }
 
   .name-row {
@@ -193,12 +262,22 @@
     min-width: 0;
   }
 
+  aside.collapsed .name-row {
+    gap: 0.2rem;
+  }
+
   .name {
     font-size: 0.9rem;
     font-weight: 500;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  aside.collapsed .name {
+    font-family: ui-monospace, monospace;
+    font-size: 0.82rem;
+    letter-spacing: 0.02em;
   }
 
   .row.active .name {
@@ -216,6 +295,10 @@
     padding: 0.16rem 0.38rem;
     border-radius: 999px;
     font-variant-numeric: tabular-nums;
+  }
+
+  aside.collapsed .badge {
+    padding: 0.16rem;
   }
 
   .badge.running {

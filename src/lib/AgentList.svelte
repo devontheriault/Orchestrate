@@ -2,7 +2,11 @@
   import { store } from "./store.svelte";
   import type { Agent } from "./api";
 
-  let { onSpawn }: { onSpawn: () => void } = $props();
+  let {
+    onSpawn,
+    /** Take the whole window: the detail pane is off-screen on narrow windows. */
+    fill = false,
+  }: { onSpawn: () => void; fill?: boolean } = $props();
 
   const stateOrder = ["running", "failed", "orphaned", "completed", "stopped"];
   const stateLabel: Record<Agent["state"], string> = {
@@ -23,9 +27,8 @@
       .map((s) => ({ state: s as Agent["state"], agents: groups[s] }));
   });
 
-  function shortPrompt(p: string): string {
-    const firstLine = p.split("\n")[0] ?? "";
-    return firstLine.length > 60 ? firstLine.slice(0, 57) + "…" : firstLine;
+  function firstLine(p: string): string {
+    return p.split("\n")[0] ?? "";
   }
 
   function relTime(iso: string): string {
@@ -39,7 +42,7 @@
   }
 </script>
 
-<section>
+<section class:fill>
   <header>
     <span class="title">Agents</span>
     <button
@@ -76,7 +79,7 @@
               tabindex="0"
               onkeydown={(e) => e.key === "Enter" && store.selectAgent(a.id)}
             >
-              <div class="prompt">{shortPrompt(a.task.prompt)}</div>
+              <div class="prompt" title={a.task.prompt}>{firstLine(a.task.prompt)}</div>
               <div class="meta">
                 <code>{a.id}</code>
                 <span class="time">{relTime(a.spawned_at)}</span>
@@ -91,24 +94,37 @@
 
 <style>
   section {
-    width: 320px;
-    flex: 0 0 320px;
+    width: var(--pane-agents);
+    flex: 0 0 var(--pane-agents);
     border-right: 1px solid var(--border);
     background: var(--panel-bg);
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    min-width: 0;
+  }
+
+  section.fill {
+    width: auto;
+    flex: 1 1 auto;
+    border-right: none;
   }
 
   header {
-    padding: 0.75rem 0.9rem;
+    padding: var(--pad-y) var(--pad-x);
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 0.5rem;
     border-bottom: 1px solid var(--border);
+    min-height: 2.8rem;
   }
 
   .title {
+    flex: 0 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     font-size: 0.78rem;
     font-weight: 600;
     color: var(--fg-muted);
@@ -117,6 +133,8 @@
   }
 
   .spawn {
+    flex: none;
+    white-space: nowrap;
     background: var(--accent);
     color: white;
     border: none;
@@ -158,7 +176,9 @@
 
   .groups {
     overflow-y: auto;
+    overflow-x: hidden;
     flex: 1;
+    min-height: 0;
     padding: 0.5rem 0;
   }
 
@@ -167,7 +187,7 @@
   }
 
   .group-label {
-    padding: 0.35rem 0.9rem;
+    padding: 0.35rem var(--pad-x);
     font-size: 0.72rem;
     color: var(--fg-muted);
     text-transform: uppercase;
@@ -199,7 +219,7 @@
   }
 
   .agent {
-    padding: 0.55rem 0.9rem;
+    padding: 0.55rem var(--pad-x);
     cursor: pointer;
     border-left: 2px solid transparent;
   }
@@ -216,6 +236,18 @@
   .prompt {
     font-size: 0.88rem;
     line-height: 1.35;
+    /* Fills the width it has: two lines at any pane size, then an ellipsis. */
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+  }
+
+  section.fill .prompt {
+    -webkit-line-clamp: 1;
+    line-clamp: 1;
   }
 
   .meta {
@@ -223,8 +255,13 @@
     display: flex;
     justify-content: space-between;
     align-items: baseline;
+    gap: 0.5rem;
     font-size: 0.72rem;
     color: var(--fg-muted);
+  }
+
+  .meta .time {
+    white-space: nowrap;
   }
 
   code {

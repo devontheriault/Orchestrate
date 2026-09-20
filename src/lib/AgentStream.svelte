@@ -3,6 +3,9 @@
   import AgentDiff from "./AgentDiff.svelte";
   import type { AgentEvent } from "./api";
 
+  /** Present only when the agent list is off-screen, on a narrow window. */
+  let { onBack }: { onBack?: () => void } = $props();
+
   let showRaw = $state(false);
   let streamEl: HTMLDivElement | undefined = $state();
 
@@ -78,6 +81,11 @@
 
 <section>
   <header>
+    {#if onBack}
+      <button class="back" onclick={onBack} title="Back to agents" aria-label="Back to agents"
+        >←</button
+      >
+    {/if}
     {#if store.selectedAgent}
       <div class="head-left">
         <div class="prompt">{store.selectedAgent.task.prompt}</div>
@@ -112,8 +120,9 @@
           </button>
         </div>
         {#if store.detailTab === "output"}
-          <label class="raw-toggle">
-            <input type="checkbox" bind:checked={showRaw} /> raw
+          <label class="raw-toggle" title="Show the unparsed event JSON">
+            <input type="checkbox" bind:checked={showRaw} />
+            <span>raw</span>
           </label>
         {/if}
         {#if store.selectedAgent.state === "running"}
@@ -208,17 +217,38 @@
   }
 
   header {
-    padding: 0.75rem 1rem;
+    padding: var(--pad-y) var(--pad-x);
     border-bottom: 1px solid var(--border);
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
-    gap: 1rem;
+    gap: 0.5rem 1rem;
     min-height: 3.2rem;
   }
 
+  .back {
+    flex: none;
+    width: 1.9rem;
+    height: 1.9rem;
+    padding: 0;
+    border-radius: 5px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--fg);
+    cursor: pointer;
+    font-size: 0.95rem;
+    line-height: 1;
+  }
+
+  .back:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
   .head-left {
-    flex: 1;
+    /* Wide enough to be worth reading, or it wraps the controls to a new row. */
+    flex: 1 1 14rem;
     min-width: 0;
     display: flex;
     flex-direction: column;
@@ -240,10 +270,18 @@
 
   .meta {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.3rem 0.5rem;
     font-size: 0.75rem;
     color: var(--fg-muted);
+  }
+
+  .meta code {
+    max-width: 14rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .state {
@@ -270,8 +308,12 @@
 
   .head-right {
     display: flex;
+    flex: none;
     align-items: center;
-    gap: 0.5rem;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.4rem 0.5rem;
+    margin-left: auto;
   }
 
   .raw-toggle {
@@ -284,6 +326,8 @@
   }
 
   .head-right button {
+    flex: none;
+    white-space: nowrap;
     border-radius: 5px;
     border: 1px solid var(--border);
     background: var(--surface);
@@ -334,8 +378,10 @@
 
   .stream {
     flex: 1;
+    min-height: 0;
     overflow-y: auto;
-    padding: 1rem 1.25rem 2rem;
+    overflow-x: hidden;
+    padding: 1rem var(--pad-x) 2rem;
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
@@ -352,11 +398,15 @@
   .block {
     font-size: 0.9rem;
     line-height: 1.55;
+    min-width: 0;
   }
 
   .text {
     white-space: pre-wrap;
+    overflow-wrap: anywhere;
     padding: 0.15rem 0;
+    /* Prose stops at a readable measure however wide the window gets. */
+    max-width: min(100%, var(--measure));
   }
 
   details.block {
@@ -371,6 +421,7 @@
     font-family: ui-monospace, monospace;
     font-size: 0.82rem;
     color: var(--fg-muted);
+    overflow-wrap: anywhere;
   }
 
   details.block[open] summary { margin-bottom: 0.4rem; }
@@ -381,7 +432,11 @@
     padding: 0;
     font-size: 0.8rem;
     white-space: pre-wrap;
+    overflow-wrap: anywhere;
     color: var(--fg);
+    /* A very long line scrolls inside the card instead of stretching it. */
+    max-height: min(60vh, 34rem);
+    overflow: auto;
   }
 
   .mono {
@@ -394,6 +449,8 @@
     font-family: ui-monospace, monospace;
     font-size: 0.8rem;
     padding: 0.15rem 0;
+    overflow-wrap: anywhere;
+    max-width: min(100%, var(--measure));
   }
 
   .done.err { color: #dc2626; }
@@ -406,6 +463,9 @@
     font-size: 0.78rem;
     margin: 0;
     white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    max-height: min(60vh, 34rem);
+    overflow: auto;
   }
 
   .fail-banner {
@@ -415,7 +475,8 @@
     padding: 0.55rem 0.85rem;
     font-size: 0.85rem;
     display: flex;
-    gap: 0.6rem;
+    flex-wrap: wrap;
+    gap: 0.3rem 0.6rem;
     align-items: baseline;
   }
 
@@ -432,5 +493,7 @@
     font-family: ui-monospace, monospace;
     font-size: 0.82rem;
     white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    min-width: 0;
   }
 </style>

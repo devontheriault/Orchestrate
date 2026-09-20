@@ -207,8 +207,11 @@
 <style>
   .diff-pane {
     flex: 1;
+    min-height: 0;
+    min-width: 0;
     overflow-y: auto;
-    padding: 1rem 1.25rem 2rem;
+    overflow-x: hidden;
+    padding: 1rem var(--pad-x) 2rem;
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
@@ -235,9 +238,10 @@
 
   .summary {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
-    gap: 1rem;
+    gap: 0.4rem 1rem;
     font-size: 0.85rem;
     color: var(--fg-muted);
   }
@@ -251,6 +255,7 @@
     display: flex;
     align-items: center;
     gap: 0.6rem;
+    margin-left: auto;
   }
 
   .base {
@@ -313,12 +318,14 @@
     align-items: baseline;
     font-size: 0.85rem;
     padding: 0.12rem 0;
+    min-width: 0;
   }
 
   .commit .sha {
     color: var(--accent);
     background: transparent;
     padding: 0;
+    flex: none;
   }
 
   .commit .subject {
@@ -381,9 +388,14 @@
 
   .commit-box-foot {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
-    gap: 1rem;
+    gap: 0.5rem 1rem;
+  }
+
+  .commit-box-foot .sub {
+    flex: 1 1 12rem;
   }
 
   .commit-box-foot button.primary {
@@ -420,6 +432,13 @@
     padding: 0.35rem 0.7rem;
     font-size: 0.83rem;
     border-bottom: 1px solid var(--border);
+    min-width: 0;
+  }
+
+  .file-row .ins,
+  .file-row .del {
+    flex: none;
+    font-variant-numeric: tabular-nums;
   }
 
   .file-row:last-child {
@@ -468,9 +487,11 @@
     background: var(--panel-bg);
     font-size: 0.82rem;
     color: var(--fg-muted);
+    overflow-wrap: anywhere;
   }
 
   .patch {
+    /* The only pane that scrolls sideways: code lines keep their shape. */
     overflow-x: auto;
     font-family: ui-monospace, monospace;
     font-size: 0.78rem;
@@ -511,12 +532,14 @@
     color: var(--fg);
     font-family: ui-monospace, monospace;
     white-space: pre-wrap;
+    overflow-wrap: anywhere;
   }
 
   .clipped {
     background: var(--panel-bg);
     border: 1px solid var(--border);
     color: var(--fg-muted);
+    overflow-wrap: anywhere;
   }
 
   @media (prefers-color-scheme: dark) {

@@ -5,15 +5,18 @@
   import AgentStream from "$lib/AgentStream.svelte";
   import SpawnModal from "$lib/SpawnModal.svelte";
   import { store } from "$lib/store.svelte";
+  import { viewport } from "$lib/viewport.svelte";
 
   let showSpawn = $state(false);
 
   onMount(() => {
+    viewport.start();
     store.start();
   });
 
   onDestroy(() => {
     store.stop();
+    viewport.stop();
   });
 
   // Global "n" opens the Spawn modal, if a project is selected and the user
@@ -57,6 +60,13 @@
   const showOrphanBanner = $derived(
     store.orphans.length > 0 && !store.orphanBannerDismissed,
   );
+
+  // Narrow windows can't hold the agent list and the detail pane side by side,
+  // so they show one at a time: the list until an agent is picked, then the
+  // agent, with a way back.
+  const narrow = $derived(viewport.layout === "narrow");
+  const showList = $derived(!narrow || !store.selectedAgentId);
+  const showDetail = $derived(!narrow || !!store.selectedAgentId);
 </script>
 
 {#if store.error}
@@ -83,9 +93,13 @@
 {/if}
 
 <main>
-  <ProjectSidebar />
-  <AgentList onSpawn={() => (showSpawn = true)} />
-  <AgentStream />
+  <ProjectSidebar collapsed={viewport.railed} />
+  {#if showList}
+    <AgentList onSpawn={() => (showSpawn = true)} fill={narrow} />
+  {/if}
+  {#if showDetail}
+    <AgentStream onBack={narrow ? () => store.selectAgent(null) : undefined} />
+  {/if}
 </main>
 
 {#if showSpawn}
@@ -103,15 +117,21 @@
   .error {
     background: #fee2e2;
     color: #991b1b;
-    padding: 0.55rem 0.9rem;
+    padding: 0.55rem var(--pad-x);
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: 0.5rem;
     font-size: 0.85rem;
     border-bottom: 1px solid #fca5a5;
+    /* A long backend error wraps rather than pushing the dismiss off-screen. */
+    overflow-wrap: anywhere;
+    max-height: 30vh;
+    overflow-y: auto;
   }
 
   .error button {
+    flex: none;
     background: transparent;
     border: none;
     color: inherit;
@@ -124,17 +144,20 @@
     background: rgba(245, 158, 11, 0.12);
     border-bottom: 1px solid rgba(245, 158, 11, 0.35);
     color: var(--fg);
-    padding: 0.55rem 1rem;
+    padding: 0.55rem var(--pad-x);
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
-    gap: 1rem;
+    gap: 0.5rem 1rem;
     font-size: 0.88rem;
   }
 
   .orphan-banner .actions {
     display: flex;
     gap: 0.4rem;
+    flex: none;
+    margin-left: auto;
   }
 
   .orphan-banner button {
