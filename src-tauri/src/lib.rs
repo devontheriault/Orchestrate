@@ -1,7 +1,12 @@
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
+pub mod error;
+pub mod model;
+pub mod paths;
+pub mod storage;
+
+// Placeholder command wired in Phase 3; kept so the scaffold page still renders.
 #[tauri::command]
 fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
+    format!("Hello, {name}! You've been greeted from Rust!")
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
