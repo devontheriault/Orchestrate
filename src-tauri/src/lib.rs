@@ -46,7 +46,7 @@ pub fn run() {
                                 handle.emit("agent-event", AgentEventPayload { agent_id, event });
                         }
                         RuntimeEvent::StateChanged { agent, .. } => {
-                            let _ = handle.emit::<Agent>("agent-state-changed", agent);
+                            let _ = handle.emit::<Agent>("agent-state-changed", *agent);
                         }
                     }
                 }

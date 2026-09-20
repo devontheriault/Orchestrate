@@ -52,10 +52,6 @@ pub struct WorktreeDiff {
     pub uncommitted: bool,
 }
 
-async fn run(dir: &Path, args: &[&str]) -> Result<std::process::Output> {
-    run_with_index(dir, args, None).await
-}
-
 /// Run git in `dir`, optionally against a scratch index instead of the
 /// repository's own. See [`ScratchIndex`].
 async fn run_with_index(
@@ -334,8 +330,7 @@ mod tests {
                 vec!["config", "commit.gpgsign", "false"],
                 vec!["config", "core.hooksPath", "/dev/null"],
             ] {
-                let out = run(repo.path(), &args).await.unwrap();
-                assert!(out.status.success(), "git {args:?} failed");
+                stdout(repo.path(), &args).await.unwrap();
             }
             std::fs::write(repo.path().join("tracked.txt"), "base\n").unwrap();
             stdout(repo.path(), &["add", "-A"]).await.unwrap();

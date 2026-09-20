@@ -42,7 +42,9 @@ pub enum RuntimeEvent {
     /// One line from a running Agent's stdout, parsed and timestamped.
     AgentEvent { agent_id: Id, event: AgentEvent },
     /// The Agent's persisted state changed (state, exit_code, exited_at).
-    StateChanged { agent_id: Id, agent: Agent },
+    /// Boxed: an `Agent` dwarfs an `AgentEvent`, and every event sent down the
+    /// channel would otherwise pay for the larger variant.
+    StateChanged { agent_id: Id, agent: Box<Agent> },
 }
 
 /// The live-Agent map, held for writing. Taken across a busy check and the
@@ -204,7 +206,7 @@ impl AgentRuntime {
     fn announce(&self, agent: &Agent) {
         let _ = self.events_tx.send(RuntimeEvent::StateChanged {
             agent_id: agent.id.clone(),
-            agent: agent.clone(),
+            agent: Box::new(agent.clone()),
         });
     }
 
@@ -446,7 +448,7 @@ async fn supervise(
 
     let _ = events_tx.send(RuntimeEvent::StateChanged {
         agent_id: agent.id.clone(),
-        agent: agent.clone(),
+        agent: Box::new(agent.clone()),
     });
 }
 
@@ -583,7 +585,7 @@ while : ; do sleep 1; done
         let final_agent = loop {
             match rx.recv().await.expect("channel open") {
                 RuntimeEvent::AgentEvent { .. } => continue,
-                RuntimeEvent::StateChanged { agent, .. } => break agent,
+                RuntimeEvent::StateChanged { agent, .. } => break *agent,
             }
         };
         assert_eq!(final_agent.state, AgentState::Completed);
@@ -629,7 +631,7 @@ exit 0
         let final_agent = loop {
             match rx.recv().await.expect("channel open") {
                 RuntimeEvent::AgentEvent { .. } => continue,
-                RuntimeEvent::StateChanged { agent, .. } => break agent,
+                RuntimeEvent::StateChanged { agent, .. } => break *agent,
             }
         };
         assert_eq!(final_agent.state, AgentState::Completed);
@@ -677,9 +679,8 @@ exit 0
 
         let agent = rt.spawn(&project, "boom".into(), None).await.unwrap();
         let final_agent = loop {
-            match rx.recv().await.unwrap() {
-                RuntimeEvent::StateChanged { agent, .. } => break agent,
-                _ => {}
+            if let RuntimeEvent::StateChanged { agent, .. } = rx.recv().await.unwrap() {
+                break *agent;
             }
         };
         assert_eq!(final_agent.state, AgentState::Failed);
@@ -729,7 +730,7 @@ exit 0
                 RuntimeEvent::StateChanged { agent, .. }
                     if agent.state != AgentState::Running =>
                 {
-                    break agent
+                    break *agent
                 }
                 _ => continue,
             }
