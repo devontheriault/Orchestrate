@@ -1,9 +1,12 @@
 <script lang="ts">
   import { store } from "./store.svelte";
+  import { MODEL_CHOICES } from "./api";
 
   let { onClose }: { onClose: () => void } = $props();
 
   let prompt = $state("");
+  // Opens on the user's last pick — most people spawn on the same model daily.
+  let model = $state<string | null>(store.preferredModel);
   let submitting = $state(false);
   let textarea: HTMLTextAreaElement | undefined = $state();
 
@@ -15,7 +18,7 @@
     e.preventDefault();
     if (!prompt.trim() || submitting) return;
     submitting = true;
-    await store.spawn(prompt);
+    await store.spawn(prompt, model);
     submitting = false;
     onClose();
   }
@@ -68,6 +71,23 @@
       rows="8"
       disabled={submitting}
     ></textarea>
+
+    <fieldset class="models" disabled={submitting}>
+      <legend>Model</legend>
+      {#each MODEL_CHOICES as choice (choice.label)}
+        <label class="model" class:picked={model === choice.value}>
+          <input
+            type="radio"
+            name="model"
+            value={choice.value ?? ""}
+            checked={model === choice.value}
+            onchange={() => (model = choice.value)}
+          />
+          <span class="name">{choice.label}</span>
+          <span class="blurb">{choice.blurb}</span>
+        </label>
+      {/each}
+    </fieldset>
 
     <footer>
       <span class="hint">⌘/Ctrl-Enter to spawn · Esc to cancel</span>
@@ -163,6 +183,79 @@
     outline: none;
     border-color: var(--accent);
     box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+  }
+
+  .models {
+    border: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    min-width: 0;
+  }
+
+  .models legend {
+    /* The choices label themselves; the legend is for screen readers. */
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  .model {
+    flex: 1 1 8rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    padding: 0.45rem 0.6rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--panel-bg);
+    cursor: pointer;
+    min-width: 0;
+  }
+
+  .model:hover {
+    border-color: var(--accent);
+  }
+
+  .model.picked {
+    border-color: var(--accent);
+    box-shadow: inset 0 0 0 1px var(--accent);
+  }
+
+  /* The card is the control; the radio only carries the semantics. It stays in
+     the flow (zero-sized) so arrow-key focus lands here, not at the corner of
+     the screen, and the card shows the ring on its behalf. */
+  .model input {
+    appearance: none;
+    width: 0;
+    height: 0;
+    margin: 0;
+    outline: none;
+  }
+
+  .model:has(input:focus-visible) {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
+  }
+
+  .model .name {
+    font-size: 0.85rem;
+    font-weight: 500;
+  }
+
+  .model .blurb {
+    font-size: 0.7rem;
+    color: var(--fg-muted);
+    overflow-wrap: anywhere;
+  }
+
+  .models:disabled .model {
+    opacity: 0.5;
+    cursor: default;
   }
 
   footer {

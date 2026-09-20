@@ -2,7 +2,7 @@
   import { store } from "./store.svelte";
   import AgentDiff from "./AgentDiff.svelte";
   import AgentComposer from "./AgentComposer.svelte";
-  import type { AgentEvent } from "./api";
+  import { modelLabel, type AgentEvent } from "./api";
 
   /** Present only when the agent list is off-screen, on a narrow window. */
   let { onBack }: { onBack?: () => void } = $props();
@@ -128,6 +128,11 @@
           <code>{store.selectedAgent.id}</code>
           {#if store.selectedAgent.branch}
             <code>{store.selectedAgent.branch}</code>
+          {/if}
+          {#if store.selectedAgent.model}
+            <span class="model" title="Model this agent runs on">
+              {modelLabel(store.selectedAgent.model)}
+            </span>
           {/if}
         </div>
       </div>
@@ -315,6 +320,12 @@
     gap: 0.3rem 0.5rem;
     font-size: 0.75rem;
     color: var(--fg-muted);
+  }
+
+  .meta .model {
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 0.05em 0.5em;
   }
 
   .meta code {

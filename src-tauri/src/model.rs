@@ -77,6 +77,11 @@ pub struct Agent {
     /// Agents recorded before Sessions existed — those cannot be Resumed.
     #[serde(default)]
     pub session_id: Option<String>,
+    /// Which model the Agent's Turns run on, as `claude --model` takes it — an
+    /// alias like `opus` or a full model name. `None` means we pass no `--model`
+    /// at all and Claude Code picks, which is also what pre-model Agents get.
+    #[serde(default)]
+    pub model: Option<String>,
     /// How many Turns have been started, including the opening one.
     #[serde(default = "one")]
     pub turns: u32,
@@ -146,6 +151,7 @@ mod tests {
                 branch: "cw/agent-a3f9c1de".into(),
                 base_commit: Some("deadbeef".into()),
                 session_id: Some("0b8b3a6e-5d2f-4a71-8c3e-1f9d7a2b4c60".into()),
+                model: Some("opus".into()),
                 turns: 3,
                 spawned_at: datetime!(2026-09-20 14:00:00 UTC),
                 exited_at: Some(datetime!(2026-09-20 14:05:00 UTC)),
@@ -187,6 +193,7 @@ mod tests {
         }"#;
         let a: Agent = serde_json::from_str(json).unwrap();
         assert_eq!(a.session_id, None);
+        assert_eq!(a.model, None, "no recorded model means Claude Code's own default");
         assert_eq!(a.turns, 1, "a pre-Session agent had exactly one turn");
     }
 

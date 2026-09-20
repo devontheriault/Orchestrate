@@ -29,6 +29,8 @@ export type Agent = {
   base_commit?: string | null;
   /** The Claude Code session to resume. Absent means this agent can't continue. */
   session_id?: string | null;
+  /** The model its turns run on, as `claude --model` takes it. Null = Claude Code's default. */
+  model?: string | null;
   /** Turns started so far, including the opening one. */
   turns: number;
   spawned_at: string;
@@ -36,6 +38,32 @@ export type Agent = {
   exit_code?: number | null;
   fail_reason?: string | null;
 };
+
+/**
+ * What the model picker offers. The values are `claude --model` aliases rather
+ * than pinned model names, so a picked agent follows Claude Code to the latest
+ * model in that family instead of freezing on today's.
+ */
+export type ModelChoice = {
+  /** What `--model` gets. Null passes no flag: Claude Code's own default. */
+  value: string | null;
+  label: string;
+  /** Why a user would reach for it. Shown next to the label. */
+  blurb: string;
+};
+
+export const MODEL_CHOICES: ModelChoice[] = [
+  { value: null, label: "Default", blurb: "whatever Claude Code is set to" },
+  { value: "opus", label: "Opus", blurb: "most capable — hard, long tasks" },
+  { value: "sonnet", label: "Sonnet", blurb: "balanced — most everyday work" },
+  { value: "haiku", label: "Haiku", blurb: "fastest and cheapest" },
+];
+
+/** The picker label for a recorded model, falling back to the raw value. */
+export function modelLabel(model: string | null | undefined): string {
+  if (!model) return "Default";
+  return MODEL_CHOICES.find((c) => c.value === model)?.label ?? model;
+}
 
 export type ChangedFile = {
   path: string;
@@ -79,10 +107,10 @@ export const api = {
   removeProject: (id: string) => invoke<void>("remove_project", { id }),
 
   listAgents: () => invoke<Agent[]>("list_agents"),
-  spawnAgent: (projectId: string, prompt: string) =>
-    invoke<Agent>("spawn_agent", { projectId, prompt }),
-  resumeAgent: (agentId: string, prompt: string) =>
-    invoke<Agent>("resume_agent", { agentId, prompt }),
+  spawnAgent: (projectId: string, prompt: string, model: string | null) =>
+    invoke<Agent>("spawn_agent", { projectId, prompt, model }),
+  resumeAgent: (agentId: string, prompt: string, model: string | null) =>
+    invoke<Agent>("resume_agent", { agentId, prompt, model }),
   stopAgent: (agentId: string) => invoke<void>("stop_agent", { agentId }),
   reapAgent: (agentId: string) => invoke<void>("reap_agent", { agentId }),
   agentEvents: (agentId: string) =>

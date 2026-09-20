@@ -60,6 +60,7 @@ pub async fn spawn_agent(
     state: State<'_, AppState>,
     project_id: String,
     prompt: String,
+    model: Option<String>,
 ) -> Result<Agent, String> {
     let reg = storage::Registry::load().map_err(err)?;
     let project = reg
@@ -67,18 +68,20 @@ pub async fn spawn_agent(
         .iter()
         .find(|p| p.id == project_id)
         .ok_or_else(|| format!("project not found: {project_id}"))?;
-    state.runtime.spawn(project, prompt).await.map_err(err)
+    state.runtime.spawn(project, prompt, model).await.map_err(err)
 }
 
 /// Continue a conversation with an Agent that has stopped working: a follow-up
-/// prompt, answered in the Agent's existing Worktree with its Session resumed.
+/// prompt, answered in the Agent's existing Worktree with its Session resumed,
+/// on the model the caller names for this Turn.
 #[tauri::command]
 pub async fn resume_agent(
     state: State<'_, AppState>,
     agent_id: String,
     prompt: String,
+    model: Option<String>,
 ) -> Result<Agent, String> {
-    state.runtime.resume(&agent_id, prompt).await.map_err(err)
+    state.runtime.resume(&agent_id, prompt, model).await.map_err(err)
 }
 
 #[tauri::command]

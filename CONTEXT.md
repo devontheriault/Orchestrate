@@ -28,6 +28,10 @@ _Avoid_: Checkout, Clone, Branch dir.
 The commit an Agent's branch was cut from at Spawn, recorded on the Agent. Everything the Agent produced is expressed as a diff against its Base, so committed and uncommitted work read as one change set even if the Project's own branch moves on afterwards.
 _Avoid_: Parent, Fork point, Origin.
 
+**Model**:
+Which Claude model an Agent's Turns run on, recorded on the Agent and passed to `claude --model`. Stored as an alias (`opus`, `sonnet`, `haiku`) rather than a pinned model name, so an Agent follows Claude Code to the latest model in that family. Picked by the user at Spawn and changeable at Resume — starting cheap and escalating is a normal move, so the Model belongs to the Turn as much as to the Agent. Unset means we pass no `--model` at all and Claude Code's own configured default applies; we never guess one on the user's behalf.
+_Avoid_: Engine, Backend, Tier.
+
 **Session**:
 The Claude Code conversation history behind an Agent, named by the UUID we mint at Spawn and pass as `--session-id`. Claude Code owns the transcript; we only keep the ID, and Resume hands it back via `--resume`. A Session is scoped to the directory it started in, which is why it survives exactly as long as the Agent's Worktree does.
 _Avoid_: using it as a synonym for Agent (an Agent is the thing the user talks to; the Session is the history that makes talking again possible), Thread, History, Context.

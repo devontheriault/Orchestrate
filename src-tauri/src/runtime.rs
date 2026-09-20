@@ -91,9 +91,15 @@ impl AgentRuntime {
         (rt, rx)
     }
 
-    /// Spawn a new Agent for the given Project and opening prompt. Returns the
+    /// Spawn a new Agent for the given Project and opening prompt, on the model
+    /// the user picked (`None` leaves the choice to Claude Code). Returns the
     /// Agent record once the process is running and its meta file is on disk.
-    pub async fn spawn(&self, project: &Project, prompt: String) -> Result<Agent> {
+    pub async fn spawn(
+        &self,
+        project: &Project,
+        prompt: String,
+        model: Option<String>,
+    ) -> Result<Agent> {
         let agent_id = new_id();
         let branch = format!("cw/agent-{agent_id}");
         let worktree_path = paths::worktrees_dir()?
@@ -117,6 +123,7 @@ impl AgentRuntime {
             // Mint the Session ID rather than waiting to read it off the
             // stream, so the Agent is resumable even if it dies mid-first-line.
             session_id: Some(new_session_id()),
+            model,
             turns: 1,
             spawned_at: OffsetDateTime::now_utc(),
             exited_at: None,
@@ -134,9 +141,18 @@ impl AgentRuntime {
     /// `claude` in the Agent's existing Worktree, resuming its Session, and put
     /// the Agent back into `Running`.
     ///
+    /// `model` is the choice for this Turn onwards, and is recorded on the
+    /// Agent — a user may start cheap and escalate mid-conversation. The caller
+    /// always states it, so `None` means "let Claude Code pick", not "unchanged".
+    ///
     /// Refused while the Agent is working, and for an Agent with no Session or
     /// no Worktree left to work in.
-    pub async fn resume(&self, agent_id: &str, prompt: String) -> Result<Agent> {
+    pub async fn resume(
+        &self,
+        agent_id: &str,
+        prompt: String,
+        model: Option<String>,
+    ) -> Result<Agent> {
         // Held from the busy check through the launch: two windows resuming the
         // same Agent at once must not both get past the check and put two
         // `claude`s to work in one Worktree.
@@ -162,6 +178,7 @@ impl AgentRuntime {
         }
 
         agent.turns += 1;
+        agent.model = model;
         agent.state = AgentState::Running;
         agent.exited_at = None;
         agent.exit_code = None;
@@ -207,6 +224,11 @@ impl AgentRuntime {
             .arg("--output-format").arg("stream-json")
             .arg("--verbose")
             .arg("--permission-mode").arg("bypassPermissions");
+        // No `--model` at all when the user hasn't picked one, so Claude Code's
+        // own configured default applies rather than one we guessed.
+        if let Some(model) = &agent.model {
+            cmd.arg("--model").arg(model);
+        }
         if let Some(session) = &agent.session_id {
             match how {
                 Continuity::Fresh => cmd.arg("--session-id").arg(session),
@@ -554,7 +576,7 @@ while : ; do sleep 1; done
         let bin = fake_claude_ok();
         let (rt, mut rx) = AgentRuntime::with_bin(bin);
 
-        let agent = rt.spawn(&project, "hello".into()).await.unwrap();
+        let agent = rt.spawn(&project, "hello".into(), None).await.unwrap();
         assert_eq!(agent.state, AgentState::Running);
 
         // Consume events until we see StateChanged (final).
@@ -598,7 +620,7 @@ exit 0
         let project = sample_project(repo.path().to_path_buf());
         let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_writes_code());
 
-        let agent = rt.spawn(&project, "write some code".into()).await.unwrap();
+        let agent = rt.spawn(&project, "write some code".into(), None).await.unwrap();
         let base = agent
             .base_commit
             .clone()
@@ -653,7 +675,7 @@ exit 0
         let bin = fake_claude_fail();
         let (rt, mut rx) = AgentRuntime::with_bin(bin);
 
-        let agent = rt.spawn(&project, "boom".into()).await.unwrap();
+        let agent = rt.spawn(&project, "boom".into(), None).await.unwrap();
         let final_agent = loop {
             match rx.recv().await.unwrap() {
                 RuntimeEvent::StateChanged { agent, .. } => break agent,
@@ -679,7 +701,7 @@ exit 0
         let bin = fake_claude_hang();
         let (rt, mut rx) = AgentRuntime::with_bin(bin);
 
-        let agent = rt.spawn(&project, "hang".into()).await.unwrap();
+        let agent = rt.spawn(&project, "hang".into(), None).await.unwrap();
         assert!(agent.worktree_path.exists());
 
         // Give the hang script a moment to install its TERM trap.
@@ -736,13 +758,13 @@ exit 0
         let args_log = std::env::temp_dir().join(format!("cw-args-{}.txt", new_id()));
         let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_recording(&args_log));
 
-        let agent = rt.spawn(&project, "first".into()).await.unwrap();
+        let agent = rt.spawn(&project, "first".into(), None).await.unwrap();
         let session = agent.session_id.clone().expect("spawn mints a session");
         let after_first = wait_for_exit(&mut rx).await;
         assert_eq!(after_first.state, AgentState::Completed);
         assert_eq!(after_first.turns, 1);
 
-        let resumed = rt.resume(&agent.id, "second".into()).await.unwrap();
+        let resumed = rt.resume(&agent.id, "second".into(), None).await.unwrap();
         assert_eq!(resumed.state, AgentState::Running);
         assert_eq!(resumed.turns, 2, "a follow-up is a new Turn on the same Agent");
         assert_eq!(resumed.worktree_path, agent.worktree_path, "same sandbox");
@@ -776,14 +798,67 @@ exit 0
     }
 
     #[tokio::test]
+    async fn the_picked_model_is_passed_to_claude_and_carried_across_turns() {
+        let _env = StateEnv::new();
+        let repo = init_repo().await;
+        let project = sample_project(repo.path().to_path_buf());
+        let args_log = std::env::temp_dir().join(format!("cw-args-{}.txt", new_id()));
+        let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_recording(&args_log));
+
+        let agent = rt
+            .spawn(&project, "first".into(), Some("sonnet".into()))
+            .await
+            .unwrap();
+        assert_eq!(agent.model.as_deref(), Some("sonnet"));
+        wait_for_exit(&mut rx).await;
+
+        // A user who starts cheap can escalate without starting over.
+        let resumed = rt
+            .resume(&agent.id, "try harder".into(), Some("opus".into()))
+            .await
+            .unwrap();
+        assert_eq!(resumed.model.as_deref(), Some("opus"));
+        wait_for_exit(&mut rx).await;
+        assert_eq!(
+            storage::load_agent(&agent.id).unwrap().model.as_deref(),
+            Some("opus"),
+            "the new choice must be persisted, or the next Turn reverts"
+        );
+
+        let args = std::fs::read_to_string(&args_log).unwrap();
+        let lines: Vec<&str> = args.lines().collect();
+        assert_eq!(lines.len(), 2, "one `claude` per Turn: {args}");
+        assert!(lines[0].contains("--model sonnet"), "{}", lines[0]);
+        assert!(lines[1].contains("--model opus"), "{}", lines[1]);
+    }
+
+    /// No pick means no flag at all, so Claude Code's own default applies
+    /// rather than one we guessed on the user's behalf.
+    #[tokio::test]
+    async fn no_picked_model_passes_no_model_flag() {
+        let _env = StateEnv::new();
+        let repo = init_repo().await;
+        let project = sample_project(repo.path().to_path_buf());
+        let args_log = std::env::temp_dir().join(format!("cw-args-{}.txt", new_id()));
+        let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_recording(&args_log));
+
+        let agent = rt.spawn(&project, "hello".into(), None).await.unwrap();
+        assert_eq!(agent.model, None);
+        wait_for_exit(&mut rx).await;
+
+        let args = std::fs::read_to_string(&args_log).unwrap();
+        assert!(!args.contains("--model"), "{args}");
+    }
+
+    #[tokio::test]
     async fn resume_is_refused_while_the_agent_is_working() {
         let _env = StateEnv::new();
         let repo = init_repo().await;
         let project = sample_project(repo.path().to_path_buf());
         let (rt, _rx) = AgentRuntime::with_bin(fake_claude_hang());
 
-        let agent = rt.spawn(&project, "hang".into()).await.unwrap();
-        let err = rt.resume(&agent.id, "hurry up".into()).await.unwrap_err();
+        let agent = rt.spawn(&project, "hang".into(), None).await.unwrap();
+        let err = rt.resume(&agent.id, "hurry up".into(), None).await.unwrap_err();
         assert!(matches!(err, Error::AgentBusy(_)), "{err:?}");
 
         rt.stop(&agent.id).await.unwrap();
@@ -797,7 +872,7 @@ exit 0
         let args_log = std::env::temp_dir().join(format!("cw-args-{}.txt", new_id()));
         let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_hang());
 
-        let agent = rt.spawn(&project, "go off the rails".into()).await.unwrap();
+        let agent = rt.spawn(&project, "go off the rails".into(), None).await.unwrap();
         tokio::time::sleep(Duration::from_millis(200)).await;
         rt.stop(&agent.id).await.unwrap();
         let stopped = wait_for_exit(&mut rx).await;
@@ -805,7 +880,7 @@ exit 0
 
         // Redirecting a Stopped Agent is the point of keeping its worktree.
         let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_recording(&args_log));
-        let resumed = rt.resume(&agent.id, "do it differently".into()).await.unwrap();
+        let resumed = rt.resume(&agent.id, "do it differently".into(), None).await.unwrap();
         assert_eq!(resumed.turns, 2);
         assert_eq!(wait_for_exit(&mut rx).await.state, AgentState::Completed);
     }
@@ -817,13 +892,13 @@ exit 0
         let project = sample_project(repo.path().to_path_buf());
         let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_ok());
 
-        let agent = rt.spawn(&project, "hello".into()).await.unwrap();
+        let agent = rt.spawn(&project, "hello".into(), None).await.unwrap();
         wait_for_exit(&mut rx).await;
         worktree::reap(&project.path, &agent.worktree_path, &agent.branch)
             .await
             .unwrap();
 
-        let err = rt.resume(&agent.id, "more".into()).await.unwrap_err();
+        let err = rt.resume(&agent.id, "more".into(), None).await.unwrap_err();
         assert!(
             matches!(&err, Error::NotResumable { why, .. } if why.contains("worktree")),
             "{err:?}"
@@ -841,6 +916,7 @@ exit 0
             worktree_path: std::env::temp_dir(),
             base_commit: None,
             session_id: None,
+            model: None,
             turns: 1,
             branch: "cw/agent-old".into(),
             spawned_at: OffsetDateTime::now_utc(),
@@ -851,7 +927,7 @@ exit 0
         storage::save_agent(&a).unwrap();
         let (rt, _rx) = AgentRuntime::with_bin(fake_claude_ok());
 
-        let err = rt.resume(&a.id, "carry on".into()).await.unwrap_err();
+        let err = rt.resume(&a.id, "carry on".into(), None).await.unwrap_err();
         assert!(
             matches!(&err, Error::NotResumable { why, .. } if why.contains("session")),
             "{err:?}"
@@ -873,7 +949,7 @@ exit 0
         );
         let (rt, mut rx) = AgentRuntime::with_bin(bin);
 
-        let agent = rt.spawn(&project, "hello".into()).await.unwrap();
+        let agent = rt.spawn(&project, "hello".into(), None).await.unwrap();
         let minted = agent.session_id.clone().unwrap();
         let done = wait_for_exit(&mut rx).await;
         assert_ne!(done.session_id.as_deref(), Some(minted.as_str()));
@@ -900,6 +976,7 @@ exit 0
             worktree_path: "/tmp/wt".into(),
             base_commit: None,
             session_id: Some("11111111-2222-4333-8444-555555555555".into()),
+            model: None,
             turns: 1,
             branch: "cw/agent-x".into(),
             spawned_at: OffsetDateTime::now_utc(),

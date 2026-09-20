@@ -1,6 +1,6 @@
 <script lang="ts">
   import { store } from "./store.svelte";
-  import type { Agent } from "./api";
+  import { modelLabel, type Agent } from "./api";
 
   let {
     onSpawn,
@@ -82,6 +82,9 @@
               <div class="prompt" title={a.task.prompt}>{firstLine(a.task.prompt)}</div>
               <div class="meta">
                 <code>{a.id}</code>
+                {#if a.model}
+                  <span class="model">{modelLabel(a.model)}</span>
+                {/if}
                 <span class="time">{relTime(a.spawned_at)}</span>
               </div>
             </div>
@@ -259,8 +262,17 @@
     color: var(--fg-muted);
   }
 
+  .meta .model {
+    /* Between the id and the time; the flex row already spaces them out. */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+
   .meta .time {
     white-space: nowrap;
+    margin-left: auto;
   }
 
   code {

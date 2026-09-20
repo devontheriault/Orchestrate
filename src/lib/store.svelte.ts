@@ -45,6 +45,21 @@ function mergeEvents(logged: AgentEvent[], live: AgentEvent[]): AgentEvent[] {
  */
 const RESUME_KEY = "cw:resume-selection";
 
+/**
+ * The model the user picked last, remembered across launches so the spawn modal
+ * opens on their habitual choice instead of resetting every time. localStorage,
+ * not sessionStorage: a preference should outlive the window.
+ */
+const MODEL_KEY = "cw:preferred-model";
+
+function readPreferredModel(): string | null {
+  try {
+    return localStorage.getItem(MODEL_KEY);
+  } catch {
+    return null;
+  }
+}
+
 type Selection = { project: string | null; agent: string | null };
 
 function takeResumeSelection(): Selection | null {
@@ -78,6 +93,9 @@ class AppStore {
 
   /** A follow-up prompt is in flight for the selected agent. */
   sending = $state<boolean>(false);
+
+  /** What the spawn modal's model picker opens on. Null = Claude Code's default. */
+  preferredModel = $state<string | null>(readPreferredModel());
 
   orphanBannerDismissed = $state<boolean>(false);
   error = $state<string | null>(null);
@@ -331,10 +349,22 @@ class AppStore {
     this.orphanBannerDismissed = true;
   }
 
-  async spawn(prompt: string) {
+  /** Remember a model pick as the default for the next spawn. */
+  rememberModel(model: string | null) {
+    this.preferredModel = model;
+    try {
+      if (model) localStorage.setItem(MODEL_KEY, model);
+      else localStorage.removeItem(MODEL_KEY);
+    } catch {
+      // A preference isn't worth failing a spawn over.
+    }
+  }
+
+  async spawn(prompt: string, model: string | null) {
     if (!this.selectedProjectId) return;
     try {
-      const agent = await api.spawnAgent(this.selectedProjectId, prompt);
+      const agent = await api.spawnAgent(this.selectedProjectId, prompt, model);
+      this.rememberModel(model);
       this.agents.push(agent);
       this.selectAgent(agent.id);
     } catch (e) {
@@ -344,15 +374,15 @@ class AppStore {
 
   /**
    * Send a follow-up prompt to the selected agent, putting it back to work in
-   * the worktree it already has. Returns whether the agent took it.
+   * the worktree it already has, on `model`. Returns whether the agent took it.
    */
-  async resume(prompt: string) {
+  async resume(prompt: string, model: string | null) {
     const id = this.selectedAgentId;
     if (!id || !prompt.trim() || this.sending) return false;
     this.sending = true;
     this.error = null;
     try {
-      const agent = await api.resumeAgent(id, prompt);
+      const agent = await api.resumeAgent(id, prompt, model);
       const i = this.agents.findIndex((a) => a.id === agent.id);
       if (i >= 0) this.agents[i] = agent;
       // It's working again, so it's nobody's leftover any more.

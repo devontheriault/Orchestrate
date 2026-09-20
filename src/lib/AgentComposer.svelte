@@ -1,11 +1,15 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import { store } from "./store.svelte";
+  import { MODEL_CHOICES } from "./api";
 
   const agent = $derived(store.selectedAgent);
   const working = $derived(agent?.state === "running");
   const busy = $derived(working || store.sending);
 
   let prompt = $state("");
+  /** The picker's value; "" is the Default choice, which passes no --model. */
+  let model = $state("");
   let textarea: HTMLTextAreaElement | undefined = $state();
 
   // Grow with the text, up to a ceiling — a long follow-up shouldn't need
@@ -22,14 +26,17 @@
   });
 
   // A different agent is a different conversation: don't carry a draft over.
+  // The picker starts on whatever the agent last ran on — untracked, so an
+  // agent record updating mid-edit doesn't undo a model the user just picked.
   $effect(() => {
     store.selectedAgentId;
     prompt = "";
+    model = untrack(() => store.selectedAgent?.model ?? "");
   });
 
   async function send() {
     if (!prompt.trim() || busy) return;
-    const sent = await store.resume(prompt);
+    const sent = await store.resume(prompt, model || null);
     // Keep the text on failure so the user can retry rather than retype.
     if (sent) prompt = "";
   }
@@ -55,14 +62,27 @@
           : "Reply to this agent…"}
       ></textarea>
       <div class="side">
-        <button
-          class="send"
-          onclick={send}
-          disabled={busy || !prompt.trim()}
-          title={working ? "Wait for the agent to finish" : "Send (Enter)"}
-        >
-          {store.sending ? "Sending…" : "Send"}
-        </button>
+        <div class="controls">
+          <select
+            class="model"
+            bind:value={model}
+            disabled={busy}
+            aria-label="Model for the next turn"
+            title="Model this agent's next turn runs on"
+          >
+            {#each MODEL_CHOICES as choice (choice.label)}
+              <option value={choice.value ?? ""}>{choice.label}</option>
+            {/each}
+          </select>
+          <button
+            class="send"
+            onclick={send}
+            disabled={busy || !prompt.trim()}
+            title={working ? "Wait for the agent to finish" : "Send (Enter)"}
+          >
+            {store.sending ? "Sending…" : "Send"}
+          </button>
+        </div>
         <span class="hint">
           {#if working}
             turn {agent.turns}
@@ -128,6 +148,33 @@
     flex-direction: column;
     align-items: flex-end;
     gap: 0.25rem;
+  }
+
+  .controls {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+
+  .model {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--panel-bg);
+    color: var(--fg);
+    font-family: inherit;
+    font-size: 0.78rem;
+    padding: 0.35rem 0.3rem;
+    max-width: 7rem;
+    cursor: pointer;
+  }
+
+  .model:hover:not(:disabled) {
+    border-color: var(--accent);
+  }
+
+  .model:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
   }
 
   .send {
