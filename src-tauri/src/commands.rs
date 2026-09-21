@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use tauri::State;
 use time::OffsetDateTime;
 
-use crate::git::{self, Branches, Commit, Landed, WorktreeDiff};
+use crate::git::{self, Branches, Commit, Merged, WorktreeDiff};
 use crate::model::{new_id, Agent, AgentEvent, AgentState, Project};
 use crate::models::ModelInfo;
 use crate::runtime::AgentRuntime;
@@ -169,7 +169,7 @@ pub async fn agent_commit(agent_id: String, message: String) -> Result<Commit, S
         .map_err(err)
 }
 
-/// The Project's local branches, for the Land picker. Agent branches are left
+/// The Project's local branches, for the Merge picker. Agent branches are left
 /// out, and the checked-out branch comes first.
 #[tauri::command]
 pub async fn project_branches(project_id: String) -> Result<Branches, String> {
@@ -186,13 +186,13 @@ pub async fn project_branches(project_id: String) -> Result<Branches, String> {
 /// the app writes to the Project, and only ever because the user asked.
 ///
 /// Refused while the Agent is running — the merge would capture a tree the Agent
-/// is still writing. The Agent survives a Land: only Reap destroys anything, so
-/// the Land is recorded on the Agent and nothing is cleaned up.
+/// is still writing. The Agent survives a Merge: only Reap destroys anything, so
+/// the Merge is recorded on the Agent and nothing is cleaned up.
 #[tauri::command]
-pub async fn agent_land(agent_id: String, target: String) -> Result<Landed, String> {
+pub async fn agent_merge(agent_id: String, target: String) -> Result<Merged, String> {
     let mut agent = storage::load_agent(&agent_id).map_err(err)?;
     if agent.state == AgentState::Running {
-        return Err("cannot land while the agent is running; stop it first".into());
+        return Err("cannot merge while the agent is running; stop it first".into());
     }
 
     let reg = storage::Registry::load().map_err(err)?;
@@ -202,13 +202,13 @@ pub async fn agent_land(agent_id: String, target: String) -> Result<Landed, Stri
         .find(|p| p.id == agent.project_id)
         .ok_or_else(|| {
             format!(
-                "cannot land: the project this agent belongs to is no longer registered ({})",
+                "cannot merge: the project this agent belongs to is no longer registered ({})",
                 agent.project_id
             )
         })?;
 
     // Git's own merge subject, with the Agent's name under it so the history
-    // says which piece of work landed rather than only which branch.
+    // says which piece of work merged rather than only which branch.
     let what = agent.title.clone().unwrap_or_else(|| {
         agent
             .task
@@ -225,7 +225,7 @@ pub async fn agent_land(agent_id: String, target: String) -> Result<Landed, Stri
         message.push_str(&what);
     }
 
-    let landed = git::land(
+    let merged = git::merge(
         &project.path,
         &agent.worktree_path,
         &agent.branch,
@@ -235,11 +235,11 @@ pub async fn agent_land(agent_id: String, target: String) -> Result<Landed, Stri
     .await
     .map_err(err)?;
 
-    agent.landed_branch = Some(landed.target.clone());
-    agent.landed_at = Some(OffsetDateTime::now_utc());
+    agent.merged_branch = Some(merged.target.clone());
+    agent.merged_at = Some(OffsetDateTime::now_utc());
     storage::save_agent(&agent).map_err(err)?;
 
-    Ok(landed)
+    Ok(merged)
 }
 
 /// The models this user's account can run, newest first, for the model picker.

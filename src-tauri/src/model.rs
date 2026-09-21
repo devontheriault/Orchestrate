@@ -7,8 +7,8 @@ use time::OffsetDateTime;
 pub type Id = String;
 
 /// Every Agent's branch is named `cw/agent-<id>`. The prefix is how the rest of
-/// the app tells an Agent's branch from one of the user's own — the Land picker
-/// leaves these out, since landing one Agent onto another's branch is
+/// the app tells an Agent's branch from one of the user's own — the Merge picker
+/// leaves these out, since merging one Agent into another's branch is
 /// multi-agent coordination rather than finishing a piece of work.
 pub const AGENT_BRANCH_PREFIX: &str = "cw/agent-";
 
@@ -117,14 +117,17 @@ pub struct Agent {
     pub exit_code: Option<i32>,
     #[serde(default)]
     pub fail_reason: Option<String>,
-    /// The branch this Agent's work was last Landed onto, and when. `None`
-    /// until a Land succeeds. Recorded like the Base — a fact about what
-    /// happened to the Agent, not a state it is in, so a Landed Agent can
-    /// still be Resumed, Committed, and Landed again.
-    #[serde(default)]
-    pub landed_branch: Option<String>,
-    #[serde(default, with = "time::serde::rfc3339::option")]
-    pub landed_at: Option<OffsetDateTime>,
+    /// The branch this Agent's work was last Merged into, and when. `None`
+    /// until a Merge succeeds. Recorded like the Base — a fact about what
+    /// happened to the Agent, not a state it is in, so a Merged Agent can
+    /// still be Resumed, Committed, and Merged again.
+    ///
+    /// The `landed_*` aliases are what this was called when the action was
+    /// named Land; records written then still load.
+    #[serde(default, alias = "landed_branch")]
+    pub merged_branch: Option<String>,
+    #[serde(default, alias = "landed_at", with = "time::serde::rfc3339::option")]
+    pub merged_at: Option<OffsetDateTime>,
 }
 
 fn one() -> u32 {
@@ -194,8 +197,8 @@ mod tests {
                 exited_at: Some(datetime!(2026-09-20 14:05:00 UTC)),
                 exit_code: Some(0),
                 fail_reason: None,
-                landed_branch: None,
-                landed_at: None,
+                merged_branch: None,
+                merged_at: None,
             };
             let s = serde_json::to_string(&a).unwrap();
             let back: Agent = serde_json::from_str(&s).unwrap();
@@ -252,6 +255,26 @@ mod tests {
             a.turn_started_at, None,
             "no recorded turn start means readers fall back to spawned_at"
         );
+    }
+
+    /// Meta files written while the action was called Land carry `landed_*`.
+    /// Losing them would make an already-merged Agent look unmerged.
+    #[test]
+    fn agent_with_the_old_landed_fields_still_deserializes() {
+        let json = r#"{
+            "id": "a3f9c1de",
+            "project_id": "proj0001",
+            "task": { "prompt": "old agent" },
+            "state": "completed",
+            "worktree_path": "/tmp/wt",
+            "branch": "cw/agent-a3f9c1de",
+            "spawned_at": "2026-09-20T14:00:00Z",
+            "landed_branch": "main",
+            "landed_at": "2026-09-20T14:10:00Z"
+        }"#;
+        let a: Agent = serde_json::from_str(json).unwrap();
+        assert_eq!(a.merged_branch.as_deref(), Some("main"));
+        assert_eq!(a.merged_at, Some(datetime!(2026-09-20 14:10:00 UTC)));
     }
 
     #[test]

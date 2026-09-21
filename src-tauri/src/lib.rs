@@ -123,7 +123,7 @@ pub fn run() {
             commands::agent_events,
             commands::agent_diff,
             commands::agent_commit,
-            commands::agent_land,
+            commands::agent_merge,
             commands::project_branches,
             commands::startup_orphans,
             commands::list_models,

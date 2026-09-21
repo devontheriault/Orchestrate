@@ -44,7 +44,7 @@ pub async fn create(project_path: &Path, worktree_path: &Path, branch: &str) -> 
 /// Check an *existing* branch out into a new worktree at `worktree_path`.
 ///
 /// Unlike [`create`], which cuts a fresh branch for an Agent, this borrows a
-/// branch that already exists. It is how a Land merges into a branch that is
+/// branch that already exists. It is how a Merge reaches a branch that is
 /// not the one checked out: git can only merge into a checked-out branch, and
 /// borrowing it here means the user is never moved off their own.
 ///
@@ -83,9 +83,9 @@ pub async fn add_existing(project_path: &Path, worktree_path: &Path, branch: &st
 
 /// Remove a worktree and its directory, leaving its branch alone.
 ///
-/// This is [`reap`] without the destruction: it is what a Land does with the
+/// This is [`reap`] without the destruction: it is what a Merge does with the
 /// throwaway worktree it borrowed a branch into, where deleting the branch
-/// would throw away the merge that just landed on it. Best-effort throughout.
+/// would throw away the merge that just happened on it. Best-effort throughout.
 pub async fn release(project_path: &Path, worktree_path: &Path) -> Result<()> {
     let _ = Command::new("git")
         .arg("-C")

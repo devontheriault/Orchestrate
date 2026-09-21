@@ -89,7 +89,7 @@
     if (await store.commit(message)) messageEdited = false;
   }
 
-  /** Which branch the land picker is pointing at. */
+  /** Which branch the merge picker is pointing at. */
   let target = $state("");
 
   /**
@@ -117,12 +117,12 @@
     }
   });
 
-  const landedOnto = $derived(store.selectedAgent?.landed_branch ?? null);
+  const mergedInto = $derived(store.selectedAgent?.merged_branch ?? null);
 
-  // Only committed work lands, and not out from under a working agent.
-  const canLand = $derived(
+  // Only committed work merges, and not out from under a working agent.
+  const canMerge = $derived(
     !running &&
-      !store.landing &&
+      !store.merging &&
       !(store.diff?.uncommitted ?? false) &&
       (store.branches?.names.length ?? 0) > 0,
   );
@@ -209,39 +209,39 @@
       {/if}
 
       {#if diff.commits.length > 0}
-        <div class="land-box">
-          <div class="land-box-head">
-            <strong>Land this work</strong>
-            {#if landedOnto}
-              <span class="sub">already landed onto <code>{landedOnto}</code></span>
+        <div class="merge-box">
+          <div class="merge-box-head">
+            <strong>Merge this work</strong>
+            {#if mergedInto}
+              <span class="sub">already merged into <code>{mergedInto}</code></span>
             {/if}
           </div>
-          <div class="land-box-foot">
+          <div class="merge-box-foot">
             {#if running}
-              <span class="sub">Stop the agent before landing — it is still writing.</span>
+              <span class="sub">Stop the agent before merging — it is still writing.</span>
             {:else if diff.uncommitted}
-              <span class="sub">Commit the loose work first — only commits land.</span>
+              <span class="sub">Commit the loose work first — only commits merge.</span>
             {:else if (store.branches?.names.length ?? 0) === 0}
-              <span class="sub">No branches to land onto.</span>
+              <span class="sub">No branches to merge into.</span>
             {:else}
               <span class="sub">
                 Merges <code>{store.selectedAgent?.branch}</code> in, keeping it one commit.
               </span>
             {/if}
-            <div class="land-controls">
+            <div class="merge-controls">
               <BranchPicker
                 bind:value={target}
                 options={store.branches?.names ?? []}
                 current={store.branches?.current ?? null}
-                disabled={!canLand}
-                label="Branch to land onto"
+                disabled={!canMerge}
+                label="Branch to merge into"
               />
               <button
                 class="primary"
-                disabled={!canLand || target.length === 0}
-                onclick={() => store.land(target)}
+                disabled={!canMerge || target.length === 0}
+                onclick={() => store.merge(target)}
               >
-                {store.landing ? "Landing…" : "Land"}
+                {store.merging ? "Merging…" : "Merge"}
               </button>
             </div>
           </div>
@@ -527,9 +527,9 @@
     cursor: default;
   }
 
-  /* Deliberately quieter than the commit box: landing is the ordinary next
+  /* Deliberately quieter than the commit box: merging is the ordinary next
      step, not a warning that work is at risk. */
-  .land-box {
+  .merge-box {
     border: 1px solid var(--border);
     background: var(--surface);
     border-radius: 6px;
@@ -539,14 +539,14 @@
     gap: 0.55rem;
   }
 
-  .land-box-head {
+  .merge-box-head {
     display: flex;
     align-items: baseline;
     gap: 0.5rem;
     font-size: 0.87rem;
   }
 
-  .land-box-foot {
+  .merge-box-foot {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -554,11 +554,11 @@
     gap: 0.5rem 1rem;
   }
 
-  .land-box-foot .sub {
+  .merge-box-foot .sub {
     flex: 1 1 12rem;
   }
 
-  .land-controls {
+  .merge-controls {
     display: flex;
     align-items: center;
     gap: 0.4rem;
@@ -566,7 +566,7 @@
   }
 
   /* The picker beside it draws its own trigger — see BranchPicker.svelte. */
-  .land-controls button.primary {
+  .merge-controls button.primary {
     background: var(--accent);
     border: 1px solid var(--accent);
     /* Same pairing the composer's send button uses. */
@@ -580,11 +580,11 @@
     cursor: pointer;
   }
 
-  .land-controls button.primary:hover:not(:disabled) {
+  .merge-controls button.primary:hover:not(:disabled) {
     filter: brightness(1.08);
   }
 
-  .land-controls button.primary:disabled {
+  .merge-controls button.primary:disabled {
     opacity: 0.5;
     cursor: default;
   }

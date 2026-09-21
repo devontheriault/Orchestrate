@@ -1,6 +1,6 @@
 <script lang="ts">
   /**
-   * The land target, picked from the project's branches. Same control as the
+   * The merge target, picked from the project's branches. Same control as the
    * model picker — trigger, menu, keys — with no submenu hanging off the rows:
    * a branch has nothing to qualify.
    */
@@ -47,7 +47,7 @@
     const r = triggerEl.getBoundingClientRect();
     const below = window.innerHeight - r.bottom - GAP - EDGE;
     const above = r.top - GAP - EDGE;
-    // The land box sits low in a scrolling pane, so dropping upward is as
+    // The merge box sits low in a scrolling pane, so dropping upward is as
     // likely as down.
     const up = below < Math.min(MENU_MAX_HEIGHT, above);
     const width = Math.max(r.width, MENU_MIN_WIDTH);
@@ -228,7 +228,7 @@
       >
         <span class="tick" aria-hidden="true">{name === value ? "✓" : ""}</span>
         <span class="name">{name}</span>
-        <!-- Which branch the project itself is on: the one where landing shows
+        <!-- Which branch the project itself is on: the one where a merge shows
              up in the user's own checkout right away. -->
         {#if name === current}<span class="note">checked out</span>{/if}
       </li>
@@ -244,7 +244,7 @@
     min-width: 0;
   }
 
-  /* The model picker's trigger, sized for the land row: same surface, border,
+  /* The model picker's trigger, sized for the merge row: same surface, border,
      radius and chevron, so the two read as one control in two places. */
   .trigger {
     display: flex;
