@@ -13,11 +13,6 @@
     store.projects.find((p) => p.id === store.selectedProjectId)?.name ?? "",
   );
 
-  /** The project the selected agent belongs to, which may not be the selected one. */
-  const agentProjectName = $derived(
-    store.projects.find((p) => p.id === store.selectedAgent?.project_id)?.name ?? "",
-  );
-
   let showRaw = $state(false);
   let streamEl: HTMLDivElement | undefined = $state();
 
@@ -168,10 +163,6 @@
       <div class="head-left">
         <!-- The name Claude gave the work; the prompt behind it is a hover away. -->
         <div class="prompt" title={store.selectedAgent.task.prompt}>
-          {#if agentProjectName}
-            <span class="project">{agentProjectName}</span>
-            <span class="sep">/</span>
-          {/if}
           {store.agentName(store.selectedAgent)}
         </div>
       </div>
@@ -350,17 +341,6 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-  }
-
-  /* Muted colour alone separates the project from the agent name; both stay
-     bold so the whole title reads as one heading. */
-  .prompt .project,
-  .prompt .sep {
-    color: var(--fg-muted);
-  }
-
-  .prompt .sep {
-    margin: 0 0.1rem;
   }
 
   .prompt-empty {
