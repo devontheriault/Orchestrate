@@ -110,7 +110,10 @@
   }
 
   .wordmark {
-    font-size: 0.8rem;
+    /* Stands in for the app icon until there is one, so it carries more weight
+       than a caption would. Sized to still clear the 2.1rem bar. */
+    font-size: 1.05rem;
+    line-height: 1;
     font-weight: 600;
     letter-spacing: 0.01em;
     color: var(--fg-muted);
