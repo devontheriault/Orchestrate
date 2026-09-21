@@ -282,12 +282,9 @@
             <span>raw</span>
           </label>
         {/if}
-        {#if store.selectedAgent.state === "running"}
-          <button
-            class="stop"
-            onclick={() => store.stopAgent(store.selectedAgent!.id)}>Stop</button
-          >
-        {:else}
+        <!-- Stop lives in the composer's send slot while the agent runs; the
+             header keeps only the destructive action, once it's stopped. -->
+        {#if store.selectedAgent.state !== "running"}
           <button
             class="reap"
             class:armed={reapArmed}
@@ -571,7 +568,6 @@
     background: #f59e0b;
   }
 
-  .stop:hover { border-color: #ef4444; color: #ef4444; }
   .reap:hover { border-color: var(--accent); color: var(--accent); }
 
   .reap.armed,

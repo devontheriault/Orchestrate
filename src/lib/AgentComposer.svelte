@@ -93,30 +93,41 @@
               ? "Working… stop it to change course"
               : "Reply to this agent…"}
         ></textarea>
-        <button
-          class="send"
-          onclick={send}
-          disabled={busy || !prompt.trim()}
-          aria-label={drafting ? "Spawn this agent" : "Send"}
-          title={drafting
-            ? "Spawn this agent (Enter)"
-            : working
-              ? "Wait for the agent to finish"
-              : "Send (Enter)"}
-        >
-          <!-- Arrow up: the send affordance every chat box uses, so it needs
-               no label to read as "send". -->
-          <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
-            <path
-              d="M8 13V3.5M8 3.5L3.5 8M8 3.5L12.5 8"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.8"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            />
-          </svg>
-        </button>
+        {#if working}
+          <!-- While the agent runs, the same slot interrupts it: one button,
+               one place to look, whichever the conversation needs. -->
+          <button
+            class="send stop"
+            onclick={() => store.stopAgent(agent!.id)}
+            aria-label="Stop this agent"
+            title="Stop this agent"
+          >
+            <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+              <rect x="5" y="5" width="6" height="6" rx="1.2" fill="currentColor" />
+            </svg>
+          </button>
+        {:else}
+          <button
+            class="send"
+            onclick={send}
+            disabled={busy || !prompt.trim()}
+            aria-label={drafting ? "Spawn this agent" : "Send"}
+            title={drafting ? "Spawn this agent (Enter)" : "Send (Enter)"}
+          >
+            <!-- Arrow up: the send affordance every chat box uses, so it needs
+                 no label to read as "send". -->
+            <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+              <path
+                d="M8 13V3.5M8 3.5L3.5 8M8 3.5L12.5 8"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </button>
+        {/if}
       </div>
       <div class="below">
         <span class="hint">
@@ -234,6 +245,12 @@
   .send:disabled {
     opacity: 0.35;
     cursor: not-allowed;
+  }
+
+  /* Same slot, different job: red reads as "interrupt" without a label. */
+  .send.stop {
+    background: #ef4444;
+    color: #fff;
   }
 
   .below {
