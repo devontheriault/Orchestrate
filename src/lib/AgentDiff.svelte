@@ -1,5 +1,6 @@
 <script lang="ts">
   import { store } from "./store.svelte";
+  import BranchPicker from "./BranchPicker.svelte";
 
   // Suggested commit message: the agent's own prompt, as a subject line.
   const suggested = $derived.by(() => {
@@ -228,11 +229,13 @@
               </span>
             {/if}
             <div class="land-controls">
-              <select bind:value={target} disabled={!canLand}>
-                {#each store.branches?.names ?? [] as name (name)}
-                  <option value={name}>{name}</option>
-                {/each}
-              </select>
+              <BranchPicker
+                bind:value={target}
+                options={store.branches?.names ?? []}
+                current={store.branches?.current ?? null}
+                disabled={!canLand}
+                label="Branch to land onto"
+              />
               <button
                 class="primary"
                 disabled={!canLand || target.length === 0}
@@ -562,30 +565,18 @@
     flex: none;
   }
 
-  .land-controls select {
-    font-family: inherit;
-    font-size: 0.83rem;
-    color: var(--fg);
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 5px;
-    padding: 0.3rem 0.4rem;
-    max-width: 14rem;
-  }
-
-  .land-controls select:disabled {
-    opacity: 0.5;
-  }
-
+  /* The picker beside it draws its own trigger — see BranchPicker.svelte. */
   .land-controls button.primary {
     background: var(--accent);
     border: 1px solid var(--accent);
     /* Same pairing the composer's send button uses. */
     color: var(--surface);
     font-weight: 500;
-    border-radius: 5px;
-    padding: 0.35rem 0.85rem;
+    /* Matches the picker's radius, so the pair reads as one strip. */
+    border-radius: 6px;
+    padding: 0.3rem 0.85rem;
     font-size: 0.83rem;
+    line-height: 1.4;
     cursor: pointer;
   }
 
