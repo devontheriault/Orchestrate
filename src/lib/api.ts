@@ -48,6 +48,13 @@ export type Agent = {
   exited_at?: string | null;
   exit_code?: number | null;
   fail_reason?: string | null;
+  /**
+   * The branch this agent's work was last landed onto, and when. Absent until
+   * a land succeeds. A record of what happened, not a state — a landed agent
+   * can still be resumed, committed, and landed again.
+   */
+  landed_branch?: string | null;
+  landed_at?: string | null;
 };
 
 /**
@@ -100,6 +107,20 @@ export type ChangedFile = {
 export type Commit = {
   sha: string;
   subject: string;
+};
+
+/** The branches a land can target, as the picker offers them. */
+export type Branches = {
+  /** The project's checked-out branch, or null on a detached HEAD. */
+  current: string | null;
+  /** Landable branches: current first, then alphabetical, agent branches omitted. */
+  names: string[];
+};
+
+export type Landed = {
+  target: string;
+  /** The merge commit now at the tip of `target`. */
+  sha: string;
 };
 
 export type WorktreeDiff = {
@@ -195,6 +216,10 @@ export const api = {
   agentDiff: (agentId: string) => invoke<WorktreeDiff>("agent_diff", { agentId }),
   agentCommit: (agentId: string, message: string) =>
     invoke<Commit>("agent_commit", { agentId, message }),
+  agentLand: (agentId: string, target: string) =>
+    invoke<Landed>("agent_land", { agentId, target }),
+  projectBranches: (projectId: string) =>
+    invoke<Branches>("project_branches", { projectId }),
 
   listModels: () => invoke<ModelInfo[]>("list_models"),
 

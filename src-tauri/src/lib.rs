@@ -53,8 +53,22 @@ fn build_main_window(app: &tauri::AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
+/// WebKitGTK's DMA-BUF renderer crashes under Wayland on some drivers (notably
+/// NVIDIA), killing the process at startup with
+/// `Gdk-Message: Error 71 (Protocol error) dispatching to Wayland display.`
+/// Fall back to the plain renderer unless the user set the variable themselves.
+#[cfg(target_os = "linux")]
+fn apply_linux_webkit_workarounds() {
+    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(target_os = "linux")]
+    apply_linux_webkit_workarounds();
+
     let startup_orphans = runtime::adopt_orphans_on_launch().unwrap_or_default();
     let (rt, rx) = AgentRuntime::new();
 
@@ -109,6 +123,8 @@ pub fn run() {
             commands::agent_events,
             commands::agent_diff,
             commands::agent_commit,
+            commands::agent_land,
+            commands::project_branches,
             commands::startup_orphans,
             commands::list_models,
             commands::usage_summary,

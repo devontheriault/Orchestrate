@@ -6,6 +6,7 @@ import {
   modelLabel,
   type Agent,
   type AgentEvent,
+  type Branches,
   type ModelInfo,
   type Project,
   type WorktreeDiff,
@@ -154,6 +155,14 @@ class AppStore {
   diffLoading = $state<boolean>(false);
   diffError = $state<string | null>(null);
   committing = $state<boolean>(false);
+  landing = $state<boolean>(false);
+
+  /**
+   * The selected agent's project's landable branches. Null until asked for, and
+   * again when the branch list can't be read — the picker then offers nothing
+   * rather than guessing.
+   */
+  branches = $state<Branches | null>(null);
 
   /** A follow-up prompt is in flight for the selected agent. */
   sending = $state<boolean>(false);
@@ -566,6 +575,49 @@ class AppStore {
       return false;
     } finally {
       if (this.selectedAgentId === id) this.committing = false;
+    }
+  }
+
+  /** The branches the selected agent's work could land on. */
+  async loadBranches() {
+    const projectId = this.selectedAgent?.project_id;
+    if (!projectId) {
+      this.branches = null;
+      return;
+    }
+    try {
+      const branches = await api.projectBranches(projectId);
+      if (this.selectedAgent?.project_id !== projectId) return;
+      this.branches = branches;
+    } catch {
+      // Not worth an error banner: without a list the land control just says
+      // it has nothing to offer.
+      if (this.selectedAgent?.project_id === projectId) this.branches = null;
+    }
+  }
+
+  /**
+   * Merge the selected agent's branch onto `target`. The agent survives — only
+   * a reap destroys anything — so this refreshes rather than clears.
+   */
+  async land(target: string) {
+    const id = this.selectedAgentId;
+    if (!id) return false;
+    this.landing = true;
+    this.diffError = null;
+    try {
+      await api.agentLand(id, target);
+      // The agent now carries where it landed, and the branch list has moved on.
+      await this.refresh();
+      if (this.selectedAgentId === id) {
+        await Promise.all([this.loadDiff(), this.loadBranches()]);
+      }
+      return true;
+    } catch (e) {
+      if (this.selectedAgentId === id) this.diffError = String(e);
+      return false;
+    } finally {
+      if (this.selectedAgentId === id) this.landing = false;
     }
   }
 

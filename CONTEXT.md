@@ -22,10 +22,10 @@ _Avoid_: Run, Iteration, Round, Message (a Turn contains many messages).
 
 **Queue**:
 What the user has said to an Agent that wasn't free to hear it yet: prompts typed while a Turn was still running, held in order and sent as their own Turns once the Agent is free. A Queue belongs to one Agent, is always visible above the composer with its messages readable and individually removable, and drains one message per clean Complete — a Stop or a Fail holds the rest, since interrupting an Agent shouldn't fire the rest of the line into it. Kept in the window's local storage rather than on the Agent: it is a record of what the user means to say, not part of the conversation Claude Code owns.
-_Avoid_: Backlog (that's the Project's, not an Agent's), Buffer, Pipeline, Inbox.
+_Avoid_: Buffer, Pipeline, Inbox.
 
 **Project**:
-A local Git repository the user has explicitly registered with the app. A Project may contain many Agents over time (spawned across separate Worktrees), and the Project's own working tree is never touched by an Agent.
+A local Git repository the user has explicitly registered with the app. A Project may contain many Agents over time (spawned across separate Worktrees), and no Agent ever touches the Project's own working tree. The app touches the Project only when the user asks it to: a Land advances one of the Project's branches, and reaches its working tree only when the branch being landed onto is the one checked out.
 _Avoid_: Workspace, Repo (in UI), Directory.
 
 **Worktree**:
@@ -39,6 +39,14 @@ _Avoid_: Parent, Fork point, Origin.
 **Model**:
 Which Claude model an Agent's Turns run on, recorded on the Agent and passed to `claude --model` as a full model name (`claude-opus-4-5-20251101`), version included, so an Agent keeps running on the model the user actually picked. The choices come from Anthropic's Models API, asked with the same credential `claude` itself uses — the list is the user's own account, not one baked into this app, so it covers models released after any given build and never offers one the Agent couldn't run. Picked at Spawn and changeable at Resume: starting cheap and escalating is a normal move, so the Model belongs to the Turn as much as to the Agent. Unset means we pass no `--model` at all and Claude Code's own configured default applies; that is also the fallback when the account can't be reached, so the picker always has a working choice. The last Model the user picked for any Turn is remembered in the window's local storage and is what the next Spawn opens on — people work on one model for stretches at a time, so re-picking it every Spawn is friction; on a profile that has no record yet, the most recently spawned Agent's Model stands in.
 _Avoid_: Engine, Backend, Tier.
+
+**Effort**:
+How hard an Agent's Turns think, passed to `claude --effort` as one of `low`, `medium`, `high`, `xhigh`, or `max`. It rides with the Model rather than claiming a control of its own — it is picked from a submenu hanging off each model row, because how capable a model is and how hard it works are one decision about what a Turn is worth. Like the Model it is picked at Spawn, changeable at Resume, carried on each queued message as it stood when that message was queued, and remembered in the window's local storage, falling back to the most recently spawned Agent's Effort on a profile with no record. Unset means we pass no `--effort` at all and Claude Code's own level applies; that is also what Agents recorded before Effort existed get.
+_Avoid_: Thinking budget, Reasoning level, Depth, Quality.
+
+**Permission Mode**:
+What an Agent's Turns may do without asking, passed to `claude --permission-mode`. Two choices: `bypassPermissions`, the default, where the Agent acts freely inside its Worktree, and `plan`, where it reads and proposes but writes nothing. The modes Claude Code offers that stop to ask are deliberately absent — we hand `claude` no input channel, only `--output-format stream-json`, so a permission prompt would hang the Turn with nowhere to answer it. Isolation rather than permission is the safety story here: the Worktree is the sandbox, which is why acting freely inside one is the default, and `plan` exists for the Agent you want to think before it touches anything. Picked at Spawn, changeable at Resume, and carried on each queued message as it stood when that message was queued, exactly as the Model and Effort are. A plan-mode Agent still gets a Worktree and still reads the Project's code; it simply produces nothing to Commit or Land, and the UI says so rather than showing an empty diff.
+_Avoid_: Mode (too vague on its own), Sandbox (that's the Worktree), Approval, Safety level.
 
 **Session**:
 The Claude Code conversation history behind an Agent, named by the UUID we mint at Spawn and pass as `--session-id`. Claude Code owns the transcript; we only keep the ID, and Resume hands it back via `--resume`. A Session is scoped to the directory it started in, which is why it survives exactly as long as the Agent's Worktree does.
@@ -72,8 +80,12 @@ A Turn's unnatural end — the `claude` process exits non-zero, cannot be starte
 _Avoid_: Crash, Error (as state names).
 
 **Commit**:
-A user action on a Completed, Failed, Stopped, or Orphaned Agent: stage everything in its Worktree and commit it onto the Agent's own branch. This is how work survives a later Reap — the commit stays reachable in the Project's object store. Refused while the Agent is *running*, since it would capture a tree the Agent is still writing. The app never commits on its own; whether an Agent commits its own work is up to Claude Code.
-_Avoid_: Save, Merge (Commit does not touch the Project's branch), Checkpoint.
+A user action on a Completed, Failed, Stopped, or Orphaned Agent: stage everything in its Worktree and commit it onto the Agent's own branch. This is how work survives a later Reap — the commit stays reachable in the Project's object store — and it is what a Land needs, since only committed work can be landed. Refused while the Agent is *running*, since it would capture a tree the Agent is still writing. The app never commits on its own; whether an Agent commits its own work is up to Claude Code.
+_Avoid_: Save, Merge (that's Land — a Commit stays on the Agent's own branch), Checkpoint.
+
+**Land**:
+Merging a Committed Agent's branch into a branch of the user's choosing — the only action that writes to the Project, and never one an Agent takes. The target is picked from the Project's local branches, its checked-out branch first and by default, with `cw/agent-*` branches excluded: landing one Agent onto another's branch is the multi-agent coordination V1 defers. The merge is always `--no-ff`, so the Agent's work stays identifiable as one unit in history — that is the point of giving each Agent its own branch, and squashing or rebasing would break the promise that everything an Agent produced reads as one diff against its Base. When the target is not the checked-out branch the merge happens in a throwaway worktree, so a Land never moves the user off their branch; when it is, the merge happens in place and is refused against a dirty tree. Refused also while the Agent is working, and while its Worktree holds uncommitted work — Commit first. A conflict aborts the merge, leaving the Project byte-identical and naming the files that collided: this app has no merge tool, and a half-merged Project is somewhere the app could not get it back out of. A Land does not end an Agent; it is recorded on the Agent, with the branch it landed on, the way the Base is.
+_Avoid_: Merge (the git operation is how a Land is done, not what it means), Ship, Integrate, Promote.
 
 **Reap**:
 Ends an Agent for good: destroys its Worktree, deletes its branch, and removes it from the app's list. Always an explicit user action, and the only action that destroys anything — so it discards Commits the Agent made as well as uncommitted work, and takes the Session with it (a Session cannot outlive the directory it ran in). Refused while the Agent is working. After Reap, the Agent's on-disk log file (JSONL) is still preserved.

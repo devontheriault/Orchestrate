@@ -42,6 +42,18 @@ pub enum Error {
     #[error("commit message is empty")]
     EmptyCommitMessage,
 
+    #[error("{path} has uncommitted work; commit it before landing")]
+    WorktreeDirty { path: PathBuf },
+
+    #[error("the project has uncommitted changes on {branch}; commit or stash them first")]
+    ProjectDirty { branch: String },
+
+    #[error("nothing to land: `{branch}` is already in `{target}`")]
+    NothingToLand { branch: String, target: String },
+
+    #[error("merging into `{target}` hit conflicts in {files}; the project is unchanged")]
+    MergeConflict { target: String, files: String },
+
     #[error("not signed in to Claude — run `claude` once, or set ANTHROPIC_API_KEY")]
     NoCredential,
 

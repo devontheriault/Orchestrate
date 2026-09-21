@@ -159,6 +159,8 @@ mod tests {
             exited_at: None,
             exit_code: None,
             fail_reason: None,
+            landed_branch: None,
+            landed_at: None,
         }
     }
 

@@ -12,7 +12,7 @@ Claude Code remains responsible for coding and agentic work. This project manage
 - Run agents in isolated Git worktrees
 - Track projects, tasks, and agent status
 - Monitor agent output and progress
-- Pause, resume, and stop agents
+- Resume and stop agents
 - Support human approval at important points
 - Coordinate multiple agents working toward the same goal
 
@@ -39,7 +39,7 @@ Focus on:
 3. Git worktree isolation
 4. Agent status/output
 5. Basic task tracking
-6. Stop/pause/resume controls
+6. Stop/resume controls
 
 Avoid building a custom agent loop or sophisticated multi-agent planning system initially.
 

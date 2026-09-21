@@ -6,6 +6,12 @@ use time::OffsetDateTime;
 /// Short random hex ID (8 chars) used for Agents and Projects.
 pub type Id = String;
 
+/// Every Agent's branch is named `cw/agent-<id>`. The prefix is how the rest of
+/// the app tells an Agent's branch from one of the user's own — the Land picker
+/// leaves these out, since landing one Agent onto another's branch is
+/// multi-agent coordination rather than finishing a piece of work.
+pub const AGENT_BRANCH_PREFIX: &str = "cw/agent-";
+
 /// Generate a new 8-hex-char ID from 4 random bytes.
 pub fn new_id() -> Id {
     let bytes: [u8; 4] = rand::random();
@@ -111,6 +117,14 @@ pub struct Agent {
     pub exit_code: Option<i32>,
     #[serde(default)]
     pub fail_reason: Option<String>,
+    /// The branch this Agent's work was last Landed onto, and when. `None`
+    /// until a Land succeeds. Recorded like the Base — a fact about what
+    /// happened to the Agent, not a state it is in, so a Landed Agent can
+    /// still be Resumed, Committed, and Landed again.
+    #[serde(default)]
+    pub landed_branch: Option<String>,
+    #[serde(default, with = "time::serde::rfc3339::option")]
+    pub landed_at: Option<OffsetDateTime>,
 }
 
 fn one() -> u32 {
@@ -180,6 +194,8 @@ mod tests {
                 exited_at: Some(datetime!(2026-09-20 14:05:00 UTC)),
                 exit_code: Some(0),
                 fail_reason: None,
+                landed_branch: None,
+                landed_at: None,
             };
             let s = serde_json::to_string(&a).unwrap();
             let back: Agent = serde_json::from_str(&s).unwrap();
