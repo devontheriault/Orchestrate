@@ -1,6 +1,7 @@
 <script lang="ts">
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { isMac, ownsWindowFrame } from "./platform";
+  import { panes } from "./panes.svelte";
 
   const win = getCurrentWindow();
 
@@ -32,7 +33,12 @@
 <!-- The whole bar is a drag handle; the controls below opt out by not carrying
      the attribute, so a click on a button never starts a window drag. -->
 <header class="chrome" class:mac={isMac} data-tauri-drag-region>
-  <span class="wordmark" data-tauri-drag-region>DevCode</span>
+  <!-- The title sits in a segment as wide as the project pane and painted like
+       it, so the bar reads as the top of the two panes below rather than as a
+       band laid across them. -->
+  <div class="lead" style="width: {panes.cssWidth}" data-tauri-drag-region>
+    <span class="wordmark" data-tauri-drag-region>DevCode</span>
+  </div>
 
   {#if ownsWindowFrame}
     <div class="controls">
@@ -68,11 +74,12 @@
     flex: none;
     height: var(--titlebar-h);
     display: flex;
-    align-items: center;
+    align-items: stretch;
     justify-content: space-between;
-    gap: 0.75rem;
-    padding: 0 0 0 var(--pad-x);
-    background: var(--panel-bg);
+    padding: 0;
+    /* Continues the detail pane below it; the lead segment carries the project
+       pane's colour. */
+    background: var(--surface);
     user-select: none;
     -webkit-user-select: none;
     /* Over the usage overlay's backdrop (z-index 100). The OS bar used to sit
@@ -86,8 +93,20 @@
      are — at the small end of the root font scale 2.1rem would clip them. */
   .chrome.mac {
     height: max(var(--titlebar-h), 28px);
+  }
+
+  .lead {
+    flex: none;
+    display: flex;
+    align-items: center;
+    padding: 0 var(--pad-x);
+    background: var(--panel-bg);
+    overflow: hidden;
+  }
+
+  /* The traffic lights live in this corner, so the title starts after them. */
+  .chrome.mac .lead {
     padding-left: 5rem;
-    padding-right: var(--pad-x);
   }
 
   .wordmark {
@@ -105,11 +124,12 @@
     display: flex;
     align-items: stretch;
     flex: none;
+    margin-left: auto;
   }
 
   .ctl {
     width: 2.6rem;
-    height: var(--titlebar-h);
+    height: auto;
     display: grid;
     place-items: center;
     background: transparent;

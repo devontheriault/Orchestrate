@@ -7,7 +7,7 @@
   import { store } from "$lib/store.svelte";
   import { usage } from "$lib/usage.svelte";
   import { viewport } from "$lib/viewport.svelte";
-  import { panes, MIN_DETAIL, MIN_PROJECTS, MIN_PROJECTS_DRAG } from "$lib/panes.svelte";
+  import { panes, MIN_DETAIL, MIN_PROJECTS_DRAG } from "$lib/panes.svelte";
 
   onMount(() => {
     viewport.start();
@@ -75,25 +75,13 @@
     store.orphans.length > 0 && !store.orphanBannerDismissed,
   );
 
-  // Dragged pane width, held to what the current window can actually fit.
-  const sized = $derived(panes.fit(viewport.width));
-
-  // The project pane is always on screen — it's how you move between projects
-  // and agents. When there's too little room for a tree it becomes a rail of
-  // initials, with the agents breaking out beside it, rather than going away.
-  // A hand-sized pane decides that for itself; an untouched one follows the
-  // window.
-  const railed = $derived(
-    sized.projects === null ? viewport.railed : sized.projects < MIN_PROJECTS,
-  );
-
   // A hand-sized pane keeps its width once it collapses, so the seam carries on
   // tracking the pointer through the rail instead of snapping to the stylesheet
   // rail and sitting there for the rest of the drag. An untouched pane still
   // gets the rail the stylesheet picked.
   const paneStyle = $derived(
-    sized.projects !== null
-      ? `--pane-projects: ${sized.projects}px; --rail: ${sized.projects}px`
+    panes.width !== null
+      ? `--pane-projects: ${panes.width}px; --rail: ${panes.width}px`
       : "",
   );
 </script>
@@ -122,7 +110,7 @@
 {/if}
 
 <main style={paneStyle}>
-  <ProjectSidebar collapsed={railed} />
+  <ProjectSidebar collapsed={panes.railed} />
   <PaneDivider
     label="Resize project list"
     min={MIN_PROJECTS_DRAG}
