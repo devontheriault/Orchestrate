@@ -192,7 +192,7 @@
           <rect x="7.5" y="0.5" width="2" height="7.5" rx="0.5" fill="currentColor" />
         </svg>
       </span>
-      {#if !collapsed}<span class="label">Usage</span><kbd>⌃⇧U</kbd>{/if}
+      {#if !collapsed}<span class="label">Usage</span><kbd>Ctrl + Shift + U</kbd>{/if}
     </button>
   </footer>
 </aside>
@@ -380,7 +380,8 @@
      nothing shifts, but only surfaces when the tile is pointed at. */
   .usage kbd {
     font-family: ui-monospace, monospace;
-    font-size: 0.68rem;
+    font-size: 0.62rem;
+    white-space: nowrap;
     color: var(--fg-muted);
     background: var(--code-bg);
     border-radius: 3px;
