@@ -86,7 +86,6 @@
     gap: 0.75rem;
     padding: 0 0 0 var(--pad-x);
     background: var(--panel-bg);
-    border-bottom: 1px solid var(--border);
     user-select: none;
     -webkit-user-select: none;
     /* Over the usage overlay's backdrop (z-index 100). The OS bar used to sit

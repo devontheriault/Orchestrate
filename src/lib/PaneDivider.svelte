@@ -217,7 +217,10 @@
   .divider {
     flex: 0 0 auto;
     width: 1px;
-    background: var(--border);
+    /* Invisible at rest — the panes' own backgrounds mark the seam — and only
+       drawn once the pointer or focus is on it, so it still reads as a handle
+       when you go to grab it. */
+    background: transparent;
     position: relative;
     cursor: col-resize;
     /* The seam is a hairline; the grab area around it is not. */
