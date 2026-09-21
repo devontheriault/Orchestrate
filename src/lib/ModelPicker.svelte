@@ -110,15 +110,25 @@
     pointer-events: none;
   }
 
-  /* The composer strip has a send button to sit beside; a long model name
+  /* Under the composer box this is a quiet secondary control, not an input to
+     fill in: no border or fill until it's pointed at. A long model name
      ellipses rather than pushing it off a narrow pane. */
   .compact {
-    max-width: 9rem;
+    max-width: 10rem;
   }
 
   .compact select {
-    font-size: 0.78rem;
-    padding: 0.38rem 1.55rem 0.38rem 0.55rem;
+    font-size: 0.75rem;
+    padding: 0.25rem 1.4rem 0.25rem 0.45rem;
+    border-color: transparent;
+    background: none;
+    color: var(--fg-muted);
+  }
+
+  .compact select:hover:not(:disabled) {
+    background: var(--hover);
+    border-color: transparent;
+    color: var(--fg);
   }
 
   .compact .chevron {

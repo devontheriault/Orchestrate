@@ -74,45 +74,51 @@
 {#if agent || drafting}
   <div class="composer" class:busy>
     {#if drafting || store.canContinue || working}
-      <textarea
-        bind:this={textarea}
-        bind:value={prompt}
-        onkeydown={onKeydown}
-        rows="1"
-        disabled={busy}
-        placeholder={drafting
-          ? "What should the agent do?"
-          : working
-            ? "Working… stop it to change course"
-            : "Reply to this agent…"}
-      ></textarea>
-      <div class="side">
-        <div class="controls">
-          <ModelPicker
-            bind:value={model}
-            disabled={busy}
-            compact
-            label={drafting ? "Model for the new agent" : "Model for this prompt"}
-          />
-          <button
-            class="send"
-            onclick={send}
-            disabled={busy || !prompt.trim()}
-            title={drafting
-              ? "Spawn this agent (Enter)"
-              : working
-                ? "Wait for the agent to finish"
-                : "Send (Enter)"}
-          >
-            {#if drafting}
-              {store.spawning ? "Spawning…" : "Spawn"}
-            {:else}
-              {store.sending ? "Sending…" : "Send"}
-            {/if}
-          </button>
-        </div>
+      <div class="box">
+        <textarea
+          bind:this={textarea}
+          bind:value={prompt}
+          onkeydown={onKeydown}
+          rows="1"
+          disabled={busy}
+          placeholder={drafting
+            ? "What should the agent do?"
+            : working
+              ? "Working… stop it to change course"
+              : "Reply to this agent…"}
+        ></textarea>
+        <button
+          class="send"
+          onclick={send}
+          disabled={busy || !prompt.trim()}
+          aria-label={drafting ? "Spawn this agent" : "Send"}
+          title={drafting
+            ? "Spawn this agent (Enter)"
+            : working
+              ? "Wait for the agent to finish"
+              : "Send (Enter)"}
+        >
+          <!-- Arrow up: the send affordance every chat box uses, so it needs
+               no label to read as "send". -->
+          <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+            <path
+              d="M8 13V3.5M8 3.5L3.5 8M8 3.5L12.5 8"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+        </button>
+      </div>
+      <div class="below">
         <span class="hint">
-          {#if drafting}
+          {#if store.spawning}
+            Spawning…
+          {:else if store.sending}
+            Sending…
+          {:else if drafting}
             Enter to spawn · Esc to cancel
           {:else if working}
             Stop the agent to send a new prompt
@@ -120,6 +126,12 @@
             Enter to send · Shift-Enter for a new line
           {/if}
         </span>
+        <ModelPicker
+          bind:value={model}
+          disabled={busy}
+          compact
+          label={drafting ? "Model for the new agent" : "Model for this prompt"}
+        />
       </div>
     {:else if agent}
       <p class="closed">
@@ -136,14 +148,32 @@
 {/if}
 
 <style>
+  /*
+   * No rule above it: the transcript and the box it's answered in are one
+   * surface, and a divider there reads as two panes bolted together.
+   */
   .composer {
     flex: none;
-    border-top: 1px solid var(--border);
     background: var(--surface);
-    padding: 0.6rem var(--pad-x) 0.7rem;
+    padding: 0.35rem var(--pad-x) 0.7rem;
     display: flex;
-    align-items: flex-end;
-    gap: 0.6rem;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  /* The bordered rectangle the user thinks of as "the input" — the textarea
+     and the send button both live inside it and share its focus ring. */
+  .box {
+    position: relative;
+    display: flex;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--panel-bg);
+    transition: border-color 0.12s ease;
+  }
+
+  .box:focus-within {
+    border-color: var(--accent);
   }
 
   textarea {
@@ -152,10 +182,10 @@
     resize: none;
     max-height: 30vh;
     overflow-y: auto;
-    padding: 0.5rem 0.65rem;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    background: var(--panel-bg);
+    /* Right padding clears the send button so text never runs under it. */
+    padding: 0.7rem 3rem 0.7rem 0.85rem;
+    border: none;
+    background: none;
     color: var(--fg);
     font: inherit;
     font-size: 0.9rem;
@@ -164,7 +194,6 @@
 
   textarea:focus {
     outline: none;
-    border-color: var(--accent);
   }
 
   textarea:disabled {
@@ -172,45 +201,54 @@
     cursor: not-allowed;
   }
 
-  .side {
-    flex: none;
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 0.25rem;
-  }
-
-  .controls {
+  /* Pinned to the bottom-right of the box, so it stays put as the text grows. */
+  .send {
+    position: absolute;
+    right: 0.45rem;
+    bottom: 0.45rem;
+    width: 1.85rem;
+    height: 1.85rem;
     display: flex;
     align-items: center;
-    gap: 0.35rem;
-  }
-
-  .send {
-    border: 1px solid var(--accent);
+    justify-content: center;
+    border: none;
+    border-radius: 999px;
     background: var(--accent);
     color: var(--surface);
-    border-radius: 6px;
-    padding: 0.42rem 1rem;
-    font-family: inherit;
-    font-size: 0.85rem;
-    font-weight: 500;
     cursor: pointer;
+    transition:
+      opacity 0.12s ease,
+      filter 0.12s ease;
   }
 
   .send:hover:not(:disabled) {
     filter: brightness(1.08);
   }
 
+  .send:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
   .send:disabled {
-    opacity: 0.45;
+    opacity: 0.35;
     cursor: not-allowed;
+  }
+
+  .below {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0 0.15rem;
   }
 
   .hint {
     font-size: 0.7rem;
     color: var(--fg-muted);
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .closed {
@@ -220,10 +258,15 @@
     font-style: italic;
   }
 
-  /* On a narrow pane the hint is the first thing worth dropping. */
+  /* On a narrow pane the hint is the first thing worth dropping — the model
+     picker stays on the right either way. */
   @media (max-width: 560px) {
     .hint {
       display: none;
+    }
+
+    .below {
+      justify-content: flex-end;
     }
   }
 </style>
