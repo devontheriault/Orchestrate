@@ -87,6 +87,12 @@ pub struct Agent {
     pub turns: u32,
     #[serde(with = "time::serde::rfc3339")]
     pub spawned_at: OffsetDateTime,
+    /// When the current — or, once it has exited, the last — Turn began. Set at
+    /// Spawn and again at every Resume, so "how long has this been working" is
+    /// about the Turn rather than the Agent's whole life. `None` for Agents
+    /// recorded before Turn timing existed; readers fall back to `spawned_at`.
+    #[serde(default, with = "time::serde::rfc3339::option")]
+    pub turn_started_at: Option<OffsetDateTime>,
     #[serde(default, with = "time::serde::rfc3339::option")]
     pub exited_at: Option<OffsetDateTime>,
     #[serde(default)]
@@ -156,6 +162,7 @@ mod tests {
                 model: Some("opus".into()),
                 turns: 3,
                 spawned_at: datetime!(2026-09-20 14:00:00 UTC),
+                turn_started_at: Some(datetime!(2026-09-20 14:02:00 UTC)),
                 exited_at: Some(datetime!(2026-09-20 14:05:00 UTC)),
                 exit_code: Some(0),
                 fail_reason: None,
@@ -203,6 +210,10 @@ mod tests {
             "no recorded model means Claude Code's own default"
         );
         assert_eq!(a.turns, 1, "a pre-Session agent had exactly one turn");
+        assert_eq!(
+            a.turn_started_at, None,
+            "no recorded turn start means readers fall back to spawned_at"
+        );
     }
 
     #[test]
