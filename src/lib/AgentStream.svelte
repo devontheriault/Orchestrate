@@ -1,5 +1,6 @@
 <script lang="ts">
   import { store } from "./store.svelte";
+  import { formatDuration, formatTokens } from "./format";
   import AgentDiff from "./AgentDiff.svelte";
   import AgentComposer from "./AgentComposer.svelte";
   import Markdown from "./Markdown.svelte";
@@ -140,71 +141,6 @@
     return [{ kind: "raw", type: e.type }];
   }
 
-  /** "1h 2m", "3m 4s", or "12s" — for a duration that's already over. */
-  function formatDuration(ms: number): string {
-    const total = Math.max(0, Math.round(ms / 1000));
-    const h = Math.floor(total / 3600);
-    const m = Math.floor((total % 3600) / 60);
-    const s = total % 60;
-    if (h > 0) return `${h}h ${m}m`;
-    if (m > 0) return `${m}m ${s}s`;
-    return `${s}s`;
-  }
-
-  function formatTokens(n: number): string {
-    return n >= 1000 ? `${(n / 1000).toFixed(1).replace(/\.0$/, "")}k` : `${n}`;
-  }
-
-  // Ticks once a second while the selected agent is running, so the elapsed
-  // timer in the header advances without waiting for the next stream event.
-  let now = $state(Date.now());
-  $effect(() => {
-    if (store.selectedAgent?.state !== "running") return;
-    const id = setInterval(() => (now = Date.now()), 1000);
-    return () => clearInterval(id);
-  });
-
-  /**
-   * When the running turn began: the timestamp of the latest prompt the user
-   * sent, falling back to when the agent was first spawned. Either way it's
-   * an event already on the log, so no extra field is needed on the Agent.
-   */
-  const turnStartedAt = $derived.by(() => {
-    const events = store.eventsForSelected;
-    for (let i = events.length - 1; i >= 0; i--) {
-      if ((events[i].event as any)?.type === "cw_prompt") return Date.parse(events[i].ts);
-    }
-    return store.selectedAgent ? Date.parse(store.selectedAgent.spawned_at) : null;
-  });
-
-  const liveElapsedMs = $derived(
-    turnStartedAt != null ? Math.max(0, now - turnStartedAt) : 0,
-  );
-
-  /**
-   * Tokens generated so far in the running turn: `claude` reports usage per
-   * API call rather than as incremental deltas, so this sums each call's
-   * output as it arrives — an estimate that climbs as the turn progresses,
-   * not the exact total the final `result` event reports.
-   */
-  const liveOutputTokens = $derived.by(() => {
-    const events = store.eventsForSelected;
-    let sinceIdx = -1;
-    for (let i = events.length - 1; i >= 0; i--) {
-      if ((events[i].event as any)?.type === "cw_prompt") {
-        sinceIdx = i;
-        break;
-      }
-    }
-    let total = 0;
-    for (let i = sinceIdx + 1; i < events.length; i++) {
-      const e = events[i].event as any;
-      const ot = e?.type === "assistant" ? e.message?.usage?.output_tokens : undefined;
-      if (typeof ot === "number") total += ot;
-    }
-    return total;
-  });
-
   function shortenInput(input: unknown): string {
     const s = typeof input === "string" ? input : JSON.stringify(input);
     return s.length > 120 ? s.slice(0, 117) + "…" : s;
@@ -230,14 +166,6 @@
           <span class={`state state-${store.selectedAgent.state}`}>
             {store.selectedAgent.state}
           </span>
-          {#if store.selectedAgent.state === "running"}
-            <span class="live-stat" title="Time since the agent started working">
-              {formatDuration(liveElapsedMs)}
-            </span>
-            <span class="live-stat" title="Tokens generated since the agent started working (estimate)">
-              ~{formatTokens(liveOutputTokens)} tok
-            </span>
-          {/if}
           <code>{store.selectedAgent.id}</code>
           {#if store.selectedAgent.branch}
             <code>{store.selectedAgent.branch}</code>
@@ -456,11 +384,6 @@
   /* Qualifies the model rather than standing beside it as an equal. */
   .meta .effort {
     opacity: 0.6;
-  }
-
-  .live-stat {
-    font-variant-numeric: tabular-nums;
-    color: var(--fg-muted);
   }
 
   .meta code {

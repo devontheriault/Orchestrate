@@ -4,6 +4,7 @@
   import { DEFAULT_EFFORT, DEFAULT_MODEL } from "./api";
   import ModelPicker from "./ModelPicker.svelte";
   import AgentQueue from "./AgentQueue.svelte";
+  import TurnStats from "./TurnStats.svelte";
 
   const agent = $derived(store.selectedAgent);
   /** No agent yet: this composer is holding the opening prompt for a new one. */
@@ -102,6 +103,11 @@
            where the user left it — including on an agent that can no longer be
            continued, where clearing it is the only thing left to do. -->
       <AgentQueue agentId={agent.id} running={working} />
+    {/if}
+    {#if working}
+      <!-- Last thing before the box: while the agent works, how long it's been
+           and how much it's written sit right where the eye already is. -->
+      <TurnStats />
     {/if}
     {#if drafting || store.canContinue || working}
       <div class="box">
