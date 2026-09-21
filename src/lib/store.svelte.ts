@@ -155,10 +155,10 @@ class AppStore {
   diffLoading = $state<boolean>(false);
   diffError = $state<string | null>(null);
   committing = $state<boolean>(false);
-  landing = $state<boolean>(false);
+  merging = $state<boolean>(false);
 
   /**
-   * The selected agent's project's landable branches. Null until asked for, and
+   * The selected agent's project's mergeable branches. Null until asked for, and
    * again when the branch list can't be read — the picker then offers nothing
    * rather than guessing.
    */
@@ -578,7 +578,7 @@ class AppStore {
     }
   }
 
-  /** The branches the selected agent's work could land on. */
+  /** The branches the selected agent's work could merge into. */
   async loadBranches() {
     const projectId = this.selectedAgent?.project_id;
     if (!projectId) {
@@ -590,7 +590,7 @@ class AppStore {
       if (this.selectedAgent?.project_id !== projectId) return;
       this.branches = branches;
     } catch {
-      // Not worth an error banner: without a list the land control just says
+      // Not worth an error banner: without a list the merge control just says
       // it has nothing to offer.
       if (this.selectedAgent?.project_id === projectId) this.branches = null;
     }
@@ -600,14 +600,14 @@ class AppStore {
    * Merge the selected agent's branch onto `target`. The agent survives — only
    * a reap destroys anything — so this refreshes rather than clears.
    */
-  async land(target: string) {
+  async merge(target: string) {
     const id = this.selectedAgentId;
     if (!id) return false;
-    this.landing = true;
+    this.merging = true;
     this.diffError = null;
     try {
-      await api.agentLand(id, target);
-      // The agent now carries where it landed, and the branch list has moved on.
+      await api.agentMerge(id, target);
+      // The agent now carries where it merged, and the branch list has moved on.
       await this.refresh();
       if (this.selectedAgentId === id) {
         await Promise.all([this.loadDiff(), this.loadBranches()]);
@@ -617,7 +617,7 @@ class AppStore {
       if (this.selectedAgentId === id) this.diffError = String(e);
       return false;
     } finally {
-      if (this.selectedAgentId === id) this.landing = false;
+      if (this.selectedAgentId === id) this.merging = false;
     }
   }
 

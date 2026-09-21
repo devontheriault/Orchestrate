@@ -49,12 +49,12 @@ export type Agent = {
   exit_code?: number | null;
   fail_reason?: string | null;
   /**
-   * The branch this agent's work was last landed onto, and when. Absent until
-   * a land succeeds. A record of what happened, not a state — a landed agent
-   * can still be resumed, committed, and landed again.
+   * The branch this agent's work was last merged into, and when. Absent until
+   * a merge succeeds. A record of what happened, not a state — a merged agent
+   * can still be resumed, committed, and merged again.
    */
-  landed_branch?: string | null;
-  landed_at?: string | null;
+  merged_branch?: string | null;
+  merged_at?: string | null;
 };
 
 /**
@@ -109,15 +109,15 @@ export type Commit = {
   subject: string;
 };
 
-/** The branches a land can target, as the picker offers them. */
+/** The branches a merge can target, as the picker offers them. */
 export type Branches = {
   /** The project's checked-out branch, or null on a detached HEAD. */
   current: string | null;
-  /** Landable branches: current first, then alphabetical, agent branches omitted. */
+  /** Mergeable branches: current first, then alphabetical, agent branches omitted. */
   names: string[];
 };
 
-export type Landed = {
+export type Merged = {
   target: string;
   /** The merge commit now at the tip of `target`. */
   sha: string;
@@ -216,8 +216,8 @@ export const api = {
   agentDiff: (agentId: string) => invoke<WorktreeDiff>("agent_diff", { agentId }),
   agentCommit: (agentId: string, message: string) =>
     invoke<Commit>("agent_commit", { agentId, message }),
-  agentLand: (agentId: string, target: string) =>
-    invoke<Landed>("agent_land", { agentId, target }),
+  agentMerge: (agentId: string, target: string) =>
+    invoke<Merged>("agent_merge", { agentId, target }),
   projectBranches: (projectId: string) =>
     invoke<Branches>("project_branches", { projectId }),
 

@@ -1,5 +1,5 @@
 //! Inspection of an Agent's Worktree, plus the two writes the user can make
-//! from the app: committing the Agent's work, and landing it on a branch of
+//! from the app: committing the Agent's work, and merging it into a branch of
 //! the Project. Neither ever happens on an Agent's own initiative.
 //!
 //! Everything here is expressed relative to the Agent's *base* — the commit its
@@ -311,26 +311,26 @@ fn truncate_patch(patch: String) -> (String, bool) {
     (patch[..cut].to_owned(), true)
 }
 
-/// The branches a Land can target in a Project.
+/// The branches a Merge can target in a Project.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Branches {
-    /// The Project's checked-out branch, or `None` on a detached HEAD. Landing
-    /// onto this one merges in place; anything else borrows a worktree.
+    /// The Project's checked-out branch, or `None` on a detached HEAD. Merging
+    /// into this one merges in place; anything else borrows a worktree.
     pub current: Option<String>,
-    /// Local branches worth landing onto: the current one first, then the rest
+    /// Local branches worth merging into: the current one first, then the rest
     /// alphabetically, with every Agent branch left out.
     pub names: Vec<String>,
 }
 
-/// A completed Land.
+/// A completed Merge.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct Landed {
+pub struct Merged {
     pub target: String,
     /// The merge commit now at the tip of `target`.
     pub sha: String,
 }
 
-/// The Project's local branches, as the Land picker offers them.
+/// The Project's local branches, as the Merge picker offers them.
 pub async fn branches(project_path: &Path) -> Result<Branches> {
     let current = stdout(project_path, &["branch", "--show-current"]).await?;
     let current = match current.trim() {
@@ -368,27 +368,27 @@ pub async fn branches(project_path: &Path) -> Result<Branches> {
 /// one identifiable unit in history.
 ///
 /// When `target` is not the Project's checked-out branch the merge runs in a
-/// throwaway worktree, so a Land never moves the user off their own branch.
+/// throwaway worktree, so a Merge never moves the user off their own branch.
 /// When it is, the merge runs in place and the Project's tree must be clean.
 ///
 /// A conflict aborts: the Project is left byte-identical to how it started and
 /// the colliding paths are reported. This app has no merge tool, so a
 /// half-merged tree is somewhere it could not get the Project back out of.
-pub async fn land(
+pub async fn merge(
     project_path: &Path,
     worktree_path: &Path,
     agent_branch: &str,
     target: &str,
     message: &str,
-) -> Result<Landed> {
+) -> Result<Merged> {
     if !worktree_path.exists() {
         return Err(Error::WorktreeMissing {
             path: worktree_path.to_owned(),
         });
     }
 
-    // Only committed work lands. Anything still loose in the Worktree would be
-    // silently left behind, so say so instead of landing half the work.
+    // Only committed work merges. Anything still loose in the Worktree would be
+    // silently left behind, so say so instead of merging half the work.
     if !stdout(worktree_path, &["status", "--porcelain"])
         .await?
         .trim()
@@ -402,14 +402,14 @@ pub async fn land(
     // Already an ancestor means there is nothing to merge; `git merge` would
     // report "Already up to date" and exit zero, which reads as a success that
     // did nothing.
-    let merged = run_with_index(
+    let ancestor = run_with_index(
         project_path,
         &["merge-base", "--is-ancestor", agent_branch, target],
         None,
     )
     .await?;
-    if merged.status.success() {
-        return Err(Error::NothingToLand {
+    if ancestor.status.success() {
+        return Err(Error::NothingToMerge {
             branch: agent_branch.to_owned(),
             target: target.to_owned(),
         });
@@ -433,16 +433,16 @@ pub async fn land(
 
     // Borrow the target branch into a worktree of our own, merge there, and
     // hand it back. The user's checkout is never involved.
-    let borrowed = paths::worktrees_dir()?.join(format!("land-{}", crate::model::new_id()));
+    let borrowed = paths::worktrees_dir()?.join(format!("merge-{}", crate::model::new_id()));
     crate::worktree::add_existing(project_path, &borrowed, target).await?;
-    let landed = merge_into(&borrowed, agent_branch, target, message).await;
+    let merged = merge_into(&borrowed, agent_branch, target, message).await;
     crate::worktree::release(project_path, &borrowed).await?;
-    landed
+    merged
 }
 
 /// Run the merge in whichever worktree has `target` checked out, aborting and
 /// reporting the conflicted paths if it doesn't apply cleanly.
-async fn merge_into(dir: &Path, agent_branch: &str, target: &str, message: &str) -> Result<Landed> {
+async fn merge_into(dir: &Path, agent_branch: &str, target: &str, message: &str) -> Result<Merged> {
     let merge = run_with_index(
         dir,
         &["merge", "--no-ff", "-m", message, agent_branch],
@@ -478,7 +478,7 @@ async fn merge_into(dir: &Path, agent_branch: &str, target: &str, message: &str)
     }
 
     let sha = stdout(dir, &["rev-parse", "HEAD"]).await?;
-    Ok(Landed {
+    Ok(Merged {
         target: target.to_owned(),
         sha: sha.trim().to_owned(),
     })
@@ -740,7 +740,7 @@ mod tests {
         assert!(cut.ends_with('\n'), "must not cut mid-line");
     }
 
-    // --- Land -------------------------------------------------------------
+    // --- Merge -------------------------------------------------------------
 
     impl Fixture {
         /// Make a branch at the Project's current tip without switching to it.
@@ -765,8 +765,8 @@ mod tests {
                 .to_owned()
         }
 
-        async fn land_onto(&self, target: &str) -> Result<Landed> {
-            land(
+        async fn merge_into_branch(&self, target: &str) -> Result<Merged> {
+            merge(
                 self.repo.path(),
                 &self.wt_path(),
                 Self::BRANCH,
@@ -791,16 +791,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn land_in_place_merges_onto_the_checked_out_branch() {
+    async fn merge_in_place_merges_onto_the_checked_out_branch() {
         let _env = crate::test_util::StateEnv::new();
         let f = Fixture::new().await;
         f.agent_commits("agent.txt", "from the agent\n", "agent work")
             .await;
 
-        let landed = f.land_onto("main").await.unwrap();
+        let merged = f.merge_into_branch("main").await.unwrap();
 
-        assert_eq!(landed.target, "main");
-        assert_eq!(landed.sha, f.tip_of("main").await);
+        assert_eq!(merged.target, "main");
+        assert_eq!(merged.sha, f.tip_of("main").await);
         // The work is in the Project's tree, not just its history.
         assert_eq!(
             std::fs::read_to_string(f.repo.path().join("agent.txt")).unwrap(),
@@ -809,12 +809,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn land_makes_a_merge_commit_even_when_it_could_fast_forward() {
+    async fn merge_makes_a_merge_commit_even_when_it_could_fast_forward() {
         let _env = crate::test_util::StateEnv::new();
         let f = Fixture::new().await;
         f.agent_commits("agent.txt", "x\n", "agent work").await;
 
-        f.land_onto("main").await.unwrap();
+        f.merge_into_branch("main").await.unwrap();
 
         // --no-ff: two parents, so the Agent's work stays one identifiable unit.
         let parents = stdout(f.repo.path(), &["rev-list", "--parents", "-n", "1", "HEAD"])
@@ -828,17 +828,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn land_onto_another_branch_borrows_a_worktree_and_leaves_the_user_put() {
+    async fn merging_another_branch_borrows_a_worktree_and_leaves_the_user_put() {
         let _env = crate::test_util::StateEnv::new();
         let f = Fixture::new().await;
         f.branch_at_head("feature").await;
         f.agent_commits("agent.txt", "x\n", "agent work").await;
 
         let main_before = f.tip_of("main").await;
-        let landed = f.land_onto("feature").await.unwrap();
+        let merged = f.merge_into_branch("feature").await.unwrap();
 
-        assert_eq!(landed.target, "feature");
-        assert_eq!(landed.sha, f.tip_of("feature").await);
+        assert_eq!(merged.target, "feature");
+        assert_eq!(merged.sha, f.tip_of("feature").await);
         // The branch we were on is untouched, and we are still on it.
         assert_eq!(f.tip_of("main").await, main_before);
         assert_eq!(
@@ -849,20 +849,20 @@ mod tests {
         assert!(stdout(f.repo.path(), &["worktree", "list"])
             .await
             .unwrap()
-            .matches("land-")
+            .matches("merge-")
             .next()
             .is_none());
     }
 
     #[tokio::test]
-    async fn land_refuses_uncommitted_worktree_work() {
+    async fn merge_refuses_uncommitted_worktree_work() {
         let _env = crate::test_util::StateEnv::new();
         let f = Fixture::new().await;
         f.agent_commits("agent.txt", "x\n", "agent work").await;
-        // Loose work that a Land would otherwise leave behind.
+        // Loose work that a Merge would otherwise leave behind.
         std::fs::write(f.wt_path().join("scratch.txt"), "not committed\n").unwrap();
 
-        let err = f.land_onto("main").await.unwrap_err();
+        let err = f.merge_into_branch("main").await.unwrap_err();
 
         assert!(
             matches!(err, Error::WorktreeDirty { .. }),
@@ -871,13 +871,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn land_in_place_refuses_a_dirty_project() {
+    async fn merge_in_place_refuses_a_dirty_project() {
         let _env = crate::test_util::StateEnv::new();
         let f = Fixture::new().await;
         f.agent_commits("agent.txt", "x\n", "agent work").await;
         std::fs::write(f.repo.path().join("tracked.txt"), "my own edit\n").unwrap();
 
-        let err = f.land_onto("main").await.unwrap_err();
+        let err = f.merge_into_branch("main").await.unwrap_err();
 
         assert!(
             matches!(err, Error::ProjectDirty { .. }),
@@ -886,7 +886,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_dirty_project_does_not_block_landing_onto_another_branch() {
+    async fn a_dirty_project_does_not_block_merging_into_another_branch() {
         let _env = crate::test_util::StateEnv::new();
         let f = Fixture::new().await;
         f.branch_at_head("feature").await;
@@ -895,7 +895,7 @@ mod tests {
         // in a worktree of ours.
         std::fs::write(f.repo.path().join("tracked.txt"), "my own edit\n").unwrap();
 
-        f.land_onto("feature").await.unwrap();
+        f.merge_into_branch("feature").await.unwrap();
 
         assert_eq!(
             std::fs::read_to_string(f.repo.path().join("tracked.txt")).unwrap(),
@@ -905,21 +905,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn land_refuses_when_there_is_nothing_to_land() {
+    async fn merge_refuses_when_there_is_nothing_to_merge() {
         let _env = crate::test_util::StateEnv::new();
         let f = Fixture::new().await;
         // The Agent committed nothing, so its branch is still an ancestor.
 
-        let err = f.land_onto("main").await.unwrap_err();
+        let err = f.merge_into_branch("main").await.unwrap_err();
 
         assert!(
-            matches!(err, Error::NothingToLand { .. }),
-            "expected NothingToLand, got {err:?}"
+            matches!(err, Error::NothingToMerge { .. }),
+            "expected NothingToMerge, got {err:?}"
         );
     }
 
     #[tokio::test]
-    async fn land_aborts_on_conflict_and_leaves_the_project_byte_identical() {
+    async fn merge_aborts_on_conflict_and_leaves_the_project_byte_identical() {
         let _env = crate::test_util::StateEnv::new();
         let f = Fixture::new().await;
         f.agent_commits("tracked.txt", "the agent's line\n", "agent edit")
@@ -927,7 +927,7 @@ mod tests {
         f.user_commits("tracked.txt", "my line\n", "my edit").await;
 
         let before = f.tip_of("main").await;
-        let err = f.land_onto("main").await.unwrap_err();
+        let err = f.merge_into_branch("main").await.unwrap_err();
 
         match err {
             Error::MergeConflict { target, files } => {

@@ -153,9 +153,9 @@ impl AgentRuntime {
             exited_at: None,
             exit_code: None,
             fail_reason: None,
-            // Nothing has landed yet; a Land records itself here when it does.
-            landed_branch: None,
-            landed_at: None,
+            // Nothing has merged yet; a Merge records itself here when it does.
+            merged_branch: None,
+            merged_at: None,
         };
         storage::save_agent(&agent)?;
         self.record_prompt(&agent, &prompt);
@@ -1215,8 +1215,8 @@ exit 0
             exited_at: Some(OffsetDateTime::now_utc()),
             exit_code: Some(0),
             fail_reason: None,
-            landed_branch: None,
-            landed_at: None,
+            merged_branch: None,
+            merged_at: None,
         };
         storage::save_agent(&a).unwrap();
         let (rt, _rx) = AgentRuntime::with_bin(fake_claude_ok());
@@ -1286,8 +1286,8 @@ exit 0
             exited_at: None,
             exit_code: None,
             fail_reason: None,
-            landed_branch: None,
-            landed_at: None,
+            merged_branch: None,
+            merged_at: None,
         };
         storage::save_agent(&a).unwrap();
 
