@@ -16,6 +16,10 @@ _Avoid_: Job, Prompt (too narrow — the Task is the *unit of work*, not just th
 One prompt-and-answer exchange within an Agent: one `claude` process, from Spawn or Resume until it exits. Turn 1 carries the Task; later Turns carry follow-up prompts. Turns are counted on the Agent and recorded in its log, so the output pane reads as a conversation.
 _Avoid_: Run, Iteration, Round, Message (a Turn contains many messages).
 
+**Queue**:
+What the user has said to an Agent that wasn't free to hear it yet: prompts typed while a Turn was still running, held in order and sent as their own Turns once the Agent is free. A Queue belongs to one Agent, is always visible above the composer with its messages readable and individually removable, and drains one message per clean Complete — a Stop or a Fail holds the rest, since interrupting an Agent shouldn't fire the rest of the line into it. Kept in the window's local storage rather than on the Agent: it is a record of what the user means to say, not part of the conversation Claude Code owns.
+_Avoid_: Backlog (that's the Project's, not an Agent's), Buffer, Pipeline, Inbox.
+
 **Project**:
 A local Git repository the user has explicitly registered with the app. A Project may contain many Agents over time (spawned across separate Worktrees), and the Project's own working tree is never touched by an Agent.
 _Avoid_: Workspace, Repo (in UI), Directory.

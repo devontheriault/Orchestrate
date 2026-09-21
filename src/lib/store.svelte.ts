@@ -66,6 +66,49 @@ const MODEL_KEY = "cw:preferred-model";
 /** The effort the user picked last, stored on the same terms as the model. */
 const EFFORT_KEY = "cw:preferred-effort";
 
+/**
+ * Messages the user has lined up behind a working Agent, by Agent id. Written
+ * to localStorage on every change so a window reload — or a relaunch after the
+ * app was closed mid-Turn — doesn't quietly throw away text the user typed.
+ */
+const QUEUE_KEY = "cw:queues";
+
+/**
+ * One prompt waiting for an Agent to be free, with the Model and effort the
+ * user picked for it. The pick travels with the message rather than being read
+ * at send time: it's part of what the user decided when they queued it.
+ */
+export type QueuedMessage = {
+  /** Local id, so the UI can delete one message out of the middle. */
+  id: string;
+  prompt: string;
+  model: string;
+  effort: string;
+};
+
+/**
+ * A local handle for one queued message — it only has to be unique among the
+ * messages this window is holding. A counter beside the clock rather than
+ * `crypto.randomUUID`, which isn't guaranteed on every webview this app runs in.
+ */
+let queueSeq = 0;
+function queuedId(): string {
+  return `q${Date.now().toString(36)}-${queueSeq++}`;
+}
+
+function readQueues(): Record<string, QueuedMessage[]> {
+  try {
+    const raw = localStorage.getItem(QUEUE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, QueuedMessage[]>;
+    // Anything malformed is worth less than a working queue: drop it.
+    if (!parsed || typeof parsed !== "object") return {};
+    return parsed;
+  } catch {
+    return {};
+  }
+}
+
 function readStored(key: string): string | null {
   try {
     return localStorage.getItem(key);
@@ -116,6 +159,14 @@ class AppStore {
   sending = $state<boolean>(false);
 
   /**
+   * Messages waiting behind each Agent, oldest first — what the user said while
+   * a Turn was still running. Only one `claude` may run in a Worktree at a time,
+   * so a queued message is held here and sent as its own Turn when the Agent is
+   * free, rather than racing the Turn already in flight.
+   */
+  queues = $state<Record<string, QueuedMessage[]>>(readQueues());
+
+  /**
    * A new agent being composed. The detail pane shows a blank output page with
    * an empty transcript and the composer waiting for the opening prompt —
    * the same surface the agent's own output will fill, rather than a dialog
@@ -147,6 +198,9 @@ class AppStore {
 
   /** Agents whose on-disk log has been replayed into `eventsByAgent`. */
   private hydrated = new Set<string>();
+
+  /** Agents with a Turn already being started, so a drain can't double-send. */
+  private turnsInFlight = new Set<string>();
 
   private unlisteners: UnlistenFn[] = [];
   private started = false;
@@ -259,6 +313,9 @@ class AppStore {
         if (agent.id === this.selectedAgentId && this.detailTab === "diff") {
           this.loadDiff();
         }
+        // A Turn that ended cleanly is the moment anything queued behind it
+        // becomes sendable.
+        if (agent.state === "completed") this.drainQueue(agent.id);
       }),
     );
 
@@ -307,6 +364,7 @@ class AppStore {
         api.listAgents(),
         api.startupOrphans(),
       ]);
+      this.pruneQueues();
       this.applyInitialSelection();
     } catch (e) {
       this.error = String(e);
@@ -578,7 +636,24 @@ class AppStore {
   async resume(prompt: string, model: string, effort: string) {
     const id = this.selectedAgentId;
     if (!id || !prompt.trim() || this.sending) return false;
-    this.sending = true;
+    return this.sendTurn(id, prompt, model, effort);
+  }
+
+  /**
+   * Start a Turn on a named Agent. Takes an id rather than reading the selection
+   * because a queue drains whether or not its Agent is the one on screen, and
+   * `sending` — a flag the composer reads — only speaks for the Agent it shows.
+   */
+  private async sendTurn(
+    id: string,
+    prompt: string,
+    model: string,
+    effort: string,
+  ): Promise<boolean> {
+    if (this.turnsInFlight.has(id)) return false;
+    this.turnsInFlight.add(id);
+    const onScreen = id === this.selectedAgentId;
+    if (onScreen) this.sending = true;
     this.error = null;
     try {
       const agent = await api.resumeAgent(id, prompt, model || null, effort || null);
@@ -592,8 +667,95 @@ class AppStore {
       this.error = String(e);
       return false;
     } finally {
-      this.sending = false;
+      this.turnsInFlight.delete(id);
+      // Cleared on the same condition it was set on: if the selection moved
+      // mid-flight, the flag no longer speaks for the Agent on screen anyway.
+      if (onScreen) this.sending = false;
     }
+  }
+
+  /** The queue behind one Agent, oldest first. */
+  queueFor(id: string | null): QueuedMessage[] {
+    return id ? this.queues[id] ?? [] : [];
+  }
+
+  /**
+   * Hold a prompt for the selected Agent until its current Turn ends. Returns
+   * whether it was taken, on the same terms as a send: false leaves the text in
+   * the composer rather than losing it.
+   */
+  enqueue(prompt: string, model: string, effort: string): boolean {
+    const id = this.selectedAgentId;
+    const agent = this.selectedAgent;
+    if (!id || !agent?.session_id || !prompt.trim()) return false;
+    this.queues[id] = [
+      ...this.queueFor(id),
+      { id: queuedId(), prompt: prompt.trim(), model, effort },
+    ];
+    this.saveQueues();
+    // The Turn may have ended between the user typing and pressing Enter; in
+    // that case the message shouldn't sit there waiting for a Turn that is
+    // already over. drainQueue only fires on an Agent that is free.
+    if (agent.state !== "running") this.drainQueue(id);
+    return true;
+  }
+
+  /** Drop one queued message — the ✕ beside it in the strip. */
+  unqueue(agentId: string, messageId: string) {
+    const left = this.queueFor(agentId).filter((m) => m.id !== messageId);
+    if (left.length === 0) delete this.queues[agentId];
+    else this.queues[agentId] = left;
+    this.saveQueues();
+  }
+
+  /** Drop everything waiting behind an Agent. */
+  clearQueue(agentId: string) {
+    if (!this.queues[agentId]) return;
+    delete this.queues[agentId];
+    this.saveQueues();
+  }
+
+  /**
+   * Send the next queued message to an Agent that is free, and take it off the
+   * queue once it's away. Left on the queue if the send fails, so a rejected
+   * follow-up stays visible beside the error rather than vanishing.
+   *
+   * Only called for an Agent that ended a Turn *cleanly*, or when the user asks
+   * for it by hand. A Stop or a Fail wants a human look — firing the rest of the
+   * queue into a Stopped Agent would undo the interrupt the user just made.
+   */
+  async drainQueue(agentId: string) {
+    const [next] = this.queueFor(agentId);
+    if (!next) return;
+    const agent = this.agents.find((a) => a.id === agentId);
+    if (!agent || agent.state === "running" || !agent.session_id) return;
+    if (await this.sendTurn(agentId, next.prompt, next.model, next.effort)) {
+      this.unqueue(agentId, next.id);
+    }
+  }
+
+  private saveQueues() {
+    try {
+      localStorage.setItem(QUEUE_KEY, JSON.stringify(this.queues));
+    } catch {
+      // The queue still works in memory; persistence isn't worth an error over.
+    }
+  }
+
+  /**
+   * Forget queues belonging to Agents that no longer exist — Reaped in another
+   * window, or gone since the last launch. A stored queue outliving its Agent
+   * would otherwise never be sent and never be seen.
+   */
+  private pruneQueues() {
+    let dropped = false;
+    for (const id of Object.keys(this.queues)) {
+      if (!this.agents.some((a) => a.id === id)) {
+        delete this.queues[id];
+        dropped = true;
+      }
+    }
+    if (dropped) this.saveQueues();
   }
 
   async stopAgent(id: string) {
@@ -610,6 +772,7 @@ class AppStore {
       this.agents = this.agents.filter((a) => a.id !== id);
       delete this.eventsByAgent[id];
       this.hydrated.delete(id);
+      this.clearQueue(id);
       if (this.selectedAgentId === id) {
         this.selectedAgentId = null;
         this.clearDiff();
