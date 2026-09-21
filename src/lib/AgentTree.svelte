@@ -268,9 +268,15 @@
     background: var(--hover);
   }
 
-  .agent:hover::before,
-  .agent.selected::before {
+  .agent:hover::before {
     background: var(--accent);
+  }
+
+  /* The selected row already carries the accent on its left edge — the tick
+     stays grey so the blue reads in one place. Listed after the hover rule so
+     it holds while the pointer is over the row. */
+  .agent.selected::before {
+    background: var(--fg-muted);
   }
 
   .agent.selected {
