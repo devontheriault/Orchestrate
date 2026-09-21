@@ -99,12 +99,12 @@
               aria-label="Remove this queued message"
               title="Remove this queued message"
             >
-              <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+              <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
                 <path
-                  d="M4.5 4.5l7 7M11.5 4.5l-7 7"
+                  d="M3.75 3.75l8.5 8.5M12.25 3.75l-8.5 8.5"
                   fill="none"
                   stroke="currentColor"
-                  stroke-width="1.8"
+                  stroke-width="2.2"
                   stroke-linecap="round"
                 />
               </svg>
@@ -266,27 +266,34 @@
     overflow-wrap: anywhere;
   }
 
+  /* Sits centred against the row rather than riding the first line of a
+     multi-line prompt: the badge labels the whole message. */
   .model {
     flex: none;
-    padding: 0.05rem 0.3rem;
+    align-self: center;
+    display: inline-flex;
+    align-items: center;
+    padding: 0.1rem 0.35rem;
     border-radius: 999px;
     background: var(--code-bg);
     color: var(--fg-muted);
     font-size: 0.68rem;
+    line-height: 1;
     white-space: nowrap;
   }
 
   .del {
     flex: none;
+    align-self: center;
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 1.15rem;
-    height: 1.15rem;
+    width: 1.5rem;
+    height: 1.5rem;
     border: none;
     border-radius: 999px;
     background: none;
-    color: var(--fg-muted);
+    color: var(--fg);
     cursor: pointer;
   }
 
