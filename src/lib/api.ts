@@ -34,6 +34,8 @@ export type Agent = {
   /** Turns started so far, including the opening one. */
   turns: number;
   spawned_at: string;
+  /** When the current (or last) turn began. Absent on agents recorded before turn timing. */
+  turn_started_at?: string | null;
   exited_at?: string | null;
   exit_code?: number | null;
   fail_reason?: string | null;

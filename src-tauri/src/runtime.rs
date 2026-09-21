@@ -112,6 +112,7 @@ impl AgentRuntime {
 
         worktree::create(&project.path, &worktree_path, &branch).await?;
 
+        let now = OffsetDateTime::now_utc();
         let agent = Agent {
             id: agent_id.clone(),
             project_id: project.id.clone(),
@@ -127,7 +128,8 @@ impl AgentRuntime {
             session_id: Some(new_session_id()),
             model,
             turns: 1,
-            spawned_at: OffsetDateTime::now_utc(),
+            spawned_at: now,
+            turn_started_at: Some(now),
             exited_at: None,
             exit_code: None,
             fail_reason: None,
@@ -182,6 +184,7 @@ impl AgentRuntime {
         agent.turns += 1;
         agent.model = model;
         agent.state = AgentState::Running;
+        agent.turn_started_at = Some(OffsetDateTime::now_utc());
         agent.exited_at = None;
         agent.exit_code = None;
         agent.fail_reason = None;
@@ -955,6 +958,7 @@ exit 0
             turns: 1,
             branch: "cw/agent-old".into(),
             spawned_at: OffsetDateTime::now_utc(),
+            turn_started_at: Some(OffsetDateTime::now_utc()),
             exited_at: Some(OffsetDateTime::now_utc()),
             exit_code: Some(0),
             fail_reason: None,
@@ -1015,6 +1019,7 @@ exit 0
             turns: 1,
             branch: "cw/agent-x".into(),
             spawned_at: OffsetDateTime::now_utc(),
+            turn_started_at: Some(OffsetDateTime::now_utc()),
             exited_at: None,
             exit_code: None,
             fail_reason: None,

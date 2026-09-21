@@ -38,9 +38,35 @@
     return p.split("\n")[0] ?? "";
   }
 
+  const anyRunning = $derived(agents.some((a) => a.state === "running"));
+
+  // The times on these rows move on their own: by the second while something is
+  // working, so a running agent's clock is live, and slowly otherwise, so a
+  // finished agent's age doesn't sit frozen at whatever it read when the list
+  // last re-rendered.
+  let now = $state(Date.now());
+  $effect(() => {
+    const id = setInterval(() => (now = Date.now()), anyRunning ? 1000 : 30_000);
+    return () => clearInterval(id);
+  });
+
+  function secondsSince(iso: string): number {
+    return Math.max(0, Math.floor((now - new Date(iso).getTime()) / 1000));
+  }
+
+  /** How long the running turn has been going: "12s", "3m 04s", "1h 12m". */
+  function runTime(a: Agent): string {
+    const total = secondsSince(a.turn_started_at ?? a.spawned_at);
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    if (h > 0) return `${h}h ${String(m).padStart(2, "0")}m`;
+    if (m > 0) return `${m}m ${String(s).padStart(2, "0")}s`;
+    return `${s}s`;
+  }
+
   function relTime(iso: string): string {
-    const then = new Date(iso).getTime();
-    const s = Math.max(0, Math.floor((Date.now() - then) / 1000));
+    const s = secondsSince(iso);
     if (s < 60) return `${s}s`;
     if (s < 3600) return `${Math.floor(s / 60)}m`;
     if (s < 86400) return `${Math.floor(s / 3600)}h`;
@@ -89,7 +115,13 @@
             title={`${a.task.prompt}\n\n${a.id}${a.model ? ` · ${store.modelName(a.model)}` : ""}`}
           >
             <span class="prompt">{firstLine(a.task.prompt)}</span>
-            <span class="age">{relTime(a.spawned_at)}</span>
+            {#if a.state === "running"}
+              <span class="age live" title="Working for {runTime(a)}">{runTime(a)}</span>
+            {:else}
+              <span class="age" title="Spawned {relTime(a.spawned_at)} ago"
+                >{relTime(a.spawned_at)}</span
+              >
+            {/if}
           </div>
         {/each}
       </div>
@@ -253,5 +285,10 @@
     font-size: 0.68rem;
     color: var(--fg-muted);
     font-variant-numeric: tabular-nums;
+  }
+
+  /* A clock that's ticking should look like it belongs to the running dot. */
+  .age.live {
+    color: var(--running);
   }
 </style>
