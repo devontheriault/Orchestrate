@@ -166,10 +166,6 @@
           <span class={`state state-${store.selectedAgent.state}`}>
             {store.selectedAgent.state}
           </span>
-          <code>{store.selectedAgent.id}</code>
-          {#if store.selectedAgent.branch}
-            <code>{store.selectedAgent.branch}</code>
-          {/if}
           {#if store.selectedAgent.model}
             <span class="model" title="Model this agent runs on">
               {store.modelName(store.selectedAgent.model)}
@@ -386,13 +382,6 @@
     opacity: 0.6;
   }
 
-  .meta code {
-    max-width: 14rem;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
   .state {
     text-transform: uppercase;
     font-weight: 600;
@@ -416,13 +405,6 @@
   }
 
   .cancel:hover { border-color: var(--accent); color: var(--accent); }
-
-  code {
-    font-family: ui-monospace, monospace;
-    background: var(--code-bg);
-    padding: 0.05em 0.35em;
-    border-radius: 3px;
-  }
 
   .head-right {
     display: flex;
