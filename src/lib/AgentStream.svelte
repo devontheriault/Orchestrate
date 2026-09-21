@@ -345,21 +345,21 @@
   }
 
   .prompt {
-    font-size: 0.95rem;
-    font-weight: 500;
+    font-size: 1.05rem;
+    font-weight: 700;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
 
-  .prompt .project {
+  /* Muted colour alone separates the project from the agent name; both stay
+     bold so the whole title reads as one heading. */
+  .prompt .project,
+  .prompt .sep {
     color: var(--fg-muted);
-    font-weight: 400;
   }
 
   .prompt .sep {
-    color: var(--fg-muted);
-    font-weight: 400;
     margin: 0 0.1rem;
   }
 
