@@ -162,23 +162,6 @@
     {#if store.selectedAgent}
       <div class="head-left">
         <div class="prompt">{store.selectedAgent.task.prompt}</div>
-        <div class="meta">
-          <span class={`state state-${store.selectedAgent.state}`}>
-            {store.selectedAgent.state}
-          </span>
-          {#if store.selectedAgent.model}
-            <span class="model" title="Model this agent runs on">
-              {store.modelName(store.selectedAgent.model)}
-              {#if store.selectedAgent.effort}
-                <span class="effort">{store.selectedAgent.effort}</span>
-              {/if}
-            </span>
-          {:else if store.selectedAgent.effort}
-            <span class="model" title="Effort this agent runs at">
-              <span class="effort">{store.selectedAgent.effort}</span>
-            </span>
-          {/if}
-        </div>
       </div>
       <div class="head-right">
         <div class="tabs" role="tablist">
@@ -371,17 +354,6 @@
     color: var(--fg-muted);
   }
 
-  .meta .model {
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    padding: 0.05em 0.5em;
-  }
-
-  /* Qualifies the model rather than standing beside it as an equal. */
-  .meta .effort {
-    opacity: 0.6;
-  }
-
   .state {
     text-transform: uppercase;
     font-weight: 600;
@@ -391,11 +363,6 @@
     border-radius: 3px;
     background: var(--code-bg);
   }
-  .state-running { color: #16a34a; }
-  .state-completed { color: #2563eb; }
-  .state-failed { color: #dc2626; }
-  .state-orphaned { color: #d97706; }
-  .state-stopped { color: #6b7280; }
   .state-draft { color: var(--accent); }
 
   .target {
