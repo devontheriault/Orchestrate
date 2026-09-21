@@ -74,7 +74,7 @@
     position: fixed;
     /* Above the usage overlay's backdrop, so the window stays resizable while
        a modal is open. */
-    z-index: 200;
+    z-index: var(--z-modal);
   }
 
   /* Sides: thin, so they cost the content underneath as little as possible. */

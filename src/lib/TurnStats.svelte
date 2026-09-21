@@ -66,9 +66,9 @@
   .turn-stats {
     display: flex;
     align-items: center;
-    gap: 0.4rem;
+    gap: var(--space-3);
     padding: 0 0.3rem;
-    font-size: 0.72rem;
+    font-size: var(--text-xs);
     font-variant-numeric: tabular-nums;
     color: var(--fg-muted);
   }
@@ -78,8 +78,8 @@
   .pulse {
     width: 0.4rem;
     height: 0.4rem;
-    border-radius: 999px;
-    background: #16a34a;
+    border-radius: var(--radius-pill);
+    background: var(--success);
     animation: pulse 1.6s ease-in-out infinite;
   }
 
@@ -94,12 +94,6 @@
     }
     50% {
       opacity: 0.3;
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .pulse {
-      animation: none;
     }
   }
 </style>

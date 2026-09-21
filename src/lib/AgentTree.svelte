@@ -93,7 +93,7 @@
   {#each grouped as { state, agents: group } (state)}
     <div class="group">
       <div class="group-label">
-        <span class={`dot dot-${state}`}></span>
+        <span class={`status-dot status-${state}`}></span>
         {stateLabel[state]}
         <span class="count">{group.length}</span>
       </div>
@@ -126,7 +126,7 @@
     position: relative;
     display: flex;
     flex-direction: column;
-    gap: 0.1rem;
+    gap: var(--space-1);
     /* Indented to sit under the project name, beside the guide line below. */
     padding: 0.15rem 0.4rem 0.45rem calc(var(--pad-x) + 0.75rem);
   }
@@ -143,7 +143,7 @@
   }
 
   .tree.flat {
-    padding: 0.4rem;
+    padding: var(--space-3);
   }
 
   .tree.flat::before {
@@ -153,15 +153,15 @@
   .new {
     display: flex;
     align-items: center;
-    gap: 0.35rem;
+    gap: var(--space-3);
     width: 100%;
     padding: 0.3rem 0.45rem;
-    margin-bottom: 0.1rem;
+    margin-bottom: var(--space-1);
     border: 1px dashed var(--border);
-    border-radius: 5px;
+    border-radius: var(--radius-sm);
     background: transparent;
     color: var(--fg-muted);
-    font-size: 0.78rem;
+    font-size: var(--text-sm);
     text-align: left;
     cursor: pointer;
   }
@@ -181,21 +181,21 @@
   }
 
   .plus {
-    font-size: 0.95rem;
-    line-height: 1;
+    font-size: var(--text-xl);
+    line-height: var(--leading-none);
   }
 
   .group + .group {
-    margin-top: 0.3rem;
+    margin-top: var(--space-2);
   }
 
   .group-label {
     display: flex;
     align-items: center;
-    gap: 0.35rem;
+    gap: var(--space-3);
     padding: 0.25rem 0.45rem 0.15rem;
-    font-size: 0.66rem;
-    font-weight: 600;
+    font-size: var(--text-3xs);
+    font-weight: var(--weight-semibold);
     color: var(--fg-muted);
     text-transform: uppercase;
     letter-spacing: 0.05em;
@@ -206,39 +206,13 @@
     opacity: 0.8;
   }
 
-  .dot {
-    width: 6px;
-    height: 6px;
-    flex: none;
-    border-radius: 50%;
-    display: inline-block;
-  }
-  .dot-running {
-    background: var(--running);
-    box-shadow: 0 0 0 3px var(--running-bg);
-    animation: pulse 2s infinite;
-  }
-  .dot-completed { background: var(--completed); }
-  .dot-failed { background: #ef4444; }
-  .dot-orphaned { background: var(--attention); }
-  .dot-stopped { background: #9ca3af; }
-
-  @keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.5; }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .dot-running { animation: none; }
-  }
-
   .agent {
     position: relative;
     display: flex;
     align-items: baseline;
-    gap: 0.4rem;
+    gap: var(--space-3);
     padding: 0.3rem 0.45rem;
-    border-radius: 5px;
+    border-radius: var(--radius-sm);
     cursor: pointer;
     color: var(--fg);
   }
@@ -281,14 +255,14 @@
   }
 
   .agent.selected .prompt {
-    font-weight: 500;
+    font-weight: var(--weight-medium);
   }
 
   .prompt {
     flex: 1;
     min-width: 0;
-    font-size: 0.8rem;
-    line-height: 1.3;
+    font-size: var(--text-sm);
+    line-height: var(--leading-tight);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -296,7 +270,7 @@
 
   .age {
     flex: none;
-    font-size: 0.68rem;
+    font-size: var(--text-2xs);
     color: var(--fg-muted);
     font-variant-numeric: tabular-nums;
   }

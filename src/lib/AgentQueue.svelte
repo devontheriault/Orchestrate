@@ -121,9 +121,9 @@
      fill, and no gap-filling chrome of its own when collapsed. */
   .queue {
     border: 1px solid var(--border);
-    border-radius: 12px;
+    border-radius: var(--radius-xl);
     background: var(--panel-bg);
-    font-size: 0.74rem;
+    font-size: var(--text-xs);
     overflow: hidden;
   }
 
@@ -135,7 +135,7 @@
   .head {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: var(--space-4);
     padding: 0.28rem 0.35rem 0.28rem 0.45rem;
   }
 
@@ -144,7 +144,7 @@
     min-width: 0;
     display: flex;
     align-items: center;
-    gap: 0.35rem;
+    gap: var(--space-3);
     padding: 0.1rem 0.15rem;
     border: none;
     background: none;
@@ -152,7 +152,7 @@
     font: inherit;
     text-align: left;
     cursor: pointer;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
   }
 
   .toggle:hover {
@@ -166,7 +166,7 @@
 
   .chevron {
     flex: none;
-    transition: transform 0.12s ease;
+    transition: transform var(--transition-fast);
   }
 
   .chevron.open {
@@ -183,13 +183,13 @@
     flex: none;
     display: flex;
     align-items: center;
-    gap: 0.15rem;
+    gap: var(--space-1);
   }
 
   .act {
     padding: 0.15rem 0.4rem;
     border: none;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     background: none;
     color: var(--fg-muted);
     font: inherit;
@@ -202,7 +202,7 @@
   }
 
   .act.danger:hover {
-    color: #ef4444;
+    color: var(--danger);
   }
 
   .act:disabled {
@@ -231,15 +231,15 @@
     overflow-y: auto;
     display: flex;
     flex-direction: column;
-    gap: 0.2rem;
+    gap: var(--space-2);
   }
 
   li {
     display: flex;
     align-items: flex-start;
-    gap: 0.45rem;
+    gap: var(--space-3);
     padding: 0.35rem 0.4rem;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     background: var(--surface);
   }
 
@@ -253,7 +253,7 @@
     min-width: 1rem;
     color: var(--fg-muted);
     font-variant-numeric: tabular-nums;
-    line-height: 1.5;
+    line-height: var(--leading-normal);
   }
 
   .text {
@@ -261,7 +261,7 @@
     min-width: 0;
     margin: 0;
     color: var(--fg);
-    line-height: 1.5;
+    line-height: var(--leading-normal);
     white-space: pre-wrap;
     overflow-wrap: anywhere;
   }
@@ -274,11 +274,11 @@
     display: inline-flex;
     align-items: center;
     padding: 0.1rem 0.35rem;
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     background: var(--code-bg);
     color: var(--fg-muted);
-    font-size: 0.68rem;
-    line-height: 1;
+    font-size: var(--text-2xs);
+    line-height: var(--leading-none);
     white-space: nowrap;
   }
 
@@ -291,7 +291,7 @@
     width: 1.5rem;
     height: 1.5rem;
     border: none;
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     background: none;
     color: var(--fg);
     cursor: pointer;
@@ -299,7 +299,7 @@
 
   .del:hover {
     background: var(--border);
-    color: #ef4444;
+    color: var(--danger);
   }
 
   .del:focus-visible {

@@ -275,7 +275,8 @@
   <button
     bind:this={triggerEl}
     type="button"
-    class="trigger"
+    class="btn btn-select trigger"
+    class:btn-ghost={compact}
     {disabled}
     aria-haspopup="listbox"
     aria-expanded={open}
@@ -284,11 +285,11 @@
     onclick={() => (open ? close() : openMenu())}
     onkeydown={onTriggerKeydown}
   >
-    <span class="current">{selected?.name ?? value}</span>
+    <span class="btn-select-label">{selected?.name ?? value}</span>
     <!-- The effort rides along with the model rather than claiming a control of
          its own: quieter than the name it qualifies. -->
     {#if effort}<span class="effort">{effort}</span>{/if}
-    <span class="chevron" aria-hidden="true">
+    <span class="btn-select-chevron" aria-hidden="true">
       <svg viewBox="0 0 10 6" width="10" height="6">
         <path
           d="M1 1l4 4 4-4"
@@ -312,7 +313,7 @@
 {#if open && placement}
   <ul
     bind:this={listEl}
-    class="menu"
+    class="popover menu"
     role="listbox"
     aria-label={label}
     aria-activedescendant={inSub
@@ -331,6 +332,7 @@
         role="option"
         aria-selected={option.id === value}
         data-active={!inSub && i === active}
+        class="menu-item"
         class:on={option.id === value}
         class:sub-open={sub === i}
         onclick={() => pick(option.id)}
@@ -341,9 +343,9 @@
           inSub = false;
         }}
       >
-        <span class="tick" aria-hidden="true">{option.id === value ? "✓" : ""}</span>
-        <span class="name">{option.name}</span>
-        <span class="more" aria-hidden="true">›</span>
+        <span class="menu-tick" aria-hidden="true">{option.id === value ? "✓" : ""}</span>
+        <span class="menu-label">{option.name}</span>
+        <span class="menu-more" aria-hidden="true">›</span>
       </li>
     {/each}
   </ul>
@@ -352,7 +354,7 @@
 {#if open && sub !== null && subPlacement}
   <ul
     bind:this={subEl}
-    class="menu sub"
+    class="popover popover-above menu"
     role="listbox"
     aria-label={`Effort for ${options[sub].name}`}
     tabindex="-1"
@@ -365,6 +367,7 @@
         role="option"
         aria-selected={level.id === effort}
         data-active={inSub && j === subActive}
+        class="menu-item"
         class:on={level.id === effort}
         onclick={() => pick(options[sub!].id, level.id)}
         onpointermove={() => {
@@ -373,8 +376,8 @@
           inSub = true;
         }}
       >
-        <span class="tick" aria-hidden="true">{level.id === effort ? "✓" : ""}</span>
-        <span class="name">{level.name}</span>
+        <span class="menu-tick" aria-hidden="true">{level.id === effort ? "✓" : ""}</span>
+        <span class="menu-label">{level.name}</span>
       </li>
     {/each}
   </ul>
@@ -388,49 +391,13 @@
     min-width: 0;
   }
 
-  /*
-   * Restates the surface, border, and radius the inputs beside it use — the
-   * control this replaces was drawn by the platform and read as a foreign
-   * element pasted into the page.
-   */
+  /* Wider and taller than the app's select: this one is the spawn form's
+     main control, so it fills its row and takes the form's type size. */
   .trigger {
-    display: flex;
-    align-items: baseline;
-    gap: 0.35rem;
     width: 100%;
-    min-width: 0;
-    font-family: inherit;
-    font-size: 0.88rem;
-    line-height: 1.4;
-    color: var(--fg);
-    background: var(--panel-bg);
-    border: 1px solid var(--border);
-    border-radius: 6px;
+    align-items: baseline;
+    font-size: var(--text-lg);
     padding: 0.5rem 0.7rem;
-    cursor: pointer;
-  }
-
-  .trigger:hover:not(:disabled) {
-    border-color: var(--accent);
-  }
-
-  .trigger:focus-visible {
-    outline: none;
-    border-color: var(--accent);
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
-  }
-
-  .trigger:disabled {
-    opacity: 0.55;
-    cursor: not-allowed;
-  }
-
-  .current {
-    min-width: 0;
-    text-align: left;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
   }
 
   .effort {
@@ -439,99 +406,20 @@
     font-size: 0.92em;
   }
 
-  .chevron {
-    flex: none;
-    margin-left: auto;
-    align-self: center;
-    display: flex;
-    /* Drawn in currentColor, so it follows the theme instead of needing a
-       second copy of the icon for dark mode. */
-    color: var(--fg-muted);
-  }
-
-  .menu {
-    position: fixed;
-    z-index: 60;
-    margin: 0;
-    padding: 0.25rem;
-    list-style: none;
-    overflow-y: auto;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
-  }
-
-  .menu.sub {
-    z-index: 61;
-  }
-
-  .menu:focus {
-    outline: none;
-  }
-
-  .menu li {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    padding: 0.38rem 0.5rem;
-    /* Rounded rows inside a rounded box: a square highlight in the corners is
-       the tell that this is a list bolted into a panel. */
-    border-radius: 6px;
-    font-size: 0.82rem;
-    color: var(--fg);
-    cursor: pointer;
-  }
-
   /* The row whose submenu is up stays lit while the pointer is off in it. */
-  .menu li[data-active="true"],
-  .menu li.sub-open {
+  .sub-open {
     background: var(--hover);
   }
 
-  .menu li.on {
-    color: var(--accent);
-  }
-
-  .tick {
-    flex: none;
-    width: 0.8rem;
-    font-size: 0.72rem;
-  }
-
-  .menu .name {
-    flex: 1;
-    min-width: 0;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .more {
-    flex: none;
-    color: var(--fg-muted);
-    font-size: 0.9rem;
-    line-height: 1;
-  }
-
-  /* Under the composer box this is a quiet secondary control, not an input to
-     fill in: no border or fill until it's pointed at. A long model name
-     ellipses rather than pushing it off a narrow pane. */
+  /* Under the composer box this is a quiet secondary control rather than an
+     input to fill in — `.btn-ghost` does the rest. A long model name ellipses
+     rather than pushing it off a narrow pane. */
   .compact {
     max-width: 13rem;
   }
 
   .compact .trigger {
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     padding: 0.25rem 0.45rem;
-    border-color: transparent;
-    background: none;
-    color: var(--fg-muted);
-  }
-
-  .compact .trigger:hover:not(:disabled) {
-    background: var(--hover);
-    border-color: transparent;
-    color: var(--fg);
   }
 </style>

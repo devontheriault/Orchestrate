@@ -38,8 +38,8 @@
   .md :global(h5),
   .md :global(h6) {
     margin: 1.1em 0 0.45em;
-    line-height: 1.3;
-    font-weight: 600;
+    line-height: var(--leading-tight);
+    font-weight: var(--weight-semibold);
     overflow-wrap: anywhere;
   }
 
@@ -101,11 +101,11 @@
   }
 
   .md :global(code) {
-    font-family: ui-monospace, monospace;
+    font-family: var(--font-mono);
     font-size: 0.88em;
     background: var(--code-bg);
     padding: 0.1em 0.35em;
-    border-radius: 3px;
+    border-radius: var(--radius-xs);
     overflow-wrap: anywhere;
   }
 
@@ -114,9 +114,9 @@
     padding: 0.55rem 0.7rem;
     background: var(--code-bg);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     font-size: 0.85em;
-    line-height: 1.5;
+    line-height: var(--leading-normal);
     /* Code keeps the line breaks it was written with and scrolls instead;
        re-wrapping it would misrepresent what the agent wrote. */
     overflow-x: auto;
@@ -142,7 +142,7 @@
     position: absolute;
     top: 0.35rem;
     right: 0.55rem;
-    font-family: ui-monospace, monospace;
+    font-family: var(--font-mono);
     font-size: 0.7em;
     color: var(--fg-muted);
     pointer-events: none;
@@ -168,7 +168,7 @@
 
   .md :global(th) {
     background: var(--panel-bg);
-    font-weight: 600;
+    font-weight: var(--weight-semibold);
   }
 
   .md :global(a) {
@@ -179,7 +179,7 @@
   }
 
   .md :global(strong) {
-    font-weight: 600;
+    font-weight: var(--weight-semibold);
   }
 
   .md :global(del) {
@@ -188,7 +188,7 @@
 
   .md :global(.html-literal) {
     margin: 0 0 0.6em;
-    font-family: ui-monospace, monospace;
+    font-family: var(--font-mono);
     font-size: 0.88em;
     color: var(--fg-muted);
     white-space: pre-wrap;

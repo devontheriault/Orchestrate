@@ -568,11 +568,11 @@
   .head-right button {
     flex: none;
     white-space: nowrap;
-    border-radius: 5px;
+    border-radius: var(--radius-sm);
     border: 1px solid var(--border);
     background: var(--surface);
     padding: 0.35rem 0.85rem;
-    font-size: 0.82rem;
+    font-size: var(--text-md);
     font-family: inherit;
     color: var(--fg);
     cursor: pointer;
@@ -581,7 +581,7 @@
   .tabs {
     display: inline-flex;
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     overflow: hidden;
   }
 
@@ -590,12 +590,12 @@
     border-radius: 0;
     background: transparent;
     padding: 0.32rem 0.8rem;
-    font-size: 0.82rem;
+    font-size: var(--text-md);
     color: var(--fg-muted);
     cursor: pointer;
     display: inline-flex;
     align-items: center;
-    gap: 0.35rem;
+    gap: var(--space-3);
   }
 
   .tabs button:hover { color: var(--fg); }
@@ -603,24 +603,24 @@
   .tabs button.active {
     background: var(--selected);
     color: var(--fg);
-    font-weight: 500;
+    font-weight: var(--weight-medium);
   }
 
   .dirty-dot {
     width: 6px;
     height: 6px;
-    border-radius: 50%;
-    background: #f59e0b;
+    border-radius: var(--radius-circle);
+    background: var(--warning);
   }
 
   .reap:hover { border-color: var(--accent); color: var(--accent); }
 
   .reap.armed,
   .reap.armed:hover {
-    border-color: #ef4444;
-    background: #ef4444;
-    color: #fff;
-    font-weight: 500;
+    border-color: var(--danger);
+    background: var(--danger);
+    color: var(--on-danger);
+    font-weight: var(--weight-medium);
   }
 
   /* Holds the transcript and the jump-to-bottom button that floats over it. */
@@ -640,7 +640,7 @@
     padding: 1rem var(--pad-x) 2rem;
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
+    gap: var(--space-4);
   }
 
   /* Centred on the transcript's own edge, just above the composer: the button
@@ -655,10 +655,10 @@
     display: grid;
     place-items: center;
     border: 1px solid var(--border);
-    border-radius: 50%;
+    border-radius: var(--radius-circle);
     background: var(--panel-bg);
     color: var(--fg-muted);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.16);
+    box-shadow: var(--shadow-sm);
     cursor: pointer;
     padding: 0;
     animation: to-bottom-in 0.12s ease;
@@ -674,16 +674,12 @@
     to { opacity: 1; transform: translate(-50%, 0); }
   }
 
-  @media (prefers-reduced-motion: reduce) {
-    .to-bottom { animation: none; }
-  }
-
   .hint {
     color: var(--fg-muted);
     font-style: italic;
     text-align: center;
     padding: 3rem 1rem;
-    font-size: 0.9rem;
+    font-size: var(--text-lg);
   }
 
   /* The blank page is mostly empty on purpose: it's the transcript, waiting.
@@ -698,16 +694,16 @@
   }
 
   .draft-hint .sub {
-    margin-top: 0.4rem;
-    font-size: 0.82rem;
+    margin-top: var(--space-3);
+    font-size: var(--text-md);
     max-width: var(--measure);
     margin-left: auto;
     margin-right: auto;
   }
 
   .block {
-    font-size: 0.9rem;
-    line-height: 1.55;
+    font-size: var(--text-lg);
+    line-height: var(--leading-relaxed);
     min-width: 0;
   }
 
@@ -728,34 +724,34 @@
     overflow-wrap: anywhere;
     background: var(--selected);
     border-left: 2px solid var(--accent);
-    border-radius: 0 6px 6px 0;
+    border-radius: 0 var(--radius-md) var(--radius-md) 0;
     padding: 0.45rem 0.7rem;
     margin: 0.45rem 0 0.2rem;
-    font-size: 0.88rem;
+    font-size: var(--text-lg);
   }
 
   details.block {
     background: var(--panel-bg);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     padding: 0.4rem 0.75rem;
   }
 
   details.block summary {
     cursor: pointer;
-    font-family: ui-monospace, monospace;
-    font-size: 0.82rem;
+    font-family: var(--font-mono);
+    font-size: var(--text-md);
     color: var(--fg-muted);
     overflow-wrap: anywhere;
   }
 
-  details.block[open] summary { margin-bottom: 0.4rem; }
+  details.block[open] summary { margin-bottom: var(--space-3); }
 
   details.block pre {
     background: transparent;
     margin: 0;
     padding: 0;
-    font-size: 0.8rem;
+    font-size: var(--text-sm);
     white-space: pre-wrap;
     overflow-wrap: anywhere;
     color: var(--fg);
@@ -767,7 +763,7 @@
   /* Thinking is prose too, but a long stretch of it scrolls inside its card
      instead of burying the answer that follows. */
   .thinking-body {
-    font-size: 0.86rem;
+    font-size: var(--text-md);
     color: var(--fg-muted);
     max-height: min(60vh, 34rem);
     overflow: auto;
@@ -780,13 +776,13 @@
   }
 
   details.block summary .count {
-    margin-left: 0.3rem;
+    margin-left: var(--space-2);
     color: var(--accent);
-    font-size: 0.78rem;
+    font-size: var(--text-sm);
   }
 
   details.block summary .targets {
-    margin-left: 0.4rem;
+    margin-left: var(--space-3);
     color: var(--fg-muted);
   }
 
@@ -799,10 +795,10 @@
   .running-dot {
     display: inline-block;
     vertical-align: middle;
-    margin-left: 0.4rem;
+    margin-left: var(--space-3);
     width: 6px;
     height: 6px;
-    border-radius: 50%;
+    border-radius: var(--radius-circle);
     background: var(--accent);
     animation: running-pulse 1.2s ease-in-out infinite;
   }
@@ -812,6 +808,8 @@
     50% { opacity: 1; }
   }
 
+  /* Kept, unlike the app's other pulses: this one's last keyframe is its
+     dim one, so stopping it needs a resting opacity of its own. */
   @media (prefers-reduced-motion: reduce) {
     .running-dot { animation: none; opacity: 0.7; }
   }
@@ -823,19 +821,19 @@
 
   details.call summary {
     cursor: pointer;
-    font-family: ui-monospace, monospace;
-    font-size: 0.8rem;
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
     color: var(--fg-muted);
     overflow-wrap: anywhere;
   }
 
-  details.call[open] summary { margin-bottom: 0.3rem; }
+  details.call[open] summary { margin-bottom: var(--space-2); }
 
   details.call pre {
     background: transparent;
     margin: 0;
     padding: 0;
-    font-size: 0.78rem;
+    font-size: var(--text-sm);
     white-space: pre-wrap;
     overflow-wrap: anywhere;
     color: var(--fg);
@@ -846,7 +844,7 @@
   /* The result sits under the call that asked for it, divided from the input
      rather than split into a card of its own. */
   .call-result {
-    margin-top: 0.4rem;
+    margin-top: var(--space-3);
     padding-top: 0.4rem;
     border-top: 1px dashed var(--border);
   }
@@ -857,21 +855,21 @@
 
   .system, .done {
     color: var(--fg-muted);
-    font-family: ui-monospace, monospace;
-    font-size: 0.8rem;
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
     padding: 0.15rem 0;
     overflow-wrap: anywhere;
     max-width: min(100%, var(--measure));
   }
 
-  .done.err { color: #dc2626; }
+  .done.err { color: var(--danger-text); }
 
   .fail-banner {
-    background: rgba(239, 68, 68, 0.08);
-    border: 1px solid rgba(239, 68, 68, 0.3);
-    border-radius: 6px;
+    background: var(--danger-soft-bg);
+    border: 1px solid var(--danger-soft-border);
+    border-radius: var(--radius-md);
     padding: 0.55rem 0.85rem;
-    font-size: 0.85rem;
+    font-size: var(--text-md);
     display: flex;
     flex-wrap: wrap;
     gap: 0.3rem 0.6rem;
@@ -879,17 +877,17 @@
   }
 
   .fail-banner .label {
-    color: #dc2626;
-    font-weight: 600;
-    font-size: 0.75rem;
+    color: var(--danger-text);
+    font-weight: var(--weight-semibold);
+    font-size: var(--text-xs);
     text-transform: uppercase;
     letter-spacing: 0.05em;
   }
 
   .fail-banner .reason {
     color: var(--fg);
-    font-family: ui-monospace, monospace;
-    font-size: 0.82rem;
+    font-family: var(--font-mono);
+    font-size: var(--text-md);
     white-space: pre-wrap;
     overflow-wrap: anywhere;
     min-width: 0;

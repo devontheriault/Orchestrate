@@ -227,7 +227,7 @@
     padding: 0.35rem var(--pad-x) 0.7rem;
     display: flex;
     flex-direction: column;
-    gap: 0.4rem;
+    gap: var(--space-3);
   }
 
   /* The bordered rectangle the user thinks of as "the input" — the textarea
@@ -236,9 +236,9 @@
     position: relative;
     display: flex;
     border: 1px solid var(--border);
-    border-radius: 14px;
+    border-radius: var(--radius-xl);
     background: var(--panel-bg);
-    transition: border-color 0.12s ease;
+    transition: border-color var(--transition-fast);
   }
 
   .box:focus-within {
@@ -257,8 +257,8 @@
     background: none;
     color: var(--fg);
     font: inherit;
-    font-size: 0.9rem;
-    line-height: 1.5;
+    font-size: var(--text-lg);
+    line-height: var(--leading-normal);
   }
 
   /* Clears both buttons when Stop and Queue share the corner. */
@@ -283,7 +283,7 @@
     bottom: 0.45rem;
     display: flex;
     align-items: center;
-    gap: 0.3rem;
+    gap: var(--space-2);
   }
 
   .send {
@@ -293,13 +293,13 @@
     align-items: center;
     justify-content: center;
     border: none;
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     background: var(--accent);
     color: var(--surface);
     cursor: pointer;
     transition:
-      opacity 0.12s ease,
-      filter 0.12s ease;
+      opacity var(--transition-fast),
+      filter var(--transition-fast);
   }
 
   .send:hover:not(:disabled) {
@@ -318,8 +318,8 @@
 
   /* Same slot, different job: red reads as "interrupt" without a label. */
   .send.stop {
-    background: #ef4444;
-    color: #fff;
+    background: var(--danger);
+    color: var(--on-danger);
   }
 
   /* Outlined: sending's sibling, held back a step. */
@@ -338,12 +338,12 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 0.75rem;
+    gap: var(--space-5);
     padding: 0 0.15rem;
   }
 
   .hint {
-    font-size: 0.7rem;
+    font-size: var(--text-2xs);
     color: var(--fg-muted);
     white-space: nowrap;
     overflow: hidden;
@@ -352,7 +352,7 @@
 
   .closed {
     margin: 0;
-    font-size: 0.82rem;
+    font-size: var(--text-md);
     color: var(--fg-muted);
     font-style: italic;
   }
