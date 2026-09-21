@@ -422,9 +422,11 @@
     min-width: 0;
   }
 
+  /* The rail still reads as a list, so its names start at the left edge like
+     the tree's do — only the padding tightens. */
   aside.collapsed .row {
-    padding: 0.5rem 0.25rem;
-    align-items: center;
+    padding: 0.5rem 0.4rem;
+    align-items: flex-start;
   }
 
   .name-row {
