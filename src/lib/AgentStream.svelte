@@ -404,7 +404,6 @@
 
   header {
     padding: var(--pad-y) var(--pad-x);
-    border-bottom: 1px solid var(--border);
     display: flex;
     flex-wrap: wrap;
     align-items: center;

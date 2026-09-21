@@ -264,7 +264,6 @@
   .summary {
     flex: none;
     padding: 0.7rem var(--pad-x);
-    border-bottom: 1px solid var(--border);
     background: var(--surface);
     display: flex;
     flex-wrap: wrap;

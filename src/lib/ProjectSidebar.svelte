@@ -237,7 +237,6 @@
     align-items: center;
     justify-content: space-between;
     gap: 0.4rem;
-    border-bottom: 1px solid var(--border);
     min-height: 2.8rem;
   }
 
@@ -339,7 +338,6 @@
   footer {
     flex: none;
     margin-top: auto;
-    border-top: 1px solid var(--border);
     padding: 0.35rem;
   }
 
@@ -378,6 +376,8 @@
     text-align: left;
   }
 
+  /* The shortcut is a reminder, not a label: it keeps its space in the row so
+     nothing shifts, but only surfaces when the tile is pointed at. */
   .usage kbd {
     font-family: ui-monospace, monospace;
     font-size: 0.68rem;
@@ -385,6 +385,13 @@
     background: var(--code-bg);
     border-radius: 3px;
     padding: 0.05em 0.3em;
+    opacity: 0;
+    transition: opacity 0.12s ease;
+  }
+
+  .usage:hover kbd,
+  .usage:focus-visible kbd {
+    opacity: 1;
   }
 
   li {
