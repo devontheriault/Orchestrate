@@ -107,7 +107,13 @@
       title="Token usage (Ctrl+Shift+U)"
       aria-label="Token usage"
     >
-      <span class="gauge">◔</span>
+      <span class="gauge" aria-hidden="true">
+        <svg viewBox="0 0 10 8" width="10" height="8">
+          <rect x="0.5" y="5" width="2" height="3" rx="0.5" fill="currentColor" />
+          <rect x="4" y="2.5" width="2" height="5.5" rx="0.5" fill="currentColor" />
+          <rect x="7.5" y="0.5" width="2" height="7.5" rx="0.5" fill="currentColor" />
+        </svg>
+      </span>
       {#if !collapsed}<span class="label">Usage</span><kbd>⌃⇧U</kbd>{/if}
     </button>
   </footer>
@@ -266,7 +272,8 @@
   }
 
   .usage .gauge {
-    font-size: 0.95rem;
+    display: flex;
+    align-items: center;
     line-height: 1;
   }
 
