@@ -1,6 +1,16 @@
 <script lang="ts">
+  import WindowChrome from "$lib/WindowChrome.svelte";
+  import WindowResizeEdges from "$lib/WindowResizeEdges.svelte";
+
   let { children } = $props();
 </script>
+
+<!-- The window's frame is the app's, not the OS's — see `build_main_window` in
+     src-tauri/src/lib.rs. It belongs to the layout rather than the page for the
+     same reason the OS bar used to sit outside the document: it's the window,
+     not what the window is showing. -->
+<WindowChrome />
+<WindowResizeEdges />
 
 {@render children()}
 
@@ -25,6 +35,9 @@
     /* Panes are sized from the window, not fixed: they give up width as the
        window narrows and take it back as it widens, within readable bounds. */
     --pane-projects: clamp(12rem, 20vw, 20rem);
+    /* The app's own title bar. Fixed rather than scaled: it holds the window
+       controls, which want a constant hit target however small the window. */
+    --titlebar-h: 2.1rem;
     --rail: 3.4rem;
     /* Breathing room scales too, so a narrow window spends it on content. */
     --pad-x: clamp(0.6rem, 1.1vw, 1.1rem);

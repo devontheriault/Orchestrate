@@ -14,7 +14,7 @@ pub mod worktree;
 pub(crate) mod test_util;
 
 use serde::Serialize;
-use tauri::{Emitter, Manager};
+use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
 use commands::AppState;
 use model::{Agent, AgentEvent};
@@ -28,6 +28,31 @@ struct AgentEventPayload {
     event: AgentEvent,
 }
 
+/// Build the one window the app has.
+///
+/// It lives here rather than in `tauri.conf.json` because its frame differs by
+/// platform and the config is a single static description. macOS keeps its
+/// decorations so the traffic lights stay native, and only hides the bar's
+/// chrome so the app's own header can draw behind them; everywhere else the
+/// decoration goes entirely and the header supplies the controls itself.
+fn build_main_window(app: &tauri::AppHandle) -> tauri::Result<()> {
+    let win = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
+        .title("Claude Wrapper")
+        .inner_size(1280.0, 800.0)
+        .min_inner_size(560.0, 420.0);
+
+    #[cfg(target_os = "macos")]
+    let win = win
+        .title_bar_style(tauri::TitleBarStyle::Overlay)
+        .hidden_title(true);
+
+    #[cfg(not(target_os = "macos"))]
+    let win = win.decorations(false);
+
+    win.build()?;
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let startup_orphans = runtime::adopt_orphans_on_launch().unwrap_or_default();
@@ -37,6 +62,8 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .setup(move |app| {
+            build_main_window(app.handle())?;
+
             let handle = app.handle().clone();
             let mut rx = rx;
             tauri::async_runtime::spawn(async move {

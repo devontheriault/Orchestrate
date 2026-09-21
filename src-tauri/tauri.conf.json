@@ -10,15 +10,7 @@
     "frontendDist": "../build"
   },
   "app": {
-    "windows": [
-      {
-        "title": "Claude Wrapper",
-        "width": 1280,
-        "height": 800,
-        "minWidth": 560,
-        "minHeight": 420
-      }
-    ],
+    "windows": [],
     "security": {
       "csp": null
     }
