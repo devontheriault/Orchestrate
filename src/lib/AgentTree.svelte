@@ -68,33 +68,29 @@
     <span class="plus">+</span> New agent
   </button>
 
-  {#if agents.length === 0}
-    <p class="empty">No agents yet.</p>
-  {:else}
-    {#each grouped as { state, agents: group } (state)}
-      <div class="group">
-        <div class="group-label">
-          <span class={`dot dot-${state}`}></span>
-          {stateLabel[state]}
-          <span class="count">{group.length}</span>
-        </div>
-        {#each group as a (a.id)}
-          <div
-            class="agent"
-            class:selected={store.selectedAgentId === a.id}
-            onclick={() => pick(a.id)}
-            role="button"
-            tabindex="0"
-            onkeydown={(e) => e.key === "Enter" && pick(a.id)}
-            title={`${a.task.prompt}\n\n${a.id}${a.model ? ` · ${store.modelName(a.model)}` : ""}`}
-          >
-            <span class="prompt">{firstLine(a.task.prompt)}</span>
-            <span class="age">{relTime(a.spawned_at)}</span>
-          </div>
-        {/each}
+  {#each grouped as { state, agents: group } (state)}
+    <div class="group">
+      <div class="group-label">
+        <span class={`dot dot-${state}`}></span>
+        {stateLabel[state]}
+        <span class="count">{group.length}</span>
       </div>
-    {/each}
-  {/if}
+      {#each group as a (a.id)}
+        <div
+          class="agent"
+          class:selected={store.selectedAgentId === a.id}
+          onclick={() => pick(a.id)}
+          role="button"
+          tabindex="0"
+          onkeydown={(e) => e.key === "Enter" && pick(a.id)}
+          title={`${a.task.prompt}\n\n${a.id}${a.model ? ` · ${store.modelName(a.model)}` : ""}`}
+        >
+          <span class="prompt">{firstLine(a.task.prompt)}</span>
+          <span class="age">{relTime(a.spawned_at)}</span>
+        </div>
+      {/each}
+    </div>
+  {/each}
 </div>
 
 <style>
@@ -159,13 +155,6 @@
   .plus {
     font-size: 0.95rem;
     line-height: 1;
-  }
-
-  .empty {
-    margin: 0.2rem 0 0.1rem;
-    padding: 0 0.45rem;
-    font-size: 0.74rem;
-    color: var(--fg-muted);
   }
 
   .group + .group {
