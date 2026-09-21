@@ -7,6 +7,8 @@
  * default and is remembered across restarts.
  */
 
+import { viewport } from "./viewport.svelte";
+
 const STORAGE_KEY = "devcode:panes";
 
 /** Below this the project list is drawn as a rail of initials, not a tree. */
@@ -26,6 +28,26 @@ const SAVE_DEBOUNCE = 200;
 
 class Panes {
   projects = $state<number | null>(null);
+
+  /** The width the project pane renders at, or null while on its default. */
+  width = $derived(this.fit(viewport.width).projects);
+
+  /** True when the project pane is drawn as a rail of initials. */
+  railed = $derived(
+    this.width === null ? viewport.railed : this.width < MIN_PROJECTS,
+  );
+
+  /**
+   * The same width as a CSS length, for anything outside the pane that has to
+   * line up with its seam — the title bar's lead segment, for one.
+   */
+  cssWidth = $derived(
+    this.width !== null
+      ? `${this.width}px`
+      : this.railed
+        ? "var(--rail)"
+        : "var(--pane-projects)",
+  );
 
   private timer: ReturnType<typeof setTimeout> | null = null;
 
