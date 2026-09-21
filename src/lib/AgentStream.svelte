@@ -165,9 +165,185 @@
     return [{ kind: "raw", type: e.type }];
   }
 
-  function shortenInput(input: unknown): string {
-    const s = typeof input === "string" ? input : JSON.stringify(input);
-    return s.length > 120 ? s.slice(0, 117) + "…" : s;
+  /**
+   * One tool call and the result that came back for it. Claude Code reports
+   * them as two separate events a few messages apart; the transcript reads
+   * better as one thing, so we pair them on `tool_use_id` and render the
+   * result inside the call that asked for it.
+   */
+  type ToolCall = {
+    key: string;
+    name: string;
+    input: unknown;
+    result: unknown;
+    hasResult: boolean;
+  };
+
+  /**
+   * A row of the transcript. Several stream events can collapse into one row:
+   * a run of same-tool calls, or a stretch of thinking. Rows carry a stable
+   * `key` taken from the first event they cover, so a row that grows as the
+   * turn runs keeps the same DOM node — and with it whatever the user had
+   * expanded.
+   */
+  type Row =
+    | { key: string; kind: "prompt"; text: string }
+    | { key: string; kind: "text"; text: string }
+    | { key: string; kind: "thinking"; parts: string[] }
+    | { key: string; kind: "tools"; name: string; calls: ToolCall[] }
+    | { key: string; kind: "system"; subtype: string }
+    | {
+        key: string;
+        kind: "result";
+        result: string;
+        is_error: boolean;
+        duration_ms?: number;
+        output_tokens?: number;
+      }
+    | { key: string; kind: "raw"; type?: string; event: unknown };
+
+  /**
+   * Tools whose input is a snapshot of a whole state rather than an action:
+   * the tenth todo list supersedes the nine before it, so only the last one
+   * in a turn is worth a row. Scoped to the turn rather than the whole
+   * transcript — reading back an old turn should show the list as it stood
+   * when that turn ended, not today's.
+   */
+  const SNAPSHOT_TOOLS = new Set(["TodoWrite"]);
+
+  const rows: Row[] = $derived.by(() => {
+    // Flatten every event into its blocks first, tagged with the turn they
+    // fall in, so superseded snapshots can be spotted before anything is
+    // grouped.
+    const items: { key: string; k: Kind; turn: number; event: unknown }[] = [];
+    let turn = 0;
+    const evs = store.eventsForSelected;
+    for (let i = 0; i < evs.length; i++) {
+      const ks = classify(evs[i]);
+      for (let j = 0; j < ks.length; j++) {
+        if (ks[j].kind === "prompt") turn++;
+        items.push({ key: `${i}:${j}`, k: ks[j], turn, event: evs[i].event });
+      }
+    }
+
+    const liveSnapshot = new Map<string, string>();
+    for (const it of items) {
+      if (it.k.kind === "tool_use" && SNAPSHOT_TOOLS.has(it.k.name)) {
+        liveSnapshot.set(`${it.turn}:${it.k.name}`, it.key);
+      }
+    }
+
+    const out: Row[] = [];
+    const callsById = new Map<string, ToolCall>();
+    const seenSystem = new Set<string>();
+
+    for (const it of items) {
+      const k = it.k;
+      const last = out[out.length - 1];
+
+      if (k.kind === "tool_use") {
+        if (SNAPSHOT_TOOLS.has(k.name) && liveSnapshot.get(`${it.turn}:${k.name}`) !== it.key) {
+          continue;
+        }
+        const call: ToolCall = {
+          key: it.key,
+          name: k.name,
+          input: k.input,
+          result: undefined,
+          hasResult: false,
+        };
+        if (k.id) callsById.set(k.id, call);
+        if (last?.kind === "tools" && last.name === k.name) last.calls.push(call);
+        else out.push({ key: it.key, kind: "tools", name: k.name, calls: [call] });
+      } else if (k.kind === "tool_result") {
+        // No call on record means it belonged to a superseded snapshot; the
+        // result goes with it.
+        const call = callsById.get(k.tool_use_id);
+        if (call) {
+          call.result = k.content;
+          call.hasResult = true;
+        }
+      } else if (k.kind === "thinking") {
+        if (last?.kind === "thinking") last.parts.push(k.text);
+        else out.push({ key: it.key, kind: "thinking", parts: [k.text] });
+      } else if (k.kind === "system") {
+        // `init` and friends repeat every turn and say the same thing each
+        // time; the first one is the only one that informs.
+        if (seenSystem.has(k.subtype)) continue;
+        seenSystem.add(k.subtype);
+        out.push({ key: it.key, kind: "system", subtype: k.subtype });
+      } else if (k.kind === "raw") {
+        out.push({ key: it.key, kind: "raw", type: k.type, event: it.event });
+      } else {
+        out.push({ key: it.key, ...k });
+      }
+    }
+    return out;
+  });
+
+  function basename(path: string): string {
+    return path.split("/").filter(Boolean).pop() ?? path;
+  }
+
+  function truncate(s: string, n: number): string {
+    const flat = s.replace(/\s+/g, " ").trim();
+    return flat.length > n ? flat.slice(0, n - 1) + "…" : flat;
+  }
+
+  /**
+   * What a call was *about*, in a few words: the file read, the pattern
+   * searched for, the command run. It's the difference between a row that
+   * says `Read ×8` and one that says which eight.
+   */
+  function callTarget(name: string, input: unknown): string {
+    const o = (input && typeof input === "object" ? input : {}) as Record<string, any>;
+    const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : "");
+    switch (name) {
+      case "Read":
+      case "Write":
+      case "Edit":
+        return basename(str(o.file_path));
+      case "NotebookEdit":
+        return basename(str(o.notebook_path));
+      case "Bash":
+        return str(o.description) || str(o.command);
+      case "Grep":
+      case "Glob":
+        return str(o.pattern);
+      case "Task":
+        return str(o.description);
+      case "Skill":
+        return str(o.skill);
+      case "WebSearch":
+        return str(o.query);
+      case "WebFetch":
+        try {
+          return new URL(str(o.url)).host;
+        } catch {
+          return str(o.url);
+        }
+      case "TodoWrite":
+        return Array.isArray(o.todos) ? `${o.todos.length} items` : "";
+    }
+    // An unknown tool's first string argument is usually its subject.
+    for (const v of Object.values(o)) {
+      const s = str(v);
+      if (s) return s;
+    }
+    return "";
+  }
+
+  /** The targets of a grouped run: the first couple, then a count. */
+  function groupTargets(calls: ToolCall[]): string {
+    const seen: string[] = [];
+    for (const c of calls) {
+      const t = truncate(callTarget(c.name, c.input), 40);
+      if (t && !seen.includes(t)) seen.push(t);
+    }
+    if (seen.length === 0) return "";
+    const shown = seen.slice(0, 2);
+    const rest = seen.length - shown.length;
+    return rest > 0 ? `${shown.join(", ")}, +${rest}` : shown.join(", ");
   }
 
   function toolResultText(content: unknown): string {
@@ -258,49 +434,76 @@
               : "No events on record."}
           </div>
         {:else}
-          {#each store.eventsForSelected as ev, i (i)}
-            {#each classify(ev) as k}
-              {#if k.kind === "prompt"}
-                <div class="block prompt-block">{k.text}</div>
-              {:else if k.kind === "text"}
-                <div class="block text"><Markdown text={k.text} /></div>
-              {:else if k.kind === "tool_use"}
-                <details class="block tool">
-                  <summary>→ {k.name} <span class="mono">{shortenInput(k.input)}</span></summary>
-                  <pre>{JSON.stringify(k.input, null, 2)}</pre>
-                </details>
-              {:else if k.kind === "tool_result"}
-                <details class="block result">
-                  <summary>← result</summary>
-                  <pre>{toolResultText(k.content)}</pre>
-                </details>
-              {:else if k.kind === "thinking"}
-                <details class="block thinking">
-                  <summary>thinking</summary>
-                  <div class="thinking-body"><Markdown text={k.text} /></div>
-                </details>
-              {:else if k.kind === "system"}
-                <div class="block system">session: {k.subtype}</div>
-              {:else if k.kind === "result"}
-                <div class="block done" class:err={k.is_error}>
-                  {k.is_error ? "✗ error" : "✓ done"}
-                  {#if k.duration_ms != null}
-                    — {formatDuration(k.duration_ms)}
+          {#each rows as row (row.key)}
+            {#if row.kind === "prompt"}
+              <div class="block prompt-block">{row.text}</div>
+            {:else if row.kind === "text"}
+              <div class="block text"><Markdown text={row.text} /></div>
+            {:else if row.kind === "tools"}
+              <details class="block tool">
+                <summary>
+                  <span class="tool-name">→ {row.name}</span>
+                  {#if row.calls.length > 1}<span class="count">×{row.calls.length}</span>{/if}
+                  {#if groupTargets(row.calls)}
+                    <span class="targets">{groupTargets(row.calls)}</span>
                   {/if}
-                  {#if k.output_tokens != null}
-                    · {formatTokens(k.output_tokens)} tok
+                  {#if row.calls.some((c) => !c.hasResult)}
+                    <span class="running-dot" title="still running"></span>
                   {/if}
-                  {#if k.is_error && k.result}
-                    — {k.result}
+                </summary>
+                {#if row.calls.length === 1}
+                  {@const c = row.calls[0]}
+                  <pre>{JSON.stringify(c.input, null, 2)}</pre>
+                  {#if c.hasResult}
+                    <div class="call-result"><pre>{toolResultText(c.result)}</pre></div>
                   {/if}
-                </div>
-              {:else}
-                <details class="block raw-detail">
-                  <summary>event: {k.type ?? "unknown"}</summary>
-                  <pre>{JSON.stringify(ev.event, null, 2)}</pre>
-                </details>
-              {/if}
-            {/each}
+                {:else}
+                  <!-- A run of same-tool calls: the group is one row, each
+                       call inside it still opens on its own. -->
+                  {#each row.calls as c (c.key)}
+                    <details class="call">
+                      <summary>
+                        {truncate(callTarget(c.name, c.input), 80) || c.name}
+                        {#if !c.hasResult}<span class="running-dot"></span>{/if}
+                      </summary>
+                      <pre>{JSON.stringify(c.input, null, 2)}</pre>
+                      {#if c.hasResult}
+                        <div class="call-result"><pre>{toolResultText(c.result)}</pre></div>
+                      {/if}
+                    </details>
+                  {/each}
+                {/if}
+              </details>
+            {:else if row.kind === "thinking"}
+              <details class="block thinking">
+                <summary
+                  >thinking{#if row.parts.length > 1}<span class="count"
+                      >×{row.parts.length}</span
+                    >{/if}</summary
+                >
+                <div class="thinking-body"><Markdown text={row.parts.join("\n\n")} /></div>
+              </details>
+            {:else if row.kind === "system"}
+              <div class="block system">session: {row.subtype}</div>
+            {:else if row.kind === "result"}
+              <div class="block done" class:err={row.is_error}>
+                {row.is_error ? "✗ error" : "✓ done"}
+                {#if row.duration_ms != null}
+                  — {formatDuration(row.duration_ms)}
+                {/if}
+                {#if row.output_tokens != null}
+                  · {formatTokens(row.output_tokens)} tok
+                {/if}
+                {#if row.is_error && row.result}
+                  — {row.result}
+                {/if}
+              </div>
+            {:else}
+              <details class="block raw-detail">
+                <summary>event: {row.type ?? "unknown"}</summary>
+                <pre>{JSON.stringify(row.event, null, 2)}</pre>
+              </details>
+            {/if}
           {/each}
         {/if}
       </div>
@@ -570,8 +773,85 @@
     overflow: auto;
   }
 
-  .mono {
+  /* A grouped run reads left to right: what the tool was, how many times,
+     then what it was pointed at. */
+  details.block summary .tool-name {
+    color: var(--fg);
+  }
+
+  details.block summary .count {
+    margin-left: 0.3rem;
+    color: var(--accent);
+    font-size: 0.78rem;
+  }
+
+  details.block summary .targets {
+    margin-left: 0.4rem;
+    color: var(--fg-muted);
+  }
+
+  details.block summary .targets::before {
+    content: "— ";
+  }
+
+  /* A call whose result hasn't come back yet — the row is still being
+     written to. */
+  .running-dot {
+    display: inline-block;
+    vertical-align: middle;
+    margin-left: 0.4rem;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    animation: running-pulse 1.2s ease-in-out infinite;
+  }
+
+  @keyframes running-pulse {
+    0%, 100% { opacity: 0.25; }
+    50% { opacity: 1; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .running-dot { animation: none; opacity: 0.7; }
+  }
+
+  details.call {
+    border-top: 1px solid var(--border);
+    padding: 0.35rem 0 0.3rem 0.5rem;
+  }
+
+  details.call summary {
+    cursor: pointer;
     font-family: ui-monospace, monospace;
+    font-size: 0.8rem;
+    color: var(--fg-muted);
+    overflow-wrap: anywhere;
+  }
+
+  details.call[open] summary { margin-bottom: 0.3rem; }
+
+  details.call pre {
+    background: transparent;
+    margin: 0;
+    padding: 0;
+    font-size: 0.78rem;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    color: var(--fg);
+    max-height: min(50vh, 28rem);
+    overflow: auto;
+  }
+
+  /* The result sits under the call that asked for it, divided from the input
+     rather than split into a card of its own. */
+  .call-result {
+    margin-top: 0.4rem;
+    padding-top: 0.4rem;
+    border-top: 1px dashed var(--border);
+  }
+
+  .call-result pre {
     color: var(--fg-muted);
   }
 
