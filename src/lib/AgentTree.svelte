@@ -237,6 +237,7 @@
   }
 
   .agent {
+    position: relative;
     display: flex;
     align-items: baseline;
     gap: 0.4rem;
@@ -246,8 +247,30 @@
     color: var(--fg);
   }
 
+  /* The elbow off the guide line: a short tick that points at this row, so an
+     agent reads as hanging from its project rather than floating beside it. */
+  .agent::before {
+    content: "";
+    position: absolute;
+    left: -0.5rem;
+    top: 50%;
+    width: 0.5rem;
+    height: 1px;
+    background: var(--border);
+  }
+
+  /* No guide line in the flyout, so nothing for a tick to come off. */
+  .tree.flat .agent::before {
+    display: none;
+  }
+
   .agent:hover {
     background: var(--hover);
+  }
+
+  .agent:hover::before,
+  .agent.selected::before {
+    background: var(--accent);
   }
 
   .agent.selected {
