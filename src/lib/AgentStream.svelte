@@ -9,10 +9,6 @@
   /** The blank page for an agent that hasn't been spawned yet. */
   const drafting = $derived(store.drafting && !store.selectedAgent);
 
-  const projectName = $derived(
-    store.projects.find((p) => p.id === store.selectedProjectId)?.name ?? "",
-  );
-
   /** The project the selected agent belongs to, which may not be the selected one. */
   const agentProjectName = $derived(
     store.projects.find((p) => p.id === store.selectedAgent?.project_id)?.name ?? "",
@@ -218,10 +214,6 @@
     {:else if drafting}
       <div class="head-left">
         <div class="prompt">New agent</div>
-        <div class="meta">
-          <span class="state state-draft">draft</span>
-          <span class="target">in {projectName}</span>
-        </div>
       </div>
       <div class="head-right">
         <button class="cancel" onclick={() => store.cancelDraft()}>Cancel</button>
@@ -366,32 +358,6 @@
   .prompt-empty {
     color: var(--fg-muted);
     font-style: italic;
-  }
-
-  .meta {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.3rem 0.5rem;
-    font-size: 0.75rem;
-    color: var(--fg-muted);
-  }
-
-  .state {
-    text-transform: uppercase;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    font-size: 0.7rem;
-    padding: 0.1rem 0.45rem;
-    border-radius: 3px;
-    background: var(--code-bg);
-  }
-  .state-draft { color: var(--accent); }
-
-  .target {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 
   .cancel:hover { border-color: var(--accent); color: var(--accent); }
