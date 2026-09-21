@@ -145,6 +145,14 @@
                   >
                     {activity.attention}
                   </span>
+                {:else if activity.completed > 0}
+                  <span
+                    class="badge completed"
+                    title={`${activity.completed} agent${activity.completed === 1 ? "" : "s"} completed`}
+                  >
+                    <span class="dot"></span>
+                    {#if !collapsed}{activity.completed}{/if}
+                  </span>
                 {/if}
               </span>
               {#if !collapsed && !expanded}
@@ -506,11 +514,21 @@
     background: var(--attention-bg);
   }
 
+  /* Nothing running and nothing wrong: the work that's waiting to be looked at.
+     Same shape as the running badge, but still — there's nothing to watch. */
+  .badge.completed {
+    color: var(--completed);
+    background: var(--completed-bg);
+  }
+
   .badge .dot {
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: var(--running);
+    background: currentColor;
+  }
+
+  .badge.running .dot {
     animation: pulse 2s infinite;
   }
 
@@ -525,7 +543,7 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .badge .dot {
+    .badge.running .dot {
       animation: none;
     }
   }

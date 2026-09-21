@@ -15,6 +15,8 @@ export type ProjectActivity = {
   running: number;
   /** Agents that exited needing a human look: failed or orphaned. */
   attention: number;
+  /** Agents that finished cleanly — what a quiet project has to show for itself. */
+  completed: number;
   /** The most recently spawned running agent, for a "what's it doing" line. */
   latestRunning: Agent | null;
 };
@@ -22,6 +24,7 @@ export type ProjectActivity = {
 const NO_ACTIVITY: ProjectActivity = {
   running: 0,
   attention: 0,
+  completed: 0,
   latestRunning: null,
 };
 
@@ -170,6 +173,8 @@ class AppStore {
         if (newer) entry.latestRunning = a;
       } else if (a.state === "failed" || a.state === "orphaned") {
         entry.attention += 1;
+      } else if (a.state === "completed") {
+        entry.completed += 1;
       }
       map.set(a.project_id, entry);
     }

@@ -19,6 +19,8 @@
     --running-bg: rgba(34, 197, 94, 0.14);
     --attention: #d97706;
     --attention-bg: rgba(245, 158, 11, 0.16);
+    --completed: #2563eb;
+    --completed-bg: rgba(59, 130, 246, 0.14);
 
     /* Panes are sized from the window, not fixed: they give up width as the
        window narrows and take it back as it widens, within readable bounds. */
@@ -67,6 +69,8 @@
       --running-bg: rgba(34, 197, 94, 0.18);
       --attention: #fbbf24;
       --attention-bg: rgba(245, 158, 11, 0.2);
+      --completed: #60a5fa;
+      --completed-bg: rgba(59, 130, 246, 0.2);
     }
   }
 

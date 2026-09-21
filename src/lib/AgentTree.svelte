@@ -222,7 +222,7 @@
     box-shadow: 0 0 0 3px var(--running-bg);
     animation: pulse 2s infinite;
   }
-  .dot-completed { background: #3b82f6; }
+  .dot-completed { background: var(--completed); }
   .dot-failed { background: #ef4444; }
   .dot-orphaned { background: var(--attention); }
   .dot-stopped { background: #9ca3af; }
