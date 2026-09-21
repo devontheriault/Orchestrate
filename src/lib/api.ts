@@ -107,13 +107,11 @@ export const DEFAULT_EFFORT = "";
  * turn with nowhere to answer it. Isolation is the safety story here — the
  * worktree is the sandbox — so acting freely inside one is the default, and
  * plan is for the agent you want thinking before it touches anything. The
- * names here are the UI's; the ids are what `claude` takes. The tone is the
- * colour the picker wears once a mode is chosen — every mode gets one, so the
- * control looks the same whichever is picked and only the colour says which.
+ * names here are the UI's; the ids are what `claude` takes.
  */
 export const MODES = [
-  { id: "bypassPermissions", name: "YOLO", note: "acts freely in its worktree", tone: "warn" },
-  { id: "plan", name: "Plan", note: "reads and proposes, writes nothing", tone: "accent" },
+  { id: "bypassPermissions", name: "YOLO", note: "acts freely in its worktree" },
+  { id: "plan", name: "Plan", note: "reads and proposes, writes nothing" },
 ] as const;
 
 /** The mode a turn runs in unless the user picks otherwise. */
