@@ -161,7 +161,10 @@
   <header>
     {#if store.selectedAgent}
       <div class="head-left">
-        <div class="prompt">{store.selectedAgent.task.prompt}</div>
+        <!-- The name Claude gave the work; the prompt behind it is a hover away. -->
+        <div class="prompt" title={store.selectedAgent.task.prompt}>
+          {store.agentName(store.selectedAgent)}
+        </div>
       </div>
       <div class="head-right">
         <div class="tabs" role="tablist">

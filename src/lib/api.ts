@@ -35,6 +35,13 @@ export type Agent = {
   effort?: string | null;
   /** Turns started so far, including the opening one. */
   turns: number;
+  /**
+   * A short name Claude wrote for this agent's work. Rewritten at the end of
+   * each of the first three turns, then frozen. Null until the opening turn
+   * ends, and on agents recorded before titles existed — fall back to the
+   * prompt via `store.agentName`.
+   */
+  title?: string | null;
   spawned_at: string;
   /** When the current (or last) turn began. Absent on agents recorded before turn timing. */
   turn_started_at?: string | null;

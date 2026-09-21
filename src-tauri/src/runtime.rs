@@ -12,7 +12,7 @@ use tokio::task::JoinHandle;
 
 use crate::error::{Error, Result};
 use crate::model::{new_id, new_session_id, Agent, AgentEvent, AgentState, Id, Project, Task};
-use crate::{git, paths, storage, worktree};
+use crate::{git, paths, storage, title, worktree};
 
 /// Grace period between SIGTERM and SIGKILL when stopping an Agent.
 const STOP_GRACE: Duration = Duration::from_secs(5);
@@ -67,6 +67,9 @@ pub struct AgentRuntime {
     events_tx: mpsc::UnboundedSender<RuntimeEvent>,
     /// The `claude` binary to invoke. Overridable in tests.
     claude_bin: Arc<String>,
+    /// Whether a finished Turn spends a second `claude` call naming the Agent.
+    /// Off in most tests, so the fake `claude` sees one invocation per Turn.
+    naming: bool,
 }
 
 impl AgentRuntime {
@@ -77,11 +80,13 @@ impl AgentRuntime {
             inner: Arc::new(RwLock::new(HashMap::new())),
             events_tx: tx,
             claude_bin: Arc::new("claude".to_string()),
+            naming: true,
         };
         (rt, rx)
     }
 
     /// Construct with a custom binary path (for testing with a fake claude).
+    /// Naming is off: a test that counts invocations wants Turns only.
     #[cfg(test)]
     pub fn with_bin(bin: impl Into<String>) -> (Self, mpsc::UnboundedReceiver<RuntimeEvent>) {
         let (tx, rx) = mpsc::unbounded_channel();
@@ -89,8 +94,18 @@ impl AgentRuntime {
             inner: Arc::new(RwLock::new(HashMap::new())),
             events_tx: tx,
             claude_bin: Arc::new(bin.into()),
+            naming: false,
         };
         (rt, rx)
+    }
+
+    /// As `with_bin`, but the fake `claude` also plays the namer.
+    #[cfg(test)]
+    pub fn with_bin_naming(
+        bin: impl Into<String>,
+    ) -> (Self, mpsc::UnboundedReceiver<RuntimeEvent>) {
+        let (rt, rx) = Self::with_bin(bin);
+        (Self { naming: true, ..rt }, rx)
     }
 
     /// Spawn a new Agent for the given Project and opening prompt, on the model
@@ -131,6 +146,8 @@ impl AgentRuntime {
             model,
             effort,
             turns: 1,
+            // Named at the end of its first Turn, once there is work to name.
+            title: None,
             spawned_at: now,
             turn_started_at: Some(now),
             exited_at: None,
@@ -281,9 +298,10 @@ impl AgentRuntime {
         let events_tx = self.events_tx.clone();
         let inner = self.inner.clone();
         let agent_for_task = agent.clone();
+        let namer = self.naming.then(|| self.claude_bin.clone());
 
         let task = tokio::spawn(async move {
-            supervise(child, agent_for_task, cancel_task, events_tx, inner).await;
+            supervise(child, agent_for_task, cancel_task, events_tx, inner, namer).await;
         });
 
         live.insert(
@@ -358,6 +376,8 @@ async fn supervise(
     cancel: Arc<Notify>,
     events_tx: mpsc::UnboundedSender<RuntimeEvent>,
     inner: Arc<RwLock<HashMap<Id, AgentHandle>>>,
+    // The binary to name the Agent with once the Turn ends, or `None` to skip.
+    namer: Option<Arc<String>>,
 ) {
     let stdout = child.stdout.take().expect("stdout was piped");
     let stderr = child.stderr.take().expect("stderr was piped");
@@ -371,6 +391,10 @@ async fn supervise(
     // renames the session stays resumable.
     let observed_session: Arc<std::sync::Mutex<Option<String>>> = Arc::default();
     let observed_out = observed_session.clone();
+    // The Turn's final answer, kept for the namer. Overwritten rather than
+    // appended: a Turn ends in exactly one result, and that is the one we want.
+    let answer: Arc<std::sync::Mutex<String>> = Arc::default();
+    let answer_out = answer.clone();
     let read_stdout = tokio::spawn(async move {
         let mut lines = BufReader::new(stdout).lines();
         while let Ok(Some(line)) = lines.next_line().await {
@@ -378,6 +402,11 @@ async fn supervise(
                 serde_json::from_str(&line).unwrap_or_else(|_| Value::String(line.clone()));
             if let Some(sid) = parsed.get("session_id").and_then(|v| v.as_str()) {
                 *observed_out.lock().unwrap() = Some(sid.to_string());
+            }
+            if parsed.get("type").and_then(|v| v.as_str()) == Some("result") {
+                if let Some(text) = parsed.get("result").and_then(|v| v.as_str()) {
+                    *answer_out.lock().unwrap() = text.to_string();
+                }
             }
             let event = AgentEvent {
                 ts: OffsetDateTime::now_utc(),
@@ -468,6 +497,50 @@ async fn supervise(
     let _ = events_tx.send(RuntimeEvent::StateChanged {
         agent_id: agent.id.clone(),
         agent: Box::new(agent.clone()),
+    });
+
+    if let Some(namer) = namer.filter(|_| title::wanted(agent.turns)) {
+        let answer = answer.lock().unwrap().clone();
+        // Detached: naming costs a `claude` call of its own, and the Turn's
+        // result should reach the UI without waiting on it.
+        tokio::spawn(name_agent(namer, agent, answer, events_tx));
+    }
+}
+
+/// Ask Claude for a short name for this Agent and record it. Re-reads the meta
+/// file rather than writing back the snapshot we were handed: by the time a
+/// name comes back, the user may already have Resumed the Agent, and only the
+/// title is ours to change.
+async fn name_agent(
+    namer: Arc<String>,
+    agent: Agent,
+    answer: String,
+    events_tx: mpsc::UnboundedSender<RuntimeEvent>,
+) {
+    // The Worktree is the namer's cwd; a Reaped Agent has nowhere to run.
+    if !agent.worktree_path.exists() {
+        return;
+    }
+    let Some(title) =
+        title::generate(&namer, &agent.worktree_path, &agent.task.prompt, &answer).await
+    else {
+        return;
+    };
+
+    let Ok(mut fresh) = storage::load_agent(&agent.id) else {
+        return; // Reaped while we were naming it.
+    };
+    // Last name back wins, even if a later Turn has since started or finished.
+    // Two namers can land out of order, but the worst case is a name drawn from
+    // Turn 2 rather than Turn 3 — better than the alternative, where an Agent
+    // whose Turns are queued back-to-back outruns every namer and stays unnamed.
+    fresh.title = Some(title);
+    if storage::save_agent(&fresh).is_err() {
+        return;
+    }
+    let _ = events_tx.send(RuntimeEvent::StateChanged {
+        agent_id: fresh.id.clone(),
+        agent: Box::new(fresh),
     });
 }
 
@@ -598,7 +671,10 @@ while : ; do sleep 1; done
         let bin = fake_claude_ok();
         let (rt, mut rx) = AgentRuntime::with_bin(bin);
 
-        let agent = rt.spawn(&project, "hello".into(), None, None).await.unwrap();
+        let agent = rt
+            .spawn(&project, "hello".into(), None, None)
+            .await
+            .unwrap();
         assert_eq!(agent.state, AgentState::Running);
 
         // Consume events until we see StateChanged (final).
@@ -784,13 +860,19 @@ exit 0
         let args_log = std::env::temp_dir().join(format!("cw-args-{}.txt", new_id()));
         let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_recording(&args_log));
 
-        let agent = rt.spawn(&project, "first".into(), None, None).await.unwrap();
+        let agent = rt
+            .spawn(&project, "first".into(), None, None)
+            .await
+            .unwrap();
         let session = agent.session_id.clone().expect("spawn mints a session");
         let after_first = wait_for_exit(&mut rx).await;
         assert_eq!(after_first.state, AgentState::Completed);
         assert_eq!(after_first.turns, 1);
 
-        let resumed = rt.resume(&agent.id, "second".into(), None, None).await.unwrap();
+        let resumed = rt
+            .resume(&agent.id, "second".into(), None, None)
+            .await
+            .unwrap();
         assert_eq!(resumed.state, AgentState::Running);
         assert_eq!(
             resumed.turns, 2,
@@ -879,7 +961,10 @@ exit 0
         let args_log = std::env::temp_dir().join(format!("cw-args-{}.txt", new_id()));
         let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_recording(&args_log));
 
-        let agent = rt.spawn(&project, "hello".into(), None, None).await.unwrap();
+        let agent = rt
+            .spawn(&project, "hello".into(), None, None)
+            .await
+            .unwrap();
         assert_eq!(agent.model, None);
         assert_eq!(agent.effort, None);
         wait_for_exit(&mut rx).await;
@@ -942,6 +1027,115 @@ exit 0
         rt.stop(&agent.id).await.unwrap();
     }
 
+    /// A fake `claude` that plays both roles: a Turn when invoked like one, and
+    /// the namer when it sees the namer's flags. Every naming bumps a counter
+    /// file and answers with it, so a test can see how many times it was asked.
+    fn fake_claude_and_namer(counter: &std::path::Path) -> String {
+        write_script(&format!(
+            r#"#!/bin/sh
+for a in "$@"; do
+  if [ "$a" = "--safe-mode" ]; then
+    n=$(cat {counter} 2>/dev/null || echo 0)
+    n=$((n+1))
+    echo $n > {counter}
+    echo "Name $n"
+    exit 0
+  fi
+done
+echo '{{"type":"system","event":"init"}}'
+echo '{{"type":"result","result":"did the thing"}}'
+exit 0
+"#,
+            counter = counter.display()
+        ))
+    }
+
+    /// Wait for the Agent record to come back carrying a name we have not seen.
+    async fn wait_for_name(
+        rx: &mut mpsc::UnboundedReceiver<RuntimeEvent>,
+        previous: Option<&str>,
+    ) -> Agent {
+        loop {
+            let ev = tokio::time::timeout(Duration::from_secs(20), rx.recv())
+                .await
+                .expect("the namer should answer")
+                .expect("channel open");
+            if let RuntimeEvent::StateChanged { agent, .. } = ev {
+                if agent.title.is_some() && agent.title.as_deref() != previous {
+                    return *agent;
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn a_finished_turn_names_the_agent() {
+        let _env = StateEnv::new();
+        let repo = init_repo().await;
+        let project = sample_project(repo.path().to_path_buf());
+        let counter = std::env::temp_dir().join(format!("cw-namer-{}", new_id()));
+        let (rt, mut rx) = AgentRuntime::with_bin_naming(fake_claude_and_namer(&counter));
+
+        let agent = rt
+            .spawn(&project, "do the thing".into(), None, None)
+            .await
+            .unwrap();
+        assert_eq!(agent.title, None, "a fresh Agent has no name to show yet");
+
+        let named = wait_for_name(&mut rx, None).await;
+        assert_eq!(named.title.as_deref(), Some("Name 1"));
+        assert_eq!(
+            storage::load_agent(&agent.id).unwrap().title.as_deref(),
+            Some("Name 1"),
+            "the name is persisted, not just announced"
+        );
+    }
+
+    /// The name settles: rewritten at the end of Turns 1-3, untouched after.
+    #[tokio::test]
+    async fn the_name_stops_changing_after_the_third_turn() {
+        let _env = StateEnv::new();
+        let repo = init_repo().await;
+        let project = sample_project(repo.path().to_path_buf());
+        let counter = std::env::temp_dir().join(format!("cw-namer-{}", new_id()));
+        let (rt, mut rx) = AgentRuntime::with_bin_naming(fake_claude_and_namer(&counter));
+
+        let agent = rt
+            .spawn(&project, "first".into(), None, None)
+            .await
+            .unwrap();
+        let mut name = wait_for_name(&mut rx, None).await.title;
+        assert_eq!(name.as_deref(), Some("Name 1"));
+
+        for turn in 2..=3 {
+            rt.resume(&agent.id, format!("turn {turn}"), None, None)
+                .await
+                .unwrap();
+            name = wait_for_name(&mut rx, name.as_deref()).await.title;
+            assert_eq!(name.as_deref(), Some(&*format!("Name {turn}")));
+        }
+
+        // The fourth Turn runs, but nothing asks for a name.
+        rt.resume(&agent.id, "turn 4".into(), None, None)
+            .await
+            .unwrap();
+        while !rt.running().await.is_empty() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        // Long enough that a namer, had one been spawned, would have answered:
+        // the fake is a shell script, and the three before it took milliseconds.
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        assert_eq!(
+            std::fs::read_to_string(&counter).unwrap().trim(),
+            "3",
+            "the namer runs for the first three Turns only"
+        );
+        let settled = storage::load_agent(&agent.id).unwrap();
+        assert_eq!(settled.turns, 4);
+        assert_eq!(settled.title.as_deref(), Some("Name 3"));
+    }
+
     #[tokio::test]
     async fn a_stopped_agent_can_still_be_resumed() {
         let _env = StateEnv::new();
@@ -976,13 +1170,19 @@ exit 0
         let project = sample_project(repo.path().to_path_buf());
         let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_ok());
 
-        let agent = rt.spawn(&project, "hello".into(), None, None).await.unwrap();
+        let agent = rt
+            .spawn(&project, "hello".into(), None, None)
+            .await
+            .unwrap();
         wait_for_exit(&mut rx).await;
         worktree::reap(&project.path, &agent.worktree_path, &agent.branch)
             .await
             .unwrap();
 
-        let err = rt.resume(&agent.id, "more".into(), None, None).await.unwrap_err();
+        let err = rt
+            .resume(&agent.id, "more".into(), None, None)
+            .await
+            .unwrap_err();
         assert!(
             matches!(&err, Error::NotResumable { why, .. } if why.contains("worktree")),
             "{err:?}"
@@ -1005,6 +1205,7 @@ exit 0
             model: None,
             effort: None,
             turns: 1,
+            title: None,
             branch: "cw/agent-old".into(),
             spawned_at: OffsetDateTime::now_utc(),
             turn_started_at: Some(OffsetDateTime::now_utc()),
@@ -1015,7 +1216,10 @@ exit 0
         storage::save_agent(&a).unwrap();
         let (rt, _rx) = AgentRuntime::with_bin(fake_claude_ok());
 
-        let err = rt.resume(&a.id, "carry on".into(), None, None).await.unwrap_err();
+        let err = rt
+            .resume(&a.id, "carry on".into(), None, None)
+            .await
+            .unwrap_err();
         assert!(
             matches!(&err, Error::NotResumable { why, .. } if why.contains("session")),
             "{err:?}"
@@ -1037,7 +1241,10 @@ exit 0
         );
         let (rt, mut rx) = AgentRuntime::with_bin(bin);
 
-        let agent = rt.spawn(&project, "hello".into(), None, None).await.unwrap();
+        let agent = rt
+            .spawn(&project, "hello".into(), None, None)
+            .await
+            .unwrap();
         let minted = agent.session_id.clone().unwrap();
         let done = wait_for_exit(&mut rx).await;
         assert_ne!(done.session_id.as_deref(), Some(minted.as_str()));
@@ -1067,6 +1274,7 @@ exit 0
             model: None,
             effort: None,
             turns: 1,
+            title: None,
             branch: "cw/agent-x".into(),
             spawned_at: OffsetDateTime::now_utc(),
             turn_started_at: Some(OffsetDateTime::now_utc()),

@@ -78,8 +78,8 @@
     const { running, latestRunning } = store.activityFor(projectId);
     if (running === 0) return path;
     if (running > 1) return `${running} agents running`;
-    const first = latestRunning?.task.prompt.split("\n")[0]?.trim();
-    return first ? first : "1 agent running";
+    const name = latestRunning ? store.agentName(latestRunning).trim() : "";
+    return name ? name : "1 agent running";
   }
 
   /** Stand-in for the name in rail mode. */

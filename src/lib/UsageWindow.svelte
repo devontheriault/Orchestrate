@@ -109,8 +109,8 @@
   function agentLabel(id: string): { text: string; reaped: boolean } {
     const agent = store.agents.find((a) => a.id === id);
     if (!agent) return { text: "reaped agent", reaped: true };
-    const first = agent.task.prompt.split("\n")[0].trim();
-    return { text: first || agent.branch, reaped: false };
+    const name = store.agentName(agent).trim();
+    return { text: name || agent.branch, reaped: false };
   }
 
   /** Jump to an agent's output and get out of the way. */

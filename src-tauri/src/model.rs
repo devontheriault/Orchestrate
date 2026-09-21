@@ -90,6 +90,13 @@ pub struct Agent {
     /// How many Turns have been started, including the opening one.
     #[serde(default = "one")]
     pub turns: u32,
+    /// A short name for the Agent, written by Claude from the work so far.
+    /// Re-written at the end of each of the first `TITLE_TURNS` Turns and then
+    /// frozen, so an Agent settles on one name instead of drifting. `None`
+    /// until the first Turn ends, and for Agents recorded before titles
+    /// existed — readers fall back to the opening prompt.
+    #[serde(default)]
+    pub title: Option<String>,
     #[serde(with = "time::serde::rfc3339")]
     pub spawned_at: OffsetDateTime,
     /// When the current — or, once it has exited, the last — Turn began. Set at
@@ -167,6 +174,7 @@ mod tests {
                 model: Some("opus".into()),
                 effort: Some("high".into()),
                 turns: 3,
+                title: Some("Wire up the thing".into()),
                 spawned_at: datetime!(2026-09-20 14:00:00 UTC),
                 turn_started_at: Some(datetime!(2026-09-20 14:02:00 UTC)),
                 exited_at: Some(datetime!(2026-09-20 14:05:00 UTC)),
@@ -220,6 +228,10 @@ mod tests {
             "no recorded effort means Claude Code's own default"
         );
         assert_eq!(a.turns, 1, "a pre-Session agent had exactly one turn");
+        assert_eq!(
+            a.title, None,
+            "no recorded title means readers fall back to the prompt"
+        );
         assert_eq!(
             a.turn_started_at, None,
             "no recorded turn start means readers fall back to spawned_at"

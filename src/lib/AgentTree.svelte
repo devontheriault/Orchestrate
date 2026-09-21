@@ -34,10 +34,6 @@
       .map((s) => ({ state: s as Agent["state"], agents: groups[s] }));
   });
 
-  function firstLine(p: string): string {
-    return p.split("\n")[0] ?? "";
-  }
-
   const anyRunning = $derived(agents.some((a) => a.state === "running"));
 
   // The times on these rows move on their own: by the second while something is
@@ -111,7 +107,7 @@
           onkeydown={(e) => e.key === "Enter" && pick(a.id)}
           title={`${a.task.prompt}\n\n${a.id}${a.model ? ` · ${store.modelName(a.model)}` : ""}`}
         >
-          <span class="prompt">{firstLine(a.task.prompt)}</span>
+          <span class="prompt">{store.agentName(a)}</span>
           {#if a.state === "running"}
             <span class="age live" title="Working for {runTime(a)}">{runTime(a)}</span>
           {:else}

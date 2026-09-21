@@ -6,6 +6,7 @@ pub mod models;
 pub mod paths;
 pub mod runtime;
 pub mod storage;
+pub mod title;
 pub mod usage;
 pub mod worktree;
 

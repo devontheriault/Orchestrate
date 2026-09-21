@@ -340,6 +340,17 @@ class AppStore {
   }
 
   /**
+   * What to call an agent: the name Claude wrote for it, or — until that
+   * lands, and on agents from before titles existed — the first line of the
+   * prompt it was given.
+   */
+  agentName(a: Agent): string {
+    const title = a.title?.trim();
+    if (title) return title;
+    return a.task.prompt.split("\n")[0] ?? "";
+  }
+
+  /**
    * Anthropic's name for a model id. Falls back to the id itself, which is what
    * an agent picked before the model left the account shows — better than
    * pretending it ran on something else.

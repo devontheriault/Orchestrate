@@ -152,6 +152,7 @@ mod tests {
             model: None,
             effort: None,
             turns: 1,
+            title: None,
             branch: "cw/agent-test".into(),
             spawned_at: OffsetDateTime::now_utc(),
             turn_started_at: Some(OffsetDateTime::now_utc()),

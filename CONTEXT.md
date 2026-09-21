@@ -9,8 +9,12 @@ One `claude` process, bound to one Worktree, running one Task. Its lifetime is t
 _Avoid_: Session (has a different, later meaning), Runner, Job, Worker.
 
 **Task**:
-The work item a user hands an Agent at Spawn — its opening prompt, and the label the UI identifies the Agent by. An Agent has exactly one Task for its whole life; follow-ups refine it rather than replace it.
+The work item a user hands an Agent at Spawn — its opening prompt. An Agent has exactly one Task for its whole life; follow-ups refine it rather than replace it. The Task is what the Agent was asked to do, not what the UI calls it — that's the Title.
 _Avoid_: Job, Prompt (too narrow — the Task is the *unit of work*, not just the string), Instruction.
+
+**Title**:
+The short name the UI identifies an Agent by, written by Claude from the Agent's own work: at the end of a Turn we hand a cheap, isolated `claude` the Task and the Turn's answer and ask for a few words. Written at the end of each of the first three Turns and then frozen — a name that kept shifting would cost the user the thing a name is for, which is finding the same Agent again tomorrow. Until the first Turn ends, and on Agents recorded before Titles existed, the first line of the Task stands in. Ours rather than Claude Code's own `ai-title`: that one is only written for interactive sessions, and it is shared across the sessions in a directory, so sibling Agents would all wear the same name.
+_Avoid_: Name (too close to the Project's), Summary, Label, Description.
 
 **Turn**:
 One prompt-and-answer exchange within an Agent: one `claude` process, from Spawn or Resume until it exits. Turn 1 carries the Task; later Turns carry follow-up prompts. Turns are counted on the Agent and recorded in its log, so the output pane reads as a conversation.
