@@ -1,6 +1,7 @@
 import {
   api,
   DEFAULT_EFFORT,
+  DEFAULT_MODE,
   DEFAULT_MODEL,
   events,
   modelLabel,
@@ -67,6 +68,9 @@ const MODEL_KEY = "cw:preferred-model";
 /** The effort the user picked last, stored on the same terms as the model. */
 const EFFORT_KEY = "cw:preferred-effort";
 
+/** The mode the user picked last, stored on the same terms as the model. */
+const MODE_KEY = "cw:preferred-mode";
+
 /**
  * Messages the user has lined up behind a working Agent, by Agent id. Written
  * to localStorage on every change so a window reload — or a relaunch after the
@@ -75,9 +79,9 @@ const EFFORT_KEY = "cw:preferred-effort";
 const QUEUE_KEY = "cw:queues";
 
 /**
- * One prompt waiting for an Agent to be free, with the Model and effort the
- * user picked for it. The pick travels with the message rather than being read
- * at send time: it's part of what the user decided when they queued it.
+ * One prompt waiting for an Agent to be free, with the Model, effort and mode
+ * the user picked for it. The pick travels with the message rather than being
+ * read at send time: it's part of what the user decided when they queued it.
  */
 export type QueuedMessage = {
   /** Local id, so the UI can delete one message out of the middle. */
@@ -85,6 +89,8 @@ export type QueuedMessage = {
   prompt: string;
   model: string;
   effort: string;
+  /** Absent on messages queued before modes existed — those run the default. */
+  mode?: string;
 };
 
 /**
@@ -192,6 +198,9 @@ class AppStore {
   /** The effort the user picked for the most recent Turn. Null = never picked. */
   preferredEffort = $state<string | null>(readStored(EFFORT_KEY));
 
+  /** The mode the user picked for the most recent Turn. Null = never picked. */
+  preferredMode = $state<string | null>(readStored(MODE_KEY));
+
   /** The models this account can run, newest first. Empty until loaded. */
   models = $state<ModelInfo[]>([]);
   modelsLoading = $state<boolean>(false);
@@ -267,7 +276,7 @@ class AppStore {
   );
 
   /**
-   * The most recently spawned Agent, for the model and effort it ran on. Stands
+   * The most recently spawned Agent, for the picks it ran on. Stands
    * in for a stored preference on a profile that has none yet — the Agents on
    * disk are a record of the user's picks too, and reading them means the picker
    * is right on the first spawn after an update rather than the second.
@@ -290,6 +299,11 @@ class AppStore {
   /** The same, for the effort level beside it. */
   defaultSpawnEffort = $derived(
     this.preferredEffort ?? this.lastSpawned?.effort ?? DEFAULT_EFFORT,
+  );
+
+  /** And for the mode: what the last Turn ran as, else the bypass default. */
+  defaultSpawnMode = $derived(
+    this.preferredMode ?? this.lastSpawned?.permission_mode ?? DEFAULT_MODE,
   );
 
   /**
@@ -653,12 +667,14 @@ class AppStore {
    * Turn the user starts, so "the model I ran last" is what the next one opens
    * on, whether that Turn was a Spawn or a reply to a running conversation.
    */
-  rememberTurn(model: string, effort: string) {
+  rememberTurn(model: string, effort: string, mode: string) {
     this.preferredModel = model;
     this.preferredEffort = effort;
+    this.preferredMode = mode;
     try {
       localStorage.setItem(MODEL_KEY, model);
       localStorage.setItem(EFFORT_KEY, effort);
+      localStorage.setItem(MODE_KEY, mode);
     } catch {
       // A preference isn't worth failing a turn over.
     }
@@ -669,7 +685,12 @@ class AppStore {
    * empty means no `--model` at all. Returns whether it started — the draft
    * page keeps the prompt on failure so the user can retry rather than retype.
    */
-  async spawn(prompt: string, model: string, effort: string): Promise<boolean> {
+  async spawn(
+    prompt: string,
+    model: string,
+    effort: string,
+    mode: string,
+  ): Promise<boolean> {
     if (!this.selectedProjectId || !prompt.trim() || this.spawning) return false;
     this.spawning = true;
     this.error = null;
@@ -679,8 +700,9 @@ class AppStore {
         prompt,
         model || null,
         effort || null,
+        mode || null,
       );
-      this.rememberTurn(model, effort);
+      this.rememberTurn(model, effort, mode);
       this.agents.push(agent);
       this.selectAgent(agent.id);
       return true;
@@ -694,12 +716,13 @@ class AppStore {
 
   /**
    * Send a follow-up prompt to the selected agent, putting it back to work in
-   * the worktree it already has, on `model`. Returns whether the agent took it.
+   * the worktree it already has, on `model` and in `mode`. Returns whether the
+   * agent took it.
    */
-  async resume(prompt: string, model: string, effort: string) {
+  async resume(prompt: string, model: string, effort: string, mode: string) {
     const id = this.selectedAgentId;
     if (!id || !prompt.trim() || this.sending) return false;
-    return this.sendTurn(id, prompt, model, effort);
+    return this.sendTurn(id, prompt, model, effort, mode);
   }
 
   /**
@@ -712,6 +735,7 @@ class AppStore {
     prompt: string,
     model: string,
     effort: string,
+    mode: string,
   ): Promise<boolean> {
     if (this.turnsInFlight.has(id)) return false;
     this.turnsInFlight.add(id);
@@ -719,8 +743,14 @@ class AppStore {
     if (onScreen) this.sending = true;
     this.error = null;
     try {
-      const agent = await api.resumeAgent(id, prompt, model || null, effort || null);
-      this.rememberTurn(model, effort);
+      const agent = await api.resumeAgent(
+        id,
+        prompt,
+        model || null,
+        effort || null,
+        mode || null,
+      );
+      this.rememberTurn(model, effort, mode);
       const i = this.agents.findIndex((a) => a.id === agent.id);
       if (i >= 0) this.agents[i] = agent;
       // It's working again, so it's nobody's leftover any more.
@@ -747,13 +777,13 @@ class AppStore {
    * whether it was taken, on the same terms as a send: false leaves the text in
    * the composer rather than losing it.
    */
-  enqueue(prompt: string, model: string, effort: string): boolean {
+  enqueue(prompt: string, model: string, effort: string, mode: string): boolean {
     const id = this.selectedAgentId;
     const agent = this.selectedAgent;
     if (!id || !agent?.session_id || !prompt.trim()) return false;
     this.queues[id] = [
       ...this.queueFor(id),
-      { id: queuedId(), prompt: prompt.trim(), model, effort },
+      { id: queuedId(), prompt: prompt.trim(), model, effort, mode },
     ];
     this.saveQueues();
     // The Turn may have ended between the user typing and pressing Enter; in
@@ -792,7 +822,15 @@ class AppStore {
     if (!next) return;
     const agent = this.agents.find((a) => a.id === agentId);
     if (!agent || agent.state === "running" || !agent.session_id) return;
-    if (await this.sendTurn(agentId, next.prompt, next.model, next.effort)) {
+    const sent = await this.sendTurn(
+      agentId,
+      next.prompt,
+      next.model,
+      next.effort,
+      // Queued before modes existed: run it as every Turn ran back then.
+      next.mode ?? DEFAULT_MODE,
+    );
+    if (sent) {
       this.unqueue(agentId, next.id);
     }
   }

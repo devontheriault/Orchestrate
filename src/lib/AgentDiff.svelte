@@ -26,6 +26,12 @@
 
   const running = $derived(store.selectedAgent?.state === "running");
 
+  /**
+   * Whether the agent's last turn ran in plan mode. An empty diff then isn't a
+   * turn that achieved nothing — it's a turn that was asked not to write.
+   */
+  const planning = $derived(store.selectedAgent?.permission_mode === "plan");
+
   const totals = $derived.by(() => {
     const files = store.diff?.files ?? [];
     return files.reduce(
@@ -160,7 +166,15 @@
       {/if}
 
       {#if diff.files.length === 0 && diff.commits.length === 0}
-        <div class="hint">This agent changed nothing in its worktree.</div>
+        <div class="hint">
+          {#if planning}
+            This agent is in plan mode — it reads and proposes, so there is
+            nothing here to commit. Switch it to Bypass and reply to set it
+            working.
+          {:else}
+            This agent changed nothing in its worktree.
+          {/if}
+        </div>
       {/if}
 
       {#if diff.commits.length > 0}

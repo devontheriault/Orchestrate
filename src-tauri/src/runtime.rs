@@ -109,15 +109,17 @@ impl AgentRuntime {
     }
 
     /// Spawn a new Agent for the given Project and opening prompt, on the model
-    /// and effort the user picked (`None` leaves either choice to Claude Code).
-    /// Returns the Agent record once the process is running and its meta file
-    /// is on disk.
+    /// and effort the user picked (`None` leaves either choice to Claude Code)
+    /// and in the Permission Mode they picked (`None` is
+    /// `DEFAULT_PERMISSION_MODE`). Returns the Agent record once the process is
+    /// running and its meta file is on disk.
     pub async fn spawn(
         &self,
         project: &Project,
         prompt: String,
         model: Option<String>,
         effort: Option<String>,
+        permission_mode: Option<String>,
     ) -> Result<Agent> {
         let agent_id = new_id();
         let branch = format!("{}{agent_id}", crate::model::AGENT_BRANCH_PREFIX);
@@ -145,6 +147,7 @@ impl AgentRuntime {
             session_id: Some(new_session_id()),
             model,
             effort,
+            permission_mode,
             turns: 1,
             // Named at the end of its first Turn, once there is work to name.
             title: None,
@@ -168,10 +171,11 @@ impl AgentRuntime {
     /// `claude` in the Agent's existing Worktree, resuming its Session, and put
     /// the Agent back into `Running`.
     ///
-    /// `model` and `effort` are the choices for this Turn onwards, and are
-    /// recorded on the Agent — a user may start cheap and escalate
-    /// mid-conversation. The caller always states them, so `None` means "let
-    /// Claude Code pick", not "unchanged".
+    /// `model`, `effort` and `permission_mode` are the choices for this Turn
+    /// onwards, and are recorded on the Agent — a user may start cheap and
+    /// escalate mid-conversation, or plan first and then let the Agent loose.
+    /// The caller always states them, so `None` means "let Claude Code pick",
+    /// not "unchanged".
     ///
     /// Refused while the Agent is working, and for an Agent with no Session or
     /// no Worktree left to work in.
@@ -181,6 +185,7 @@ impl AgentRuntime {
         prompt: String,
         model: Option<String>,
         effort: Option<String>,
+        permission_mode: Option<String>,
     ) -> Result<Agent> {
         // Held from the busy check through the launch: two windows resuming the
         // same Agent at once must not both get past the check and put two
@@ -209,6 +214,7 @@ impl AgentRuntime {
         agent.turns += 1;
         agent.model = model;
         agent.effort = effort;
+        agent.permission_mode = permission_mode;
         agent.state = AgentState::Running;
         agent.turn_started_at = Some(OffsetDateTime::now_utc());
         agent.exited_at = None;
@@ -254,9 +260,16 @@ impl AgentRuntime {
             .arg(prompt)
             .arg("--output-format")
             .arg("stream-json")
-            .arg("--verbose")
-            .arg("--permission-mode")
-            .arg("bypassPermissions");
+            .arg("--verbose");
+        // The Mode is the Agent's, not this launcher's: `bypassPermissions`
+        // lets it work freely inside its Worktree, `plan` holds it to reading
+        // and proposing. Unset — a pre-Mode Agent — runs as it always has.
+        cmd.arg("--permission-mode").arg(
+            agent
+                .permission_mode
+                .as_deref()
+                .unwrap_or(crate::model::DEFAULT_PERMISSION_MODE),
+        );
         // No `--model` at all when the user hasn't picked one, so Claude Code's
         // own configured default applies rather than one we guessed.
         if let Some(model) = &agent.model {
@@ -675,7 +688,7 @@ while : ; do sleep 1; done
         let (rt, mut rx) = AgentRuntime::with_bin(bin);
 
         let agent = rt
-            .spawn(&project, "hello".into(), None, None)
+            .spawn(&project, "hello".into(), None, None, None)
             .await
             .unwrap();
         assert_eq!(agent.state, AgentState::Running);
@@ -722,7 +735,7 @@ exit 0
         let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_writes_code());
 
         let agent = rt
-            .spawn(&project, "write some code".into(), None, None)
+            .spawn(&project, "write some code".into(), None, None, None)
             .await
             .unwrap();
         let base = agent
@@ -779,7 +792,10 @@ exit 0
         let bin = fake_claude_fail();
         let (rt, mut rx) = AgentRuntime::with_bin(bin);
 
-        let agent = rt.spawn(&project, "boom".into(), None, None).await.unwrap();
+        let agent = rt
+            .spawn(&project, "boom".into(), None, None, None)
+            .await
+            .unwrap();
         let final_agent = loop {
             if let RuntimeEvent::StateChanged { agent, .. } = rx.recv().await.unwrap() {
                 break *agent;
@@ -808,7 +824,10 @@ exit 0
         let bin = fake_claude_hang();
         let (rt, mut rx) = AgentRuntime::with_bin(bin);
 
-        let agent = rt.spawn(&project, "hang".into(), None, None).await.unwrap();
+        let agent = rt
+            .spawn(&project, "hang".into(), None, None, None)
+            .await
+            .unwrap();
         assert!(agent.worktree_path.exists());
 
         // Give the hang script a moment to install its TERM trap.
@@ -864,7 +883,7 @@ exit 0
         let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_recording(&args_log));
 
         let agent = rt
-            .spawn(&project, "first".into(), None, None)
+            .spawn(&project, "first".into(), None, None, None)
             .await
             .unwrap();
         let session = agent.session_id.clone().expect("spawn mints a session");
@@ -873,7 +892,7 @@ exit 0
         assert_eq!(after_first.turns, 1);
 
         let resumed = rt
-            .resume(&agent.id, "second".into(), None, None)
+            .resume(&agent.id, "second".into(), None, None, None)
             .await
             .unwrap();
         assert_eq!(resumed.state, AgentState::Running);
@@ -928,7 +947,7 @@ exit 0
         let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_recording(&args_log));
 
         let agent = rt
-            .spawn(&project, "first".into(), Some("sonnet".into()), None)
+            .spawn(&project, "first".into(), Some("sonnet".into()), None, None)
             .await
             .unwrap();
         assert_eq!(agent.model.as_deref(), Some("sonnet"));
@@ -936,7 +955,13 @@ exit 0
 
         // A user who starts cheap can escalate without starting over.
         let resumed = rt
-            .resume(&agent.id, "try harder".into(), Some("opus".into()), None)
+            .resume(
+                &agent.id,
+                "try harder".into(),
+                Some("opus".into()),
+                None,
+                None,
+            )
             .await
             .unwrap();
         assert_eq!(resumed.model.as_deref(), Some("opus"));
@@ -965,7 +990,7 @@ exit 0
         let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_recording(&args_log));
 
         let agent = rt
-            .spawn(&project, "hello".into(), None, None)
+            .spawn(&project, "hello".into(), None, None, None)
             .await
             .unwrap();
         assert_eq!(agent.model, None);
@@ -988,14 +1013,20 @@ exit 0
         let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_recording(&args_log));
 
         let agent = rt
-            .spawn(&project, "first".into(), None, Some("low".into()))
+            .spawn(&project, "first".into(), None, Some("low".into()), None)
             .await
             .unwrap();
         assert_eq!(agent.effort.as_deref(), Some("low"));
         wait_for_exit(&mut rx).await;
 
         let resumed = rt
-            .resume(&agent.id, "think harder".into(), None, Some("max".into()))
+            .resume(
+                &agent.id,
+                "think harder".into(),
+                None,
+                Some("max".into()),
+                None,
+            )
             .await
             .unwrap();
         assert_eq!(resumed.effort.as_deref(), Some("max"));
@@ -1013,6 +1044,84 @@ exit 0
         assert!(lines[1].contains("--effort max"), "{}", lines[1]);
     }
 
+    /// The Mode is the Agent's, picked per Turn: a Turn that plans first and a
+    /// Turn that acts are the same Agent in the same Worktree, one flag apart.
+    /// Unlike the model and effort flags, this one is always passed — an Agent
+    /// with no pick still gets the Mode it has always run in.
+    #[tokio::test]
+    async fn the_picked_mode_is_passed_to_claude_and_carried_across_turns() {
+        let _env = StateEnv::new();
+        let repo = init_repo().await;
+        let project = sample_project(repo.path().to_path_buf());
+        let args_log = std::env::temp_dir().join(format!("cw-args-{}.txt", new_id()));
+        let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_recording(&args_log));
+
+        let agent = rt
+            .spawn(&project, "plan it".into(), None, None, Some("plan".into()))
+            .await
+            .unwrap();
+        assert_eq!(agent.permission_mode.as_deref(), Some("plan"));
+        wait_for_exit(&mut rx).await;
+
+        let resumed = rt
+            .resume(
+                &agent.id,
+                "now build it".into(),
+                None,
+                None,
+                Some("bypassPermissions".into()),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            resumed.permission_mode.as_deref(),
+            Some("bypassPermissions")
+        );
+        wait_for_exit(&mut rx).await;
+        assert_eq!(
+            storage::load_agent(&agent.id)
+                .unwrap()
+                .permission_mode
+                .as_deref(),
+            Some("bypassPermissions"),
+            "the new choice must be persisted, or the next Turn reverts"
+        );
+
+        let args = std::fs::read_to_string(&args_log).unwrap();
+        let lines: Vec<&str> = args.lines().collect();
+        assert_eq!(lines.len(), 2, "one `claude` per Turn: {args}");
+        assert!(lines[0].contains("--permission-mode plan"), "{}", lines[0]);
+        assert!(
+            lines[1].contains("--permission-mode bypassPermissions"),
+            "{}",
+            lines[1]
+        );
+    }
+
+    /// No pick means the Agent acts freely inside its Worktree — the Mode every
+    /// Agent ran in before the picker existed.
+    #[tokio::test]
+    async fn no_picked_mode_bypasses_permissions() {
+        let _env = StateEnv::new();
+        let repo = init_repo().await;
+        let project = sample_project(repo.path().to_path_buf());
+        let args_log = std::env::temp_dir().join(format!("cw-args-{}.txt", new_id()));
+        let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_recording(&args_log));
+
+        let agent = rt
+            .spawn(&project, "hello".into(), None, None, None)
+            .await
+            .unwrap();
+        assert_eq!(agent.permission_mode, None);
+        wait_for_exit(&mut rx).await;
+
+        let args = std::fs::read_to_string(&args_log).unwrap();
+        assert!(
+            args.contains("--permission-mode bypassPermissions"),
+            "{args}"
+        );
+    }
+
     #[tokio::test]
     async fn resume_is_refused_while_the_agent_is_working() {
         let _env = StateEnv::new();
@@ -1020,9 +1129,12 @@ exit 0
         let project = sample_project(repo.path().to_path_buf());
         let (rt, _rx) = AgentRuntime::with_bin(fake_claude_hang());
 
-        let agent = rt.spawn(&project, "hang".into(), None, None).await.unwrap();
+        let agent = rt
+            .spawn(&project, "hang".into(), None, None, None)
+            .await
+            .unwrap();
         let err = rt
-            .resume(&agent.id, "hurry up".into(), None, None)
+            .resume(&agent.id, "hurry up".into(), None, None, None)
             .await
             .unwrap_err();
         assert!(matches!(err, Error::AgentBusy(_)), "{err:?}");
@@ -1080,7 +1192,7 @@ exit 0
         let (rt, mut rx) = AgentRuntime::with_bin_naming(fake_claude_and_namer(&counter));
 
         let agent = rt
-            .spawn(&project, "do the thing".into(), None, None)
+            .spawn(&project, "do the thing".into(), None, None, None)
             .await
             .unwrap();
         assert_eq!(agent.title, None, "a fresh Agent has no name to show yet");
@@ -1104,14 +1216,14 @@ exit 0
         let (rt, mut rx) = AgentRuntime::with_bin_naming(fake_claude_and_namer(&counter));
 
         let agent = rt
-            .spawn(&project, "first".into(), None, None)
+            .spawn(&project, "first".into(), None, None, None)
             .await
             .unwrap();
         let mut name = wait_for_name(&mut rx, None).await.title;
         assert_eq!(name.as_deref(), Some("Name 1"));
 
         for turn in 2..=3 {
-            rt.resume(&agent.id, format!("turn {turn}"), None, None)
+            rt.resume(&agent.id, format!("turn {turn}"), None, None, None)
                 .await
                 .unwrap();
             name = wait_for_name(&mut rx, name.as_deref()).await.title;
@@ -1119,7 +1231,7 @@ exit 0
         }
 
         // The fourth Turn runs, but nothing asks for a name.
-        rt.resume(&agent.id, "turn 4".into(), None, None)
+        rt.resume(&agent.id, "turn 4".into(), None, None, None)
             .await
             .unwrap();
         while !rt.running().await.is_empty() {
@@ -1148,7 +1260,7 @@ exit 0
         let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_hang());
 
         let agent = rt
-            .spawn(&project, "go off the rails".into(), None, None)
+            .spawn(&project, "go off the rails".into(), None, None, None)
             .await
             .unwrap();
         tokio::time::sleep(Duration::from_millis(200)).await;
@@ -1159,7 +1271,7 @@ exit 0
         // Redirecting a Stopped Agent is the point of keeping its worktree.
         let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_recording(&args_log));
         let resumed = rt
-            .resume(&agent.id, "do it differently".into(), None, None)
+            .resume(&agent.id, "do it differently".into(), None, None, None)
             .await
             .unwrap();
         assert_eq!(resumed.turns, 2);
@@ -1174,7 +1286,7 @@ exit 0
         let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_ok());
 
         let agent = rt
-            .spawn(&project, "hello".into(), None, None)
+            .spawn(&project, "hello".into(), None, None, None)
             .await
             .unwrap();
         wait_for_exit(&mut rx).await;
@@ -1183,7 +1295,7 @@ exit 0
             .unwrap();
 
         let err = rt
-            .resume(&agent.id, "more".into(), None, None)
+            .resume(&agent.id, "more".into(), None, None, None)
             .await
             .unwrap_err();
         assert!(
@@ -1207,6 +1319,7 @@ exit 0
             session_id: None,
             model: None,
             effort: None,
+            permission_mode: None,
             turns: 1,
             title: None,
             branch: "cw/agent-old".into(),
@@ -1222,7 +1335,7 @@ exit 0
         let (rt, _rx) = AgentRuntime::with_bin(fake_claude_ok());
 
         let err = rt
-            .resume(&a.id, "carry on".into(), None, None)
+            .resume(&a.id, "carry on".into(), None, None, None)
             .await
             .unwrap_err();
         assert!(
@@ -1247,7 +1360,7 @@ exit 0
         let (rt, mut rx) = AgentRuntime::with_bin(bin);
 
         let agent = rt
-            .spawn(&project, "hello".into(), None, None)
+            .spawn(&project, "hello".into(), None, None, None)
             .await
             .unwrap();
         let minted = agent.session_id.clone().unwrap();
@@ -1278,6 +1391,7 @@ exit 0
             session_id: Some("11111111-2222-4333-8444-555555555555".into()),
             model: None,
             effort: None,
+            permission_mode: None,
             turns: 1,
             title: None,
             branch: "cw/agent-x".into(),
