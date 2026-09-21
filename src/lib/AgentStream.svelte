@@ -14,7 +14,6 @@
     store.projects.find((p) => p.id === store.selectedAgent?.project_id)?.name ?? "",
   );
 
-  let showRaw = $state(false);
   let streamEl: HTMLDivElement | undefined = $state();
 
   /**
@@ -191,12 +190,6 @@
             {/if}
           </button>
         </div>
-        {#if store.detailTab === "output"}
-          <label class="raw-toggle" title="Show the unparsed event JSON">
-            <input type="checkbox" bind:checked={showRaw} />
-            <span>raw</span>
-          </label>
-        {/if}
         <!-- Stop lives in the composer's send slot while the agent runs; the
              header keeps only the destructive action, once it's stopped. -->
         {#if store.selectedAgent.state !== "running"}
@@ -252,10 +245,6 @@
             ? "Waiting for output…"
             : "No events on record."}
         </div>
-      {:else if showRaw}
-        {#each store.eventsForSelected as ev, i (i)}
-          <pre class="raw">{JSON.stringify(ev.event, null, 2)}</pre>
-        {/each}
       {:else}
         {#each store.eventsForSelected as ev, i (i)}
           {#each classify(ev) as k}
@@ -370,15 +359,6 @@
     justify-content: flex-end;
     gap: 0.4rem 0.5rem;
     margin-left: auto;
-  }
-
-  .raw-toggle {
-    font-size: 0.8rem;
-    color: var(--fg-muted);
-    cursor: pointer;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3rem;
   }
 
   .head-right button {
@@ -560,19 +540,6 @@
   }
 
   .done.err { color: #dc2626; }
-
-  pre.raw {
-    background: var(--panel-bg);
-    border: 1px solid var(--border);
-    padding: 0.5rem 0.75rem;
-    border-radius: 5px;
-    font-size: 0.78rem;
-    margin: 0;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-    max-height: min(60vh, 34rem);
-    overflow: auto;
-  }
 
   .fail-banner {
     background: rgba(239, 68, 68, 0.08);
