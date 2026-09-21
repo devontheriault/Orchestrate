@@ -32,7 +32,7 @@
 <!-- The whole bar is a drag handle; the controls below opt out by not carrying
      the attribute, so a click on a button never starts a window drag. -->
 <header class="chrome" class:mac={isMac} data-tauri-drag-region>
-  <span class="wordmark" data-tauri-drag-region>Claude Wrapper</span>
+  <span class="wordmark" data-tauri-drag-region>DevCode</span>
 
   {#if ownsWindowFrame}
     <div class="controls">
