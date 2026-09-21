@@ -82,16 +82,6 @@
     return name ? name : "1 agent running";
   }
 
-  /**
-   * The project in view: the one the selected agent belongs to, falling back to
-   * whatever the sidebar has selected. It titles the window from the top-left.
-   */
-  const currentProject = $derived(
-    store.projects.find(
-      (p) => p.id === (store.selectedAgent?.project_id ?? store.selectedProjectId),
-    ) ?? null,
-  );
-
   /** Stand-in for the name in rail mode. */
   function initials(name: string): string {
     const parts = name.split(/[\s._/-]+/).filter(Boolean);
@@ -102,9 +92,6 @@
 </script>
 
 <aside bind:this={asideEl} class:collapsed>
-  {#if !collapsed && currentProject}
-    <div class="project-title" title={currentProject.path}>{currentProject.name}</div>
-  {/if}
   <header>
     {#if !collapsed}<span class="title">Projects</span>{/if}
     <button class="add" onclick={pickAndAdd} title="Add project" aria-label="Add project"
@@ -242,15 +229,6 @@
   aside.collapsed {
     width: var(--rail);
     flex-basis: var(--rail);
-  }
-
-  .project-title {
-    padding: var(--pad-y) var(--pad-x) 0;
-    font-size: 1.05rem;
-    font-weight: 700;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
   }
 
   header {
