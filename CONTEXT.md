@@ -20,6 +20,14 @@ _Avoid_: Name (too close to the Project's), Summary, Label, Description.
 One prompt-and-answer exchange within an Agent: one `claude` process, from Spawn or Resume until it exits. Turn 1 carries the Task; later Turns carry follow-up prompts. Turns are counted on the Agent and recorded in its log, so the output pane reads as a conversation.
 _Avoid_: Run, Iteration, Round, Message (a Turn contains many messages).
 
+**Row**:
+One entry in the output pane. A Row is not an event: a burst of stream events collapses into one, because a transcript that prints a card per event is unreadable within a minute of the Agent starting. Three rules do the collapsing — a tool call and its result are one Row (they arrive as two events but are one act); a run of consecutive calls to the same tool is one Row, labelled `Read ×8 — api.ts, store.svelte.ts, +6` and opening to the individual calls; and a stretch of consecutive thinking is one Row. A Row keeps the key of the first event it covers, so a Row that grows while the Turn runs keeps whatever the user had expanded open. Grouping is live — a Row's count climbs as calls land, which is the point: repeated work overwrites itself instead of pushing the answer off screen.
+_Avoid_: Card, Line, Entry, Event (the Row is what's rendered; the event is what arrived).
+
+**Snapshot tool**:
+A tool whose input is a whole state rather than an action — `TodoWrite` is the one we know of. The tenth todo list supersedes the nine before it, so only the last one in a Turn gets a Row and the earlier ones vanish rather than stacking. Scoped to the Turn, not the transcript: reading back an old Turn should show the list as it stood when that Turn ended, not the one from today.
+_Avoid_: Idempotent tool, State tool.
+
 **Queue**:
 What the user has said to an Agent that wasn't free to hear it yet: prompts typed while a Turn was still running, held in order and sent as their own Turns once the Agent is free. A Queue belongs to one Agent, is always visible above the composer with its messages readable and individually removable, and drains one message per clean Complete — a Stop or a Fail holds the rest, since interrupting an Agent shouldn't fire the rest of the line into it. Kept in the window's local storage rather than on the Agent: it is a record of what the user means to say, not part of the conversation Claude Code owns.
 _Avoid_: Buffer, Pipeline, Inbox.
