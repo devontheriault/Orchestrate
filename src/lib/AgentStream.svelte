@@ -9,11 +9,6 @@
   /** The blank page for an agent that hasn't been spawned yet. */
   const drafting = $derived(store.drafting && !store.selectedAgent);
 
-  /** The project the selected agent belongs to, which may not be the selected one. */
-  const agentProjectName = $derived(
-    store.projects.find((p) => p.id === store.selectedAgent?.project_id)?.name ?? "",
-  );
-
   let streamEl: HTMLDivElement | undefined = $state();
 
   /**
@@ -187,19 +182,11 @@
 </script>
 
 <section>
-  <header>
-    {#if store.selectedAgent}
-      <div class="head-left">
-        <!-- The name Claude gave the work; the prompt behind it is a hover away. -->
-        <div class="prompt" title={store.selectedAgent.task.prompt}>
-          {#if agentProjectName}
-            <span class="project">{agentProjectName}</span>
-            <span class="sep">/</span>
-          {/if}
-          {store.agentName(store.selectedAgent)}
-        </div>
-      </div>
-      <div class="head-right">
+  <!-- The heading moved to the window bar above, which is painted like this
+       pane; what's left here are the pane's own controls. -->
+  {#if store.selectedAgent || drafting}
+    <header>
+      {#if store.selectedAgent}
         <div class="tabs" role="tablist">
           <button
             role="tab"
@@ -222,30 +209,25 @@
         <!-- Stop lives in the composer's send slot while the agent runs; the
              header keeps only the destructive action, once it's stopped. -->
         {#if store.selectedAgent.state !== "running"}
-          <button
-            class="reap"
-            class:armed={reapArmed}
-            onclick={() => (reapArmed ? reap() : armReap())}
-            onblur={() => (reapArmed = false)}
-            title="Delete this agent's worktree and branch — uncommitted work and its conversation go with them"
-          >
-            {reapArmed ? "Reap for good?" : "Reap"}
-          </button>
+          <div class="head-right">
+            <button
+              class="reap"
+              class:armed={reapArmed}
+              onclick={() => (reapArmed ? reap() : armReap())}
+              onblur={() => (reapArmed = false)}
+              title="Delete this agent's worktree and branch — uncommitted work and its conversation go with them"
+            >
+              {reapArmed ? "Reap for good?" : "Reap"}
+            </button>
+          </div>
         {/if}
-      </div>
-    {:else if drafting}
-      <div class="head-left">
-        <div class="prompt">New agent</div>
-      </div>
-      <div class="head-right">
-        <button class="cancel" onclick={() => store.cancelDraft()}>Cancel</button>
-      </div>
-    {:else}
-      <div class="head-left">
-        <div class="prompt-empty">No agent selected</div>
-      </div>
-    {/if}
-  </header>
+      {:else}
+        <div class="head-right">
+          <button class="cancel" onclick={() => store.cancelDraft()}>Cancel</button>
+        </div>
+      {/if}
+    </header>
+  {/if}
 
   {#if store.selectedAgent && store.detailTab === "diff"}
     <AgentDiff />
@@ -365,40 +347,7 @@
     align-items: center;
     justify-content: space-between;
     gap: 0.5rem 1rem;
-    min-height: 3.2rem;
-  }
-
-  .head-left {
-    /* Wide enough to be worth reading, or it wraps the controls to a new row. */
-    flex: 1 1 14rem;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-  }
-
-  .prompt {
-    font-size: 1.05rem;
-    font-weight: 700;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  /* Muted colour alone separates the project from the agent name; both stay
-     bold so the whole title reads as one heading. */
-  .prompt .project,
-  .prompt .sep {
-    color: var(--fg-muted);
-  }
-
-  .prompt .sep {
-    margin: 0 0.1rem;
-  }
-
-  .prompt-empty {
-    color: var(--fg-muted);
-    font-style: italic;
+    min-height: 2.7rem;
   }
 
   .cancel:hover { border-color: var(--accent); color: var(--accent); }
