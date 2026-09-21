@@ -169,7 +169,7 @@
         <div class="hint">
           {#if planning}
             This agent is in plan mode — it reads and proposes, so there is
-            nothing here to commit. Switch it to Bypass and reply to set it
+            nothing here to commit. Switch it to YOLO and reply to set it
             working.
           {:else}
             This agent changed nothing in its worktree.

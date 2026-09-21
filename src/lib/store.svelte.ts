@@ -301,7 +301,7 @@ class AppStore {
     this.preferredEffort ?? this.lastSpawned?.effort ?? DEFAULT_EFFORT,
   );
 
-  /** And for the mode: what the last Turn ran as, else the bypass default. */
+  /** And for the mode: what the last Turn ran as, else the YOLO default. */
   defaultSpawnMode = $derived(
     this.preferredMode ?? this.lastSpawned?.permission_mode ?? DEFAULT_MODE,
   );

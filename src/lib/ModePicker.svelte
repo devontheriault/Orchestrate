@@ -3,7 +3,7 @@
    * The Permission Mode a Turn runs in — what the agent may do without asking.
    * Same control as the model picker beside it, minus the submenu: a mode has
    * nothing hanging off it. Two choices today, so the menu is short, but it is
-   * a menu rather than a toggle because "Bypass / Plan" says what each one is
+   * a menu rather than a toggle because "YOLO / Plan" says what each one is
    * and a switch only ever says "on".
    */
   import { DEFAULT_MODE, MODES } from "./api";
@@ -24,7 +24,7 @@
   const uid = $props.id();
 
   // A mode this build doesn't know still gets a row, so a record written by a
-  // newer version reads as what it is rather than silently as Bypass.
+  // newer version reads as what it is rather than silently as YOLO.
   const options = $derived.by(() => {
     const known = MODES.some((m) => m.id === value);
     return [
