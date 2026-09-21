@@ -88,6 +88,13 @@ class AppStore {
   selectedProjectId = $state<string | null>(null);
   selectedAgentId = $state<string | null>(null);
 
+  /**
+   * Which projects are showing their agents in the sidebar. A project opens
+   * when it's selected and closes when its row is clicked again, so the tree
+   * only ever holds the lists the user asked to see.
+   */
+  expandedProjects = $state<Record<string, boolean>>({});
+
   /** Which body the detail pane shows for the selected agent. */
   detailTab = $state<"output" | "diff">("output");
 
@@ -133,11 +140,23 @@ class AppStore {
   private unlisteners: UnlistenFn[] = [];
   private started = false;
 
-  agentsForSelectedProject = $derived(
-    this.selectedProjectId
-      ? this.agents.filter((a) => a.project_id === this.selectedProjectId)
-      : [],
-  );
+  /** Every project's agents, newest first — the sidebar reads one list per row. */
+  agentsByProject = $derived.by(() => {
+    const map = new Map<string, Agent[]>();
+    for (const a of this.agents) {
+      const list = map.get(a.project_id);
+      if (list) list.push(a);
+      else map.set(a.project_id, [a]);
+    }
+    for (const list of map.values()) {
+      list.sort((x, y) => Date.parse(y.spawned_at) - Date.parse(x.spawned_at));
+    }
+    return map;
+  });
+
+  agentsForProject(projectId: string): Agent[] {
+    return this.agentsByProject.get(projectId) ?? [];
+  }
 
   activityByProject = $derived.by(() => {
     const map = new Map<string, ProjectActivity>();
@@ -287,6 +306,8 @@ class AppStore {
         ? resume.project
         : this.projects[0]?.id ?? null;
     this.selectedProjectId = project;
+    // The first thing on screen should already be showing its agents.
+    if (project) this.expandedProjects[project] = true;
 
     const resumable =
       resume?.agent &&
@@ -314,7 +335,7 @@ class AppStore {
     try {
       const p = await api.addProject(name, path);
       this.projects.push(p);
-      this.selectedProjectId = p.id;
+      this.selectProject(p.id);
     } catch (e) {
       this.error = String(e);
     }
@@ -324,17 +345,38 @@ class AppStore {
     try {
       await api.removeProject(id);
       this.projects = this.projects.filter((p) => p.id !== id);
+      delete this.expandedProjects[id];
       if (this.selectedProjectId === id) {
-        this.selectedProjectId = this.projects[0]?.id ?? null;
+        this.selectedProjectId = null;
+        this.selectAgent(null);
+        const next = this.projects[0]?.id;
+        if (next) this.selectProject(next);
       }
     } catch (e) {
       this.error = String(e);
     }
   }
 
+  /**
+   * Select a project and open its agents underneath it. Moving to a *different*
+   * project drops the agent selection — the detail pane belongs to the project
+   * on screen — while re-selecting the one already showing leaves it alone, so
+   * re-opening a closed row doesn't cost the user the agent they were reading.
+   */
   selectProject(id: string) {
+    const moved = this.selectedProjectId !== id;
     this.selectedProjectId = id;
-    this.selectAgent(null);
+    this.expandedProjects[id] = true;
+    if (moved) this.selectAgent(null);
+  }
+
+  /** What a click on a project row does: open it, or close the open one. */
+  toggleProject(id: string) {
+    if (this.selectedProjectId === id && this.expandedProjects[id]) {
+      this.expandedProjects[id] = false;
+      return;
+    }
+    this.selectProject(id);
   }
 
   selectAgent(id: string | null) {
@@ -348,10 +390,14 @@ class AppStore {
 
   /**
    * Open the blank page for a new agent: nothing selected, output tab, and a
-   * composer holding the opening prompt until the user sends it.
+   * composer holding the opening prompt until the user sends it. `projectId`
+   * says which project it will belong to; without one, the selected project.
    */
-  startDraft() {
-    if (!this.selectedProjectId) return;
+  startDraft(projectId?: string) {
+    const project = projectId ?? this.selectedProjectId;
+    if (!project) return;
+    this.selectedProjectId = project;
+    this.expandedProjects[project] = true;
     this.selectedAgentId = null;
     this.clearDiff();
     this.detailTab = "output";
@@ -442,6 +488,7 @@ class AppStore {
     if (!agent) return false;
     if (this.projects.some((p) => p.id === agent.project_id)) {
       this.selectedProjectId = agent.project_id;
+      this.expandedProjects[agent.project_id] = true;
     }
     this.selectAgent(id);
     return true;
@@ -452,6 +499,7 @@ class AppStore {
     const first = this.orphans[0];
     if (this.projects.some((p) => p.id === first.project_id)) {
       this.selectedProjectId = first.project_id;
+      this.expandedProjects[first.project_id] = true;
     }
     this.selectAgent(first.id);
     this.orphanBannerDismissed = true;

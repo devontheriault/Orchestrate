@@ -2,9 +2,22 @@
   import { open } from "@tauri-apps/plugin-dialog";
   import { store } from "./store.svelte";
   import { usage } from "./usage.svelte";
+  import AgentTree from "./AgentTree.svelte";
 
-  /** Rail mode: initials only, for windows too narrow to spare the width. */
-  let { collapsed = false }: { collapsed?: boolean } = $props();
+  let {
+    /** Rail mode: initials only, for windows too narrow to spare the width. */
+    collapsed = false,
+    /** Take the whole window: the detail pane is off-screen on narrow windows. */
+    fill = false,
+  }: { collapsed?: boolean; fill?: boolean } = $props();
+
+  /** The rail has no room to nest agents, so they break out beside it. */
+  type Flyout = { id: string; top: number; left: number; maxHeight: number };
+  let flyout = $state<Flyout | null>(null);
+  let asideEl: HTMLElement | undefined = $state();
+  let flyoutEl: HTMLElement | undefined = $state();
+
+  const FLYOUT_MAX = 380;
 
   async function pickAndAdd() {
     const picked = await open({ directory: true, multiple: false });
@@ -12,6 +25,57 @@
     const name = picked.split("/").filter(Boolean).pop() ?? picked;
     await store.addProject(name, picked);
   }
+
+  /** Select the project, and show its agents wherever there's room for them. */
+  function openProject(e: MouseEvent, id: string) {
+    if (!collapsed) {
+      store.toggleProject(id);
+      return;
+    }
+    const showing = flyout?.id === id;
+    store.selectProject(id);
+    if (showing) {
+      flyout = null;
+      return;
+    }
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const maxHeight = Math.min(FLYOUT_MAX, window.innerHeight - 16);
+    flyout = {
+      id,
+      left: rect.right + 6,
+      top: Math.max(8, Math.min(rect.top, window.innerHeight - maxHeight - 8)),
+      maxHeight,
+    };
+  }
+
+  const flyoutProject = $derived(
+    flyout ? store.projects.find((p) => p.id === flyout!.id) ?? null : null,
+  );
+
+  // The flyout is pinned to a row's position, so anything that moves that row —
+  // or takes the rail away — dismisses it rather than leaving it stranded.
+  $effect(() => {
+    if (!flyout) return;
+    const close = () => (flyout = null);
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && close();
+    const onDown = (e: PointerEvent) => {
+      const t = e.target as Node;
+      if (flyoutEl?.contains(t) || asideEl?.contains(t)) return;
+      close();
+    };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("pointerdown", onDown, true);
+    window.addEventListener("resize", close);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("pointerdown", onDown, true);
+      window.removeEventListener("resize", close);
+    };
+  });
+
+  $effect(() => {
+    if (!collapsed) flyout = null;
+  });
 
   /** The line under a project name: what's running, or the path when idle. */
   function subtitle(projectId: string, path: string): string {
@@ -31,7 +95,7 @@
   }
 </script>
 
-<aside class:collapsed>
+<aside bind:this={asideEl} class:collapsed class:fill>
   <header>
     {#if !collapsed}<span class="title">Projects</span>{/if}
     <button class="add" onclick={pickAndAdd} title="Add project" aria-label="Add project"
@@ -51,49 +115,59 @@
       </div>
     {/if}
   {:else}
-    <ul>
+    <ul onscroll={() => (flyout = null)}>
       {#each store.projects as p (p.id)}
         {@const activity = store.activityFor(p.id)}
-        <li class:selected={store.selectedProjectId === p.id}>
-          <button
-            class="row"
-            class:active={activity.running > 0}
-            onclick={() => store.selectProject(p.id)}
-            aria-current={store.selectedProjectId === p.id ? "true" : undefined}
-            title={collapsed ? `${p.name} — ${p.path}` : p.path}
-          >
-            <span class="name-row">
-              <span class="name">{collapsed ? initials(p.name) : p.name}</span>
-              {#if activity.running > 0}
-                <span
-                  class="badge running"
-                  title={`${activity.running} agent${activity.running === 1 ? "" : "s"} running`}
-                >
-                  <span class="dot"></span>
-                  {#if !collapsed}{activity.running}{/if}
-                </span>
-              {:else if activity.attention > 0}
-                <span
-                  class="badge attention"
-                  title={`${activity.attention} agent${activity.attention === 1 ? "" : "s"} need attention`}
-                >
-                  {activity.attention}
+        {@const expanded = !collapsed && !!store.expandedProjects[p.id]}
+        <li class:selected={store.selectedProjectId === p.id} class:open={expanded}>
+          <div class="head">
+            <button
+              class="row"
+              class:active={activity.running > 0}
+              onclick={(e) => openProject(e, p.id)}
+              aria-current={store.selectedProjectId === p.id ? "true" : undefined}
+              aria-expanded={collapsed ? undefined : expanded}
+              title={collapsed ? `${p.name} — ${p.path}` : p.path}
+            >
+              <span class="name-row">
+                {#if !collapsed}
+                  <span class="chevron" class:open={expanded} aria-hidden="true">›</span>
+                {/if}
+                <span class="name">{collapsed ? initials(p.name) : p.name}</span>
+                {#if activity.running > 0}
+                  <span
+                    class="badge running"
+                    title={`${activity.running} agent${activity.running === 1 ? "" : "s"} running`}
+                  >
+                    <span class="dot"></span>
+                    {#if !collapsed}{activity.running}{/if}
+                  </span>
+                {:else if activity.attention > 0}
+                  <span
+                    class="badge attention"
+                    title={`${activity.attention} agent${activity.attention === 1 ? "" : "s"} need attention`}
+                  >
+                    {activity.attention}
+                  </span>
+                {/if}
+              </span>
+              {#if !collapsed && !expanded}
+                <span class="sub" class:path={activity.running === 0}>
+                  {subtitle(p.id, p.path)}
                 </span>
               {/if}
-            </span>
+            </button>
             {#if !collapsed}
-              <span class="sub" class:path={activity.running === 0}>
-                {subtitle(p.id, p.path)}
-              </span>
+              <button
+                class="remove"
+                onclick={() => store.removeProject(p.id)}
+                title="Remove from list"
+                aria-label={`Remove ${p.name}`}>×</button
+              >
             {/if}
-          </button>
-          {#if !collapsed}
-            <button
-              class="remove"
-              onclick={() => store.removeProject(p.id)}
-              title="Remove from list"
-              aria-label={`Remove ${p.name}`}>×</button
-            >
+          </div>
+          {#if expanded}
+            <AgentTree projectId={p.id} />
           {/if}
         </li>
       {/each}
@@ -119,6 +193,24 @@
   </footer>
 </aside>
 
+{#if flyout && flyoutProject}
+  <div
+    bind:this={flyoutEl}
+    class="flyout"
+    role="dialog"
+    aria-label={`Agents in ${flyoutProject.name}`}
+    style={`top: ${flyout.top}px; left: ${flyout.left}px; max-height: ${flyout.maxHeight}px`}
+  >
+    <div class="flyout-head">
+      <span class="flyout-name" title={flyoutProject.path}>{flyoutProject.name}</span>
+      <button onclick={() => (flyout = null)} aria-label="Close agent list">×</button>
+    </div>
+    <div class="flyout-body">
+      <AgentTree projectId={flyoutProject.id} flat onpick={() => (flyout = null)} />
+    </div>
+  </div>
+{/if}
+
 <style>
   aside {
     width: var(--pane-projects);
@@ -133,6 +225,12 @@
   aside.collapsed {
     width: var(--rail);
     flex-basis: var(--rail);
+  }
+
+  /* Narrow windows give the whole window to the tree, then to the agent. */
+  aside.fill {
+    width: auto;
+    flex: 1 1 auto;
   }
 
   header {
@@ -292,19 +390,32 @@
   }
 
   li {
-    display: flex;
-    align-items: stretch;
     position: relative;
     border-left: 2px solid transparent;
   }
 
-  li:hover {
-    background: var(--hover);
+  /* An open project keeps its own row tinted; the guide line under it does
+     the work of showing which agents belong to it. */
+  li.open {
+    padding-bottom: 0.1rem;
   }
 
   li.selected {
-    background: var(--selected);
     border-left-color: var(--accent);
+  }
+
+  li.selected .head {
+    background: var(--selected);
+  }
+
+  .head {
+    display: flex;
+    align-items: stretch;
+    position: relative;
+  }
+
+  .head:hover {
+    background: var(--hover);
   }
 
   .row {
@@ -335,6 +446,27 @@
 
   aside.collapsed .name-row {
     gap: 0.2rem;
+  }
+
+  .chevron {
+    flex: none;
+    width: 0.6rem;
+    font-size: 0.95rem;
+    line-height: 1;
+    color: var(--fg-muted);
+    transition: transform 0.12s ease;
+    transform-origin: 40% 50%;
+  }
+
+  .chevron.open {
+    transform: rotate(90deg);
+    color: var(--accent);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .chevron {
+      transition: none;
+    }
   }
 
   .name {
@@ -438,12 +570,66 @@
     opacity: 0;
   }
 
-  li:hover .remove {
+  .head:hover .remove {
     opacity: 1;
   }
 
   .remove:hover {
     background: var(--hover);
     color: var(--fg);
+  }
+
+  /* Fixed, so the rail's own scrolling and overflow can't clip it. */
+  .flyout {
+    position: fixed;
+    z-index: 40;
+    width: 17rem;
+    display: flex;
+    flex-direction: column;
+    background: var(--panel-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+    overflow: hidden;
+  }
+
+  .flyout-head {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.4rem 0.4rem 0.4rem 0.7rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .flyout-name {
+    flex: 1;
+    min-width: 0;
+    font-size: 0.82rem;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .flyout-head button {
+    flex: none;
+    background: transparent;
+    border: none;
+    color: var(--fg-muted);
+    cursor: pointer;
+    font-size: 1.1rem;
+    line-height: 1;
+    padding: 0.1rem 0.3rem;
+    border-radius: 3px;
+  }
+
+  .flyout-head button:hover {
+    background: var(--hover);
+    color: var(--fg);
+  }
+
+  .flyout-body {
+    overflow-y: auto;
+    min-height: 0;
   }
 </style>
