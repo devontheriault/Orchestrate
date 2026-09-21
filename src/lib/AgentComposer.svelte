@@ -122,8 +122,6 @@
             Enter to spawn · Esc to cancel
           {:else if working}
             Stop the agent to send a new prompt
-          {:else}
-            Enter to send · Shift-Enter for a new line
           {/if}
         </span>
         <ModelPicker
