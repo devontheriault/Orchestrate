@@ -83,7 +83,8 @@
     ),
   );
 
-  const turns = $derived(
+  /** Answers the agent has finished — a Turn each, in the domain's terms. */
+  const replies = $derived(
     usage.scope === "agent"
       ? selectedUsage?.turns ?? 0
       : agents.reduce((n, a) => n + a.turns, 0),
@@ -258,9 +259,9 @@
           <div class="empty">
             {usage.scope === "agent"
               ? store.selectedAgentId
-                ? "This agent hasn't finished a turn yet."
+                ? "This agent hasn't finished any work yet."
                 : "No agent selected."
-              : "No agent has finished a turn yet."}
+              : "No agent has finished any work yet."}
           </div>
         {:else}
           <div class="totals">
@@ -282,7 +283,7 @@
             </div>
             <div class="stat cost">
               <span class="v">{formatCost(totals.cost)}</span>
-              <span class="k">{turns} turn{turns === 1 ? "" : "s"}</span>
+              <span class="k">{replies} repl{replies === 1 ? "y" : "ies"}</span>
             </div>
           </div>
 

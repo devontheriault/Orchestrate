@@ -92,7 +92,7 @@
             bind:value={model}
             disabled={busy}
             compact
-            label={drafting ? "Model for the new agent" : "Model for the next turn"}
+            label={drafting ? "Model for the new agent" : "Model for this prompt"}
           />
           <button
             class="send"
@@ -115,7 +115,7 @@
           {#if drafting}
             Enter to spawn · Esc to cancel
           {:else if working}
-            turn {agent?.turns}
+            Stop the agent to send a new prompt
           {:else}
             Enter to send · Shift-Enter for a new line
           {/if}

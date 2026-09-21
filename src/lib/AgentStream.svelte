@@ -231,10 +231,10 @@
             {store.selectedAgent.state}
           </span>
           {#if store.selectedAgent.state === "running"}
-            <span class="live-stat" title="Time since this turn started">
+            <span class="live-stat" title="Time since the agent started working">
               {formatDuration(liveElapsedMs)}
             </span>
-            <span class="live-stat" title="Tokens generated so far this turn (estimate)">
+            <span class="live-stat" title="Tokens generated since the agent started working (estimate)">
               ~{formatTokens(liveOutputTokens)} tok
             </span>
           {/if}
