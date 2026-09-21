@@ -132,6 +132,12 @@ export type WorktreeDiff = {
   truncated: boolean;
   /** There is work not yet in a commit — a reap now would destroy it. */
   uncommitted: boolean;
+  /**
+   * Project branches that already contain these commits, so merging into them
+   * would do nothing. Empty until the work is merged, and empty again once the
+   * agent commits something new.
+   */
+  merged_into: string[];
 };
 
 /** What one Model cost across the Turns that used it. */
