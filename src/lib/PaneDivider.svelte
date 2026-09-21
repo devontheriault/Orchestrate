@@ -33,6 +33,10 @@
   let value = $state(0);
   let ceiling = $state(0);
 
+  /** Latest pointer position, and the frame booked to act on it. */
+  let pointerX = 0;
+  let frame = 0;
+
   /** Measure the pane being sized and how far right it may grow. */
   function measure() {
     const pane = el.previousElementSibling as HTMLElement | null;
@@ -60,6 +64,31 @@
     return Math.min(max, Math.max(min, w));
   }
 
+  /** Push a width out, keeping the announced value in step. */
+  function apply(w: number) {
+    const next = clamp(w);
+    value = Math.round(next);
+    onresize(next);
+  }
+
+  /**
+   * Act on the newest pointer position, once per frame.
+   *
+   * Pointer events arrive faster than the screen repaints, and every one of
+   * them used to resize the pane. Collapsing them onto a frame means the seam
+   * is laid out exactly as often as it is drawn.
+   */
+  function flush() {
+    frame = 0;
+    if (!dragging) return;
+    apply(pointerX - origin);
+  }
+
+  function schedule() {
+    if (frame) return;
+    frame = requestAnimationFrame(flush);
+  }
+
   function onpointerdown(e: PointerEvent) {
     if (e.button !== 0) return;
     const m = measure();
@@ -68,6 +97,7 @@
     max = m.max;
     value = Math.round(m.width);
     ceiling = Math.round(m.max);
+    pointerX = e.clientX;
     dragging = true;
     el.setPointerCapture(e.pointerId);
     document.body.classList.add("resizing-panes");
@@ -76,17 +106,63 @@
 
   function onpointermove(e: PointerEvent) {
     if (!dragging) return;
-    const w = clamp(e.clientX - origin);
-    value = Math.round(w);
-    onresize(w);
+    pointerX = e.clientX;
+    schedule();
   }
 
-  function end(e: PointerEvent) {
+  function end() {
     if (!dragging) return;
     dragging = false;
-    if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
+    if (frame) {
+      cancelAnimationFrame(frame);
+      frame = 0;
+    }
     document.body.classList.remove("resizing-panes");
   }
+
+  /**
+   * The pointer owns the window for the length of a drag.
+   *
+   * Capture alone isn't enough: it can be handed back early — a window resize
+   * or a focus change during the drag is enough to do it — and when that
+   * happened the seam simply stopped following the pointer while still looking
+   * like it was being dragged. Listening on the window means the drag survives
+   * losing capture, and `lostpointercapture` ends it cleanly rather than
+   * leaving the app wedged in the resize cursor.
+   */
+  $effect(() => {
+    if (!dragging) return;
+
+    const move = (e: PointerEvent) => onpointermove(e);
+    const stop = () => end();
+
+    // The window may change size mid-drag; the origin and the ceiling the
+    // drag was clamped against are both measured from it.
+    const remeasure = () => {
+      const m = measure();
+      if (!m) return;
+      origin = m.left;
+      max = m.max;
+      ceiling = Math.round(m.max);
+      // Re-run the drag against the new bounds, so the seam stays under the
+      // pointer instead of holding a width the window no longer has room for.
+      schedule();
+    };
+
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop);
+    window.addEventListener("pointercancel", stop);
+    window.addEventListener("resize", remeasure);
+    el.addEventListener("lostpointercapture", stop);
+
+    return () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stop);
+      window.removeEventListener("pointercancel", stop);
+      window.removeEventListener("resize", remeasure);
+      el.removeEventListener("lostpointercapture", stop);
+    };
+  });
 
   function onkeydown(e: KeyboardEvent) {
     const step = e.shiftKey ? 48 : 16;
@@ -104,9 +180,7 @@
     max = m.max;
     ceiling = Math.round(m.max);
     e.preventDefault();
-    const w = clamp(m.width + delta);
-    value = Math.round(w);
-    onresize(w);
+    apply(m.width + delta);
   }
 
   /** Report an accurate width the moment the separator is focused. */
@@ -134,9 +208,6 @@
   aria-valuemax={ceiling}
   tabindex="0"
   {onpointerdown}
-  {onpointermove}
-  onpointerup={end}
-  onpointercancel={end}
   {onkeydown}
   {onfocus}
   ondblclick={onreset}
