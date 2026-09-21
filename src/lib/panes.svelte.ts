@@ -11,23 +11,42 @@ const STORAGE_KEY = "devcode:panes";
 
 /** Below this the project list is drawn as a rail of initials, not a tree. */
 export const MIN_PROJECTS = 150;
-/** A rail is still draggable, so the floor sits below the collapse point. */
-export const MIN_PROJECTS_DRAG = 40;
+/**
+ * A rail is still draggable, so the floor sits below the collapse point — but
+ * not below the rail's own natural width (`--rail`, 3.4rem at the largest root
+ * font size). Anything narrower would be a stretch of travel where the pointer
+ * moves and the seam can't follow it, which reads as a stuck drag.
+ */
+export const MIN_PROJECTS_DRAG = 56;
 /** The detail pane flexes, but never below this. */
 export const MIN_DETAIL = 280;
 
+/** Long enough to outlast a drag, short enough to survive a sudden quit. */
+const SAVE_DEBOUNCE = 200;
+
 class Panes {
   projects = $state<number | null>(null);
+
+  private timer: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
     if (typeof localStorage === "undefined") return;
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return;
-      const v = JSON.parse(raw) as { projects?: number | null };
-      this.projects = typeof v.projects === "number" ? v.projects : null;
+      if (raw) {
+        const v = JSON.parse(raw) as { projects?: number | null };
+        this.projects =
+          typeof v.projects === "number"
+            ? Math.max(MIN_PROJECTS_DRAG, v.projects)
+            : null;
+      }
     } catch {
       // A corrupt entry just means "use the defaults".
+    }
+
+    // The debounce below can still be in flight when the window goes away.
+    if (typeof window !== "undefined") {
+      window.addEventListener("pagehide", () => this.flush());
     }
   }
 
@@ -40,9 +59,33 @@ class Panes {
     }
   }
 
-  setProjects(w: number | null) {
-    this.projects = w;
+  /**
+   * Write the width out, but not on the drag's critical path.
+   *
+   * `localStorage` is synchronous, and a drag sets the width once per pointer
+   * event. Saving inline meant a blocking write between every pair of frames,
+   * which is what made the seam stutter and lag behind the cursor.
+   */
+  private queueSave() {
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = setTimeout(() => {
+      this.timer = null;
+      this.save();
+    }, SAVE_DEBOUNCE);
+  }
+
+  /** Commit a pending write immediately. */
+  flush() {
+    if (!this.timer) return;
+    clearTimeout(this.timer);
+    this.timer = null;
     this.save();
+  }
+
+  setProjects(w: number | null) {
+    if (this.projects === w) return;
+    this.projects = w;
+    this.queueSave();
   }
 
   /**

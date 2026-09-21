@@ -87,8 +87,14 @@
     sized.projects === null ? viewport.railed : sized.projects < MIN_PROJECTS,
   );
 
+  // A hand-sized pane keeps its width once it collapses, so the seam carries on
+  // tracking the pointer through the rail instead of snapping to the stylesheet
+  // rail and sitting there for the rest of the drag. An untouched pane still
+  // gets the rail the stylesheet picked.
   const paneStyle = $derived(
-    sized.projects !== null ? `--pane-projects: ${sized.projects}px` : "",
+    sized.projects !== null
+      ? `--pane-projects: ${sized.projects}px; --rail: ${sized.projects}px`
+      : "",
   );
 </script>
 

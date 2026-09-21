@@ -19,6 +19,7 @@ class Viewport {
   height = $state(800);
 
   private stopFn: (() => void) | null = null;
+  private frame = 0;
 
   /** True once the window is too tight for the tree at a readable width. */
   railed = $derived(this.width < RAIL_AT);
@@ -26,13 +27,36 @@ class Viewport {
   /** Begin tracking. Safe to call more than once. */
   start() {
     if (this.stopFn || typeof window === "undefined") return;
-    const measure = () => {
+
+    const apply = () => {
+      this.frame = 0;
       this.width = window.innerWidth;
       this.height = window.innerHeight;
     };
-    measure();
-    window.addEventListener("resize", measure);
-    this.stopFn = () => window.removeEventListener("resize", measure);
+
+    // A window drag produces size changes faster than the screen repaints, so
+    // coalesce them: one measurement per frame, always the latest one.
+    const schedule = () => {
+      if (this.frame) return;
+      this.frame = requestAnimationFrame(apply);
+    };
+
+    apply();
+
+    // `resize` on its own is unreliable mid-drag — webviews are free to hold it
+    // back until the drag ends, which is exactly when the panes look frozen.
+    // A ResizeObserver reports from layout instead, so it fires every frame the
+    // window actually changes size.
+    const ro = new ResizeObserver(schedule);
+    ro.observe(document.documentElement);
+    window.addEventListener("resize", schedule);
+
+    this.stopFn = () => {
+      window.removeEventListener("resize", schedule);
+      ro.disconnect();
+      if (this.frame) cancelAnimationFrame(this.frame);
+      this.frame = 0;
+    };
   }
 
   stop() {
