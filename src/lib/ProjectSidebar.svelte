@@ -84,8 +84,7 @@
 
   /**
    * The project in view: the one the selected agent belongs to, falling back to
-   * whatever the sidebar has selected. It titles the window from the top-left,
-   * so the output pane's header is left to name the agent alone.
+   * whatever the sidebar has selected. It titles the window from the top-left.
    */
   const currentProject = $derived(
     store.projects.find(
