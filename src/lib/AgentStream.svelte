@@ -44,16 +44,44 @@
     reapArmed = false;
   });
 
+  /**
+   * How far from the bottom still counts as following the stream. The same
+   * slack decides whether new output scrolls itself into view and whether the
+   * jump-to-bottom button appears, so the button shows exactly when the
+   * transcript has stopped following along.
+   */
+  const FOLLOW_SLACK = 120;
+
+  let atBottom = $state(true);
+
+  function syncAtBottom() {
+    const el = streamEl;
+    if (!el) return;
+    atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < FOLLOW_SLACK;
+  }
+
+  function jumpToBottom() {
+    const el = streamEl;
+    if (!el) return;
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    el.scrollTo({ top: el.scrollHeight, behavior: reduced ? "auto" : "smooth" });
+  }
+
   // On new events, only auto-scroll if the user is already near the bottom.
   $effect(() => {
     const len = store.eventsForSelected.length;
     if (!streamEl || len === 0) return;
     const el = streamEl;
-    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < FOLLOW_SLACK;
     if (nearBottom) {
       requestAnimationFrame(() => {
         el.scrollTop = el.scrollHeight;
+        syncAtBottom();
       });
+    } else {
+      // Output that arrives while the user is reading back pushes the bottom
+      // further away, so the button has to notice without a scroll of its own.
+      syncAtBottom();
     }
   });
 
@@ -63,6 +91,7 @@
     if (!streamEl || !id) return;
     requestAnimationFrame(() => {
       streamEl!.scrollTop = streamEl!.scrollHeight;
+      syncAtBottom();
     });
   });
 
@@ -221,75 +250,98 @@
   {#if store.selectedAgent && store.detailTab === "diff"}
     <AgentDiff />
   {:else}
-    <div class="stream" bind:this={streamEl}>
-      {#if store.selectedAgent?.state === "failed" && store.selectedAgent.fail_reason}
-        <div class="fail-banner">
-          <span class="label">Failed</span>
-          <span class="reason">{store.selectedAgent.fail_reason}</span>
-        </div>
-      {/if}
+    <div class="stream-wrap">
+      <div class="stream" bind:this={streamEl} onscroll={syncAtBottom}>
+        {#if store.selectedAgent?.state === "failed" && store.selectedAgent.fail_reason}
+          <div class="fail-banner">
+            <span class="label">Failed</span>
+            <span class="reason">{store.selectedAgent.fail_reason}</span>
+          </div>
+        {/if}
 
-      {#if drafting}
-        <div class="hint draft-hint">
-          <p>This agent's output will appear here.</p>
-          <p class="sub">
-            Describe the task below and spawn it — it gets a fresh worktree and
-            branch of its own.
-          </p>
-        </div>
-      {:else if !store.selectedAgent}
-        <div class="hint">Open a project and pick one of its agents to see its output.</div>
-      {:else if store.eventsForSelected.length === 0}
-        <div class="hint">
-          {store.selectedAgent.state === "running"
-            ? "Waiting for output…"
-            : "No events on record."}
-        </div>
-      {:else}
-        {#each store.eventsForSelected as ev, i (i)}
-          {#each classify(ev) as k}
-            {#if k.kind === "prompt"}
-              <div class="block prompt-block">{k.text}</div>
-            {:else if k.kind === "text"}
-              <div class="block text"><Markdown text={k.text} /></div>
-            {:else if k.kind === "tool_use"}
-              <details class="block tool">
-                <summary>→ {k.name} <span class="mono">{shortenInput(k.input)}</span></summary>
-                <pre>{JSON.stringify(k.input, null, 2)}</pre>
-              </details>
-            {:else if k.kind === "tool_result"}
-              <details class="block result">
-                <summary>← result</summary>
-                <pre>{toolResultText(k.content)}</pre>
-              </details>
-            {:else if k.kind === "thinking"}
-              <details class="block thinking">
-                <summary>thinking</summary>
-                <div class="thinking-body"><Markdown text={k.text} /></div>
-              </details>
-            {:else if k.kind === "system"}
-              <div class="block system">session: {k.subtype}</div>
-            {:else if k.kind === "result"}
-              <div class="block done" class:err={k.is_error}>
-                {k.is_error ? "✗ error" : "✓ done"}
-                {#if k.duration_ms != null}
-                  — {formatDuration(k.duration_ms)}
-                {/if}
-                {#if k.output_tokens != null}
-                  · {formatTokens(k.output_tokens)} tok
-                {/if}
-                {#if k.is_error && k.result}
-                  — {k.result}
-                {/if}
-              </div>
-            {:else}
-              <details class="block raw-detail">
-                <summary>event: {k.type ?? "unknown"}</summary>
-                <pre>{JSON.stringify(ev.event, null, 2)}</pre>
-              </details>
-            {/if}
+        {#if drafting}
+          <div class="hint draft-hint">
+            <p>This agent's output will appear here.</p>
+            <p class="sub">
+              Describe the task below and spawn it — it gets a fresh worktree and
+              branch of its own.
+            </p>
+          </div>
+        {:else if !store.selectedAgent}
+          <div class="hint">Open a project and pick one of its agents to see its output.</div>
+        {:else if store.eventsForSelected.length === 0}
+          <div class="hint">
+            {store.selectedAgent.state === "running"
+              ? "Waiting for output…"
+              : "No events on record."}
+          </div>
+        {:else}
+          {#each store.eventsForSelected as ev, i (i)}
+            {#each classify(ev) as k}
+              {#if k.kind === "prompt"}
+                <div class="block prompt-block">{k.text}</div>
+              {:else if k.kind === "text"}
+                <div class="block text"><Markdown text={k.text} /></div>
+              {:else if k.kind === "tool_use"}
+                <details class="block tool">
+                  <summary>→ {k.name} <span class="mono">{shortenInput(k.input)}</span></summary>
+                  <pre>{JSON.stringify(k.input, null, 2)}</pre>
+                </details>
+              {:else if k.kind === "tool_result"}
+                <details class="block result">
+                  <summary>← result</summary>
+                  <pre>{toolResultText(k.content)}</pre>
+                </details>
+              {:else if k.kind === "thinking"}
+                <details class="block thinking">
+                  <summary>thinking</summary>
+                  <div class="thinking-body"><Markdown text={k.text} /></div>
+                </details>
+              {:else if k.kind === "system"}
+                <div class="block system">session: {k.subtype}</div>
+              {:else if k.kind === "result"}
+                <div class="block done" class:err={k.is_error}>
+                  {k.is_error ? "✗ error" : "✓ done"}
+                  {#if k.duration_ms != null}
+                    — {formatDuration(k.duration_ms)}
+                  {/if}
+                  {#if k.output_tokens != null}
+                    · {formatTokens(k.output_tokens)} tok
+                  {/if}
+                  {#if k.is_error && k.result}
+                    — {k.result}
+                  {/if}
+                </div>
+              {:else}
+                <details class="block raw-detail">
+                  <summary>event: {k.type ?? "unknown"}</summary>
+                  <pre>{JSON.stringify(ev.event, null, 2)}</pre>
+                </details>
+              {/if}
+            {/each}
           {/each}
-        {/each}
+        {/if}
+      </div>
+      {#if !atBottom}
+        <!-- Only while the transcript has been scrolled away from: the way
+             back down is one click, in the gap above the composer. -->
+        <button
+          class="to-bottom"
+          onclick={jumpToBottom}
+          aria-label="Jump to the latest output"
+          title="Jump to the latest output"
+        >
+          <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+            <path
+              d="M8 3v9M8 12l-4-4M8 12l4-4"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+        </button>
       {/if}
     </div>
     <AgentComposer />
@@ -419,6 +471,15 @@
     font-weight: 500;
   }
 
+  /* Holds the transcript and the jump-to-bottom button that floats over it. */
+  .stream-wrap {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
   .stream {
     flex: 1;
     min-height: 0;
@@ -428,6 +489,41 @@
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
+  }
+
+  /* Centred on the transcript's own edge, just above the composer: the button
+     sits where the newest output is, which is where the eye already is. */
+  .to-bottom {
+    position: absolute;
+    bottom: 0.6rem;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 2rem;
+    height: 2rem;
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--border);
+    border-radius: 50%;
+    background: var(--panel-bg);
+    color: var(--fg-muted);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.16);
+    cursor: pointer;
+    padding: 0;
+    animation: to-bottom-in 0.12s ease;
+  }
+
+  .to-bottom:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  @keyframes to-bottom-in {
+    from { opacity: 0; transform: translate(-50%, 0.3rem); }
+    to { opacity: 1; transform: translate(-50%, 0); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .to-bottom { animation: none; }
   }
 
   .hint {
