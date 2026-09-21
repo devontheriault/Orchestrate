@@ -5,9 +5,6 @@
   import Markdown from "./Markdown.svelte";
   import type { AgentEvent } from "./api";
 
-  /** Present only when the project tree is off-screen, on a narrow window. */
-  let { onBack }: { onBack?: () => void } = $props();
-
   /** The blank page for an agent that hasn't been spawned yet. */
   const drafting = $derived(store.drafting && !store.selectedAgent);
 
@@ -226,11 +223,6 @@
 
 <section>
   <header>
-    {#if onBack}
-      <button class="back" onclick={onBack} title="Back to projects" aria-label="Back to projects"
-        >←</button
-      >
-    {/if}
     {#if store.selectedAgent}
       <div class="head-left">
         <div class="prompt">{store.selectedAgent.task.prompt}</div>
@@ -419,25 +411,6 @@
     justify-content: space-between;
     gap: 0.5rem 1rem;
     min-height: 3.2rem;
-  }
-
-  .back {
-    flex: none;
-    width: 1.9rem;
-    height: 1.9rem;
-    padding: 0;
-    border-radius: 5px;
-    border: 1px solid var(--border);
-    background: var(--surface);
-    color: var(--fg);
-    cursor: pointer;
-    font-size: 0.95rem;
-    line-height: 1;
-  }
-
-  .back:hover {
-    border-color: var(--accent);
-    color: var(--accent);
   }
 
   .head-left {

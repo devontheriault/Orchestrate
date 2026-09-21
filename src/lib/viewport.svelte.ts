@@ -1,13 +1,18 @@
 /**
  * The window's size, as reactive state, plus the layout mode derived from it.
  *
- * Most of the responsive work is plain CSS; this exists for the parts that
- * can't be done in CSS alone — dropping a pane from the DOM when the window is
- * too narrow to hold both at a usable width.
+ * Most of the responsive work is plain CSS; this exists for the one thing CSS
+ * can't decide on its own — how the project pane gives up width when the
+ * window runs out of it.
  */
 
-/** Below this, only one of (project tree, detail) is on screen at a time. */
-const NARROW_AT = 760;
+/**
+ * Below this, the window can't hold a readable tree and a readable detail pane
+ * at the same time, so the tree shrinks to a rail of initials. It never leaves:
+ * switching projects and agents is the app's main move, and a navigation pane
+ * you have to go back to isn't navigation.
+ */
+const RAIL_AT = 520;
 
 class Viewport {
   width = $state(1280);
@@ -15,12 +20,8 @@ class Viewport {
 
   private stopFn: (() => void) | null = null;
 
-  /**
-   * Too narrow for the tree and the detail pane side by side. Above it both
-   * fit: the tree carries the agents now, so it earns its width at any size
-   * the window can spare it, and only a hand-dragged pane becomes a rail.
-   */
-  narrow = $derived(this.width < NARROW_AT);
+  /** True once the window is too tight for the tree at a readable width. */
+  railed = $derived(this.width < RAIL_AT);
 
   /** Begin tracking. Safe to call more than once. */
   start() {

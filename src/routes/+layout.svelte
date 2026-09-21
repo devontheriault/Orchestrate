@@ -22,7 +22,7 @@
 
     /* Panes are sized from the window, not fixed: they give up width as the
        window narrows and take it back as it widens, within readable bounds. */
-    --pane-projects: clamp(11rem, 20vw, 20rem);
+    --pane-projects: clamp(12rem, 20vw, 20rem);
     --rail: 3.4rem;
     /* Breathing room scales too, so a narrow window spends it on content. */
     --pad-x: clamp(0.6rem, 1.1vw, 1.1rem);

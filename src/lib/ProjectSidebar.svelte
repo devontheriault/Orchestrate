@@ -4,12 +4,8 @@
   import { usage } from "./usage.svelte";
   import AgentTree from "./AgentTree.svelte";
 
-  let {
-    /** Rail mode: initials only, for windows too narrow to spare the width. */
-    collapsed = false,
-    /** Take the whole window: the detail pane is off-screen on narrow windows. */
-    fill = false,
-  }: { collapsed?: boolean; fill?: boolean } = $props();
+  /** Rail mode: initials only, for windows too narrow to spare the width. */
+  let { collapsed = false }: { collapsed?: boolean } = $props();
 
   /** The rail has no room to nest agents, so they break out beside it. */
   type Flyout = { id: string; top: number; left: number; maxHeight: number };
@@ -95,7 +91,7 @@
   }
 </script>
 
-<aside bind:this={asideEl} class:collapsed class:fill>
+<aside bind:this={asideEl} class:collapsed>
   <header>
     {#if !collapsed}<span class="title">Projects</span>{/if}
     <button class="add" onclick={pickAndAdd} title="Add project" aria-label="Add project"
@@ -225,12 +221,6 @@
   aside.collapsed {
     width: var(--rail);
     flex-basis: var(--rail);
-  }
-
-  /* Narrow windows give the whole window to the tree, then to the agent. */
-  aside.fill {
-    width: auto;
-    flex: 1 1 auto;
   }
 
   header {
@@ -584,6 +574,8 @@
     position: fixed;
     z-index: 40;
     width: 17rem;
+    /* Anchored to the rail's right edge, so this is all the room there is. */
+    max-width: calc(100vw - var(--rail) - 1rem);
     display: flex;
     flex-direction: column;
     background: var(--panel-bg);

@@ -75,22 +75,16 @@
     store.orphans.length > 0 && !store.orphanBannerDismissed,
   );
 
-  // Narrow windows can't hold the project tree and the detail pane side by
-  // side, so they show one at a time: the tree until an agent is picked — or a
-  // new one started — then the detail pane, with a way back.
-  const narrow = $derived(viewport.narrow);
-  const detailBusy = $derived(!!store.selectedAgentId || store.drafting);
-  const showTree = $derived(!narrow || !detailBusy);
-  const showDetail = $derived(!narrow || detailBusy);
-
   // Dragged pane width, held to what the current window can actually fit.
   const sized = $derived(panes.fit(viewport.width));
 
-  // Only a pane the user has dragged in this far becomes a rail of initials —
-  // a narrow window has the tree to itself instead, since the agents nest
-  // inside it and need the room.
+  // The project pane is always on screen — it's how you move between projects
+  // and agents. When there's too little room for a tree it becomes a rail of
+  // initials, with the agents breaking out beside it, rather than going away.
+  // A hand-sized pane decides that for itself; an untouched one follows the
+  // window.
   const railed = $derived(
-    !narrow && sized.projects !== null && sized.projects < MIN_PROJECTS,
+    sized.projects === null ? viewport.railed : sized.projects < MIN_PROJECTS,
   );
 
   const paneStyle = $derived(
@@ -122,21 +116,15 @@
 {/if}
 
 <main style={paneStyle}>
-  {#if showTree}
-    <ProjectSidebar collapsed={railed} fill={narrow} />
-  {/if}
-  {#if showTree && showDetail}
-    <PaneDivider
-      label="Resize project list"
-      min={MIN_PROJECTS_DRAG}
-      minLast={MIN_DETAIL}
-      onresize={(w) => panes.setProjects(w)}
-      onreset={() => panes.setProjects(null)}
-    />
-  {/if}
-  {#if showDetail}
-    <AgentStream onBack={narrow ? () => store.selectAgent(null) : undefined} />
-  {/if}
+  <ProjectSidebar collapsed={railed} />
+  <PaneDivider
+    label="Resize project list"
+    min={MIN_PROJECTS_DRAG}
+    minLast={MIN_DETAIL}
+    onresize={(w) => panes.setProjects(w)}
+    onreset={() => panes.setProjects(null)}
+  />
+  <AgentStream />
 </main>
 
 {#if usage.open}
