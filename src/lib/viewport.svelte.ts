@@ -3,15 +3,11 @@
  *
  * Most of the responsive work is plain CSS; this exists for the parts that
  * can't be done in CSS alone — dropping a pane from the DOM when the window is
- * too narrow to hold all three at a usable width.
+ * too narrow to hold both at a usable width.
  */
 
-/** Below this, the project list collapses to a rail of initials. */
-const COMPACT_AT = 1080;
-/** Below this, only one of (agent list, detail) is on screen at a time. */
+/** Below this, only one of (project tree, detail) is on screen at a time. */
 const NARROW_AT = 760;
-
-export type Layout = "wide" | "compact" | "narrow";
 
 class Viewport {
   width = $state(1280);
@@ -19,12 +15,12 @@ class Viewport {
 
   private stopFn: (() => void) | null = null;
 
-  layout = $derived<Layout>(
-    this.width < NARROW_AT ? "narrow" : this.width < COMPACT_AT ? "compact" : "wide",
-  );
-
-  /** True once the window is too narrow for a full project list. */
-  railed = $derived(this.layout !== "wide");
+  /**
+   * Too narrow for the tree and the detail pane side by side. Above it both
+   * fit: the tree carries the agents now, so it earns its width at any size
+   * the window can spare it, and only a hand-dragged pane becomes a rail.
+   */
+  narrow = $derived(this.width < NARROW_AT);
 
   /** Begin tracking. Safe to call more than once. */
   start() {

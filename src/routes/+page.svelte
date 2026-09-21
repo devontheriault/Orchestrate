@@ -1,20 +1,13 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
   import ProjectSidebar from "$lib/ProjectSidebar.svelte";
-  import AgentList from "$lib/AgentList.svelte";
   import AgentStream from "$lib/AgentStream.svelte";
   import UsageWindow from "$lib/UsageWindow.svelte";
   import PaneDivider from "$lib/PaneDivider.svelte";
   import { store } from "$lib/store.svelte";
   import { usage } from "$lib/usage.svelte";
   import { viewport } from "$lib/viewport.svelte";
-  import {
-    panes,
-    MIN_AGENTS,
-    MIN_DETAIL,
-    MIN_PROJECTS,
-    MIN_PROJECTS_DRAG,
-  } from "$lib/panes.svelte";
+  import { panes, MIN_DETAIL, MIN_PROJECTS, MIN_PROJECTS_DRAG } from "$lib/panes.svelte";
 
   onMount(() => {
     viewport.start();
@@ -82,30 +75,26 @@
     store.orphans.length > 0 && !store.orphanBannerDismissed,
   );
 
-  // Narrow windows can't hold the agent list and the detail pane side by side,
-  // so they show one at a time: the list until an agent is picked — or a new
-  // one started — then the detail pane, with a way back.
-  const narrow = $derived(viewport.layout === "narrow");
+  // Narrow windows can't hold the project tree and the detail pane side by
+  // side, so they show one at a time: the tree until an agent is picked — or a
+  // new one started — then the detail pane, with a way back.
+  const narrow = $derived(viewport.narrow);
   const detailBusy = $derived(!!store.selectedAgentId || store.drafting);
-  const showList = $derived(!narrow || !detailBusy);
+  const showTree = $derived(!narrow || !detailBusy);
   const showDetail = $derived(!narrow || detailBusy);
 
-  // Dragged pane widths, held to what the current window can actually fit.
-  const sized = $derived(panes.fit(viewport.width, showList && showDetail));
+  // Dragged pane width, held to what the current window can actually fit.
+  const sized = $derived(panes.fit(viewport.width));
 
-  // A hand-sized project pane decides for itself whether it's a rail; an
-  // untouched one follows the window.
+  // Only a pane the user has dragged in this far becomes a rail of initials —
+  // a narrow window has the tree to itself instead, since the agents nest
+  // inside it and need the room.
   const railed = $derived(
-    sized.projects === null ? viewport.railed : sized.projects < MIN_PROJECTS,
+    !narrow && sized.projects !== null && sized.projects < MIN_PROJECTS,
   );
 
   const paneStyle = $derived(
-    [
-      sized.projects !== null ? `--pane-projects: ${sized.projects}px` : "",
-      sized.agents !== null ? `--pane-agents: ${sized.agents}px` : "",
-    ]
-      .filter(Boolean)
-      .join("; "),
+    sized.projects !== null ? `--pane-projects: ${sized.projects}px` : "",
   );
 </script>
 
@@ -133,24 +122,16 @@
 {/if}
 
 <main style={paneStyle}>
-  <ProjectSidebar collapsed={railed} />
-  <PaneDivider
-    label="Resize project list"
-    min={MIN_PROJECTS_DRAG}
-    minLast={showList && showDetail ? MIN_AGENTS + MIN_DETAIL : MIN_DETAIL}
-    onresize={(w) => panes.setProjects(w)}
-    onreset={() => panes.setProjects(null)}
-  />
-  {#if showList}
-    <AgentList onSpawn={() => store.startDraft()} fill={narrow} />
+  {#if showTree}
+    <ProjectSidebar collapsed={railed} fill={narrow} />
   {/if}
-  {#if showList && showDetail}
+  {#if showTree && showDetail}
     <PaneDivider
-      label="Resize agent list"
-      min={MIN_AGENTS}
+      label="Resize project list"
+      min={MIN_PROJECTS_DRAG}
       minLast={MIN_DETAIL}
-      onresize={(w) => panes.setAgents(w)}
-      onreset={() => panes.setAgents(null)}
+      onresize={(w) => panes.setProjects(w)}
+      onreset={() => panes.setProjects(null)}
     />
   {/if}
   {#if showDetail}

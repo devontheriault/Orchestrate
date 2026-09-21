@@ -5,7 +5,7 @@
   import Markdown from "./Markdown.svelte";
   import type { AgentEvent } from "./api";
 
-  /** Present only when the agent list is off-screen, on a narrow window. */
+  /** Present only when the project tree is off-screen, on a narrow window. */
   let { onBack }: { onBack?: () => void } = $props();
 
   /** The blank page for an agent that hasn't been spawned yet. */
@@ -227,7 +227,7 @@
 <section>
   <header>
     {#if onBack}
-      <button class="back" onclick={onBack} title="Back to agents" aria-label="Back to agents"
+      <button class="back" onclick={onBack} title="Back to projects" aria-label="Back to projects"
         >←</button
       >
     {/if}
@@ -338,7 +338,7 @@
           </p>
         </div>
       {:else if !store.selectedAgent}
-        <div class="hint">Select an agent to see its output.</div>
+        <div class="hint">Open a project and pick one of its agents to see its output.</div>
       {:else if store.eventsForSelected.length === 0}
         <div class="hint">
           {store.selectedAgent.state === "running"
