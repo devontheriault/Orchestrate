@@ -385,6 +385,9 @@ class AppStore {
     if (id === this.selectedAgentId && !wasDrafting) return;
     this.selectedAgentId = id;
     this.clearDiff();
+    // Opening an Agent starts on its output; the diff is something you go look
+    // for, so it shouldn't carry over from whichever Agent was open before.
+    this.detailTab = "output";
     if (id) this.hydrateEvents(id);
   }
 
