@@ -28,15 +28,21 @@
   const options = $derived.by(() => {
     const known = MODES.some((m) => m.id === value);
     return [
-      ...MODES.map((m) => ({ id: m.id, name: m.name, note: m.note })),
-      ...(known ? [] : [{ id: value, name: value, note: "" }]),
+      ...MODES.map((m) => ({ id: m.id, name: m.name, note: m.note, tone: m.tone as string })),
+      // A mode this build predates has no colour of its own, so it wears none.
+      ...(known ? [] : [{ id: value, name: value, note: "", tone: "" }]),
     ];
   });
 
   const selected = $derived(options.find((o) => o.id === value) ?? options[0]);
 
-  /** The default needs no announcing; anything else is worth the eye. */
-  const marked = $derived(value !== DEFAULT_MODE);
+  /**
+   * Which colour the trigger wears. Every mode has one: the control should
+   * look the same whichever is picked, and change only in colour when the
+   * choice changes — a mode that styles itself out of existence reads as no
+   * choice having been made at all.
+   */
+  const tone = $derived(selected?.tone || null);
 
   let open = $state(false);
   /** Index the keyboard is on while the menu is up. */
@@ -191,7 +197,7 @@
     type="button"
     class="btn btn-select trigger"
     class:btn-ghost={compact}
-    class:marked
+    data-tone={tone}
     {disabled}
     aria-haspopup="listbox"
     aria-expanded={open}
@@ -242,6 +248,7 @@
         role="option"
         aria-selected={option.id === value}
         data-active={i === active}
+        data-tone={option.id === value ? option.tone || null : null}
         class="menu-item row"
         class:on={option.id === value}
         onclick={() => pick(option.id)}
@@ -278,15 +285,39 @@
     padding: 0.5rem 0.7rem;
   }
 
-  /* Anything but the default is worth seeing without reading: a plan-mode agent
-     writes nothing, and finding that out from an empty diff is too late. */
-  .trigger.marked {
-    color: var(--accent);
-    border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  /* The mode is worth seeing without reading — a plan-mode agent writes
+     nothing, and finding that out from an empty diff is too late — so the
+     chosen mode always colours the control. One treatment for all of them:
+     picking a different mode changes the colour, not the shape. */
+  [data-tone] {
+    --mode-fg: var(--fg);
+    --mode-border: transparent;
   }
 
-  .trigger.marked:hover:not(:disabled) {
-    color: var(--accent);
+  [data-tone="accent"] {
+    --mode-fg: var(--accent);
+    --mode-border: color-mix(in srgb, var(--accent) 45%, transparent);
+  }
+
+  /* Acting freely is the louder of the two, and reads as the warning it is. */
+  [data-tone="warn"] {
+    --mode-fg: var(--warning-text);
+    --mode-border: var(--warning-soft-border);
+  }
+
+  .trigger[data-tone] {
+    color: var(--mode-fg);
+    border-color: var(--mode-border);
+  }
+
+  .trigger[data-tone]:hover:not(:disabled) {
+    color: var(--mode-fg);
+  }
+
+  /* The picked row answers in the same colour, so the menu and the control it
+     came from agree rather than both saying "selected" in their own accent. */
+  .row.on[data-tone] {
+    color: var(--mode-fg);
   }
 
   /* A two-line row: the mode, and what it does under it. */
