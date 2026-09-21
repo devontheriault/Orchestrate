@@ -1,5 +1,6 @@
-//! Read-only inspection of an Agent's Worktree, plus the one write the user can
-//! make from the app: committing the Agent's work.
+//! Inspection of an Agent's Worktree, plus the two writes the user can make
+//! from the app: committing the Agent's work, and landing it on a branch of
+//! the Project. Neither ever happens on an Agent's own initiative.
 //!
 //! Everything here is expressed relative to the Agent's *base* — the commit its
 //! branch was cut from at Spawn. That makes one diff answer the question the
@@ -13,6 +14,7 @@ use serde::Serialize;
 use tokio::process::Command;
 
 use crate::error::{Error, Result};
+use crate::paths;
 
 /// Cap on the patch text we hand the frontend. A runaway diff would otherwise
 /// pin the webview; past this point the user should read the worktree directly.
@@ -309,6 +311,179 @@ fn truncate_patch(patch: String) -> (String, bool) {
     (patch[..cut].to_owned(), true)
 }
 
+/// The branches a Land can target in a Project.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Branches {
+    /// The Project's checked-out branch, or `None` on a detached HEAD. Landing
+    /// onto this one merges in place; anything else borrows a worktree.
+    pub current: Option<String>,
+    /// Local branches worth landing onto: the current one first, then the rest
+    /// alphabetically, with every Agent branch left out.
+    pub names: Vec<String>,
+}
+
+/// A completed Land.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Landed {
+    pub target: String,
+    /// The merge commit now at the tip of `target`.
+    pub sha: String,
+}
+
+/// The Project's local branches, as the Land picker offers them.
+pub async fn branches(project_path: &Path) -> Result<Branches> {
+    let current = stdout(project_path, &["branch", "--show-current"]).await?;
+    let current = match current.trim() {
+        "" => None,
+        name => Some(name.to_owned()),
+    };
+
+    let listed = stdout(
+        project_path,
+        &["for-each-ref", "--format=%(refname:short)", "refs/heads"],
+    )
+    .await?;
+
+    let mut names: Vec<String> = listed
+        .lines()
+        .map(str::trim)
+        .filter(|n| !n.is_empty())
+        .filter(|n| !n.starts_with(crate::model::AGENT_BRANCH_PREFIX))
+        .map(str::to_owned)
+        .collect();
+    names.sort();
+
+    // The branch you are on is the one you usually mean, so it leads.
+    if let Some(cur) = &current {
+        if let Some(i) = names.iter().position(|n| n == cur) {
+            let cur = names.remove(i);
+            names.insert(0, cur);
+        }
+    }
+
+    Ok(Branches { current, names })
+}
+
+/// Merge `agent_branch` into `target`, with `--no-ff` so the Agent's work stays
+/// one identifiable unit in history.
+///
+/// When `target` is not the Project's checked-out branch the merge runs in a
+/// throwaway worktree, so a Land never moves the user off their own branch.
+/// When it is, the merge runs in place and the Project's tree must be clean.
+///
+/// A conflict aborts: the Project is left byte-identical to how it started and
+/// the colliding paths are reported. This app has no merge tool, so a
+/// half-merged tree is somewhere it could not get the Project back out of.
+pub async fn land(
+    project_path: &Path,
+    worktree_path: &Path,
+    agent_branch: &str,
+    target: &str,
+    message: &str,
+) -> Result<Landed> {
+    if !worktree_path.exists() {
+        return Err(Error::WorktreeMissing {
+            path: worktree_path.to_owned(),
+        });
+    }
+
+    // Only committed work lands. Anything still loose in the Worktree would be
+    // silently left behind, so say so instead of landing half the work.
+    if !stdout(worktree_path, &["status", "--porcelain"])
+        .await?
+        .trim()
+        .is_empty()
+    {
+        return Err(Error::WorktreeDirty {
+            path: worktree_path.to_owned(),
+        });
+    }
+
+    // Already an ancestor means there is nothing to merge; `git merge` would
+    // report "Already up to date" and exit zero, which reads as a success that
+    // did nothing.
+    let merged = run_with_index(
+        project_path,
+        &["merge-base", "--is-ancestor", agent_branch, target],
+        None,
+    )
+    .await?;
+    if merged.status.success() {
+        return Err(Error::NothingToLand {
+            branch: agent_branch.to_owned(),
+            target: target.to_owned(),
+        });
+    }
+
+    let current = stdout(project_path, &["branch", "--show-current"]).await?;
+    let in_place = current.trim() == target;
+
+    if in_place {
+        if !stdout(project_path, &["status", "--porcelain"])
+            .await?
+            .trim()
+            .is_empty()
+        {
+            return Err(Error::ProjectDirty {
+                branch: target.to_owned(),
+            });
+        }
+        return merge_into(project_path, agent_branch, target, message).await;
+    }
+
+    // Borrow the target branch into a worktree of our own, merge there, and
+    // hand it back. The user's checkout is never involved.
+    let borrowed = paths::worktrees_dir()?.join(format!("land-{}", crate::model::new_id()));
+    crate::worktree::add_existing(project_path, &borrowed, target).await?;
+    let landed = merge_into(&borrowed, agent_branch, target, message).await;
+    crate::worktree::release(project_path, &borrowed).await?;
+    landed
+}
+
+/// Run the merge in whichever worktree has `target` checked out, aborting and
+/// reporting the conflicted paths if it doesn't apply cleanly.
+async fn merge_into(dir: &Path, agent_branch: &str, target: &str, message: &str) -> Result<Landed> {
+    let merge = run_with_index(
+        dir,
+        &["merge", "--no-ff", "-m", message, agent_branch],
+        None,
+    )
+    .await?;
+
+    if !merge.status.success() {
+        // Read the conflicts before the abort clears them.
+        let conflicted = stdout(dir, &["diff", "--name-only", "--diff-filter=U"])
+            .await
+            .unwrap_or_default();
+        let files: Vec<&str> = conflicted
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect();
+
+        let _ = run_with_index(dir, &["merge", "--abort"], None).await;
+
+        if files.is_empty() {
+            // Not a conflict — something else went wrong, and the merge never
+            // started, so the tree is untouched either way.
+            return Err(Error::Git {
+                command: format!("merge --no-ff {agent_branch}"),
+                stderr: String::from_utf8_lossy(&merge.stderr).trim().to_owned(),
+            });
+        }
+        return Err(Error::MergeConflict {
+            target: target.to_owned(),
+            files: files.join(", "),
+        });
+    }
+
+    let sha = stdout(dir, &["rev-parse", "HEAD"]).await?;
+    Ok(Landed {
+        target: target.to_owned(),
+        sha: sha.trim().to_owned(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -563,5 +738,215 @@ mod tests {
         assert!(truncated);
         assert!(cut.len() <= MAX_PATCH_BYTES);
         assert!(cut.ends_with('\n'), "must not cut mid-line");
+    }
+
+    // --- Land -------------------------------------------------------------
+
+    impl Fixture {
+        /// Make a branch at the Project's current tip without switching to it.
+        async fn branch_at_head(&self, name: &str) {
+            stdout(self.repo.path(), &["branch", name]).await.unwrap();
+        }
+
+        /// Commit in the Project itself, as the user would.
+        async fn user_commits(&self, file: &str, contents: &str, message: &str) {
+            std::fs::write(self.repo.path().join(file), contents).unwrap();
+            stdout(self.repo.path(), &["add", "-A"]).await.unwrap();
+            stdout(self.repo.path(), &["commit", "-m", message])
+                .await
+                .unwrap();
+        }
+
+        async fn tip_of(&self, branch: &str) -> String {
+            stdout(self.repo.path(), &["rev-parse", branch])
+                .await
+                .unwrap()
+                .trim()
+                .to_owned()
+        }
+
+        async fn land_onto(&self, target: &str) -> Result<Landed> {
+            land(
+                self.repo.path(),
+                &self.wt_path(),
+                Self::BRANCH,
+                target,
+                "merge it",
+            )
+            .await
+        }
+    }
+
+    #[tokio::test]
+    async fn branches_lead_with_current_and_leave_out_agent_branches() {
+        let f = Fixture::new().await;
+        f.branch_at_head("zebra").await;
+        f.branch_at_head("alpha").await;
+
+        let b = branches(f.repo.path()).await.unwrap();
+
+        assert_eq!(b.current.as_deref(), Some("main"));
+        // Current first, the rest alphabetical, the Agent's own branch absent.
+        assert_eq!(b.names, vec!["main", "alpha", "zebra"]);
+    }
+
+    #[tokio::test]
+    async fn land_in_place_merges_onto_the_checked_out_branch() {
+        let _env = crate::test_util::StateEnv::new();
+        let f = Fixture::new().await;
+        f.agent_commits("agent.txt", "from the agent\n", "agent work")
+            .await;
+
+        let landed = f.land_onto("main").await.unwrap();
+
+        assert_eq!(landed.target, "main");
+        assert_eq!(landed.sha, f.tip_of("main").await);
+        // The work is in the Project's tree, not just its history.
+        assert_eq!(
+            std::fs::read_to_string(f.repo.path().join("agent.txt")).unwrap(),
+            "from the agent\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn land_makes_a_merge_commit_even_when_it_could_fast_forward() {
+        let _env = crate::test_util::StateEnv::new();
+        let f = Fixture::new().await;
+        f.agent_commits("agent.txt", "x\n", "agent work").await;
+
+        f.land_onto("main").await.unwrap();
+
+        // --no-ff: two parents, so the Agent's work stays one identifiable unit.
+        let parents = stdout(f.repo.path(), &["rev-list", "--parents", "-n", "1", "HEAD"])
+            .await
+            .unwrap();
+        assert_eq!(
+            parents.split_whitespace().count(),
+            3,
+            "expected commit + 2 parents, got {parents:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn land_onto_another_branch_borrows_a_worktree_and_leaves_the_user_put() {
+        let _env = crate::test_util::StateEnv::new();
+        let f = Fixture::new().await;
+        f.branch_at_head("feature").await;
+        f.agent_commits("agent.txt", "x\n", "agent work").await;
+
+        let main_before = f.tip_of("main").await;
+        let landed = f.land_onto("feature").await.unwrap();
+
+        assert_eq!(landed.target, "feature");
+        assert_eq!(landed.sha, f.tip_of("feature").await);
+        // The branch we were on is untouched, and we are still on it.
+        assert_eq!(f.tip_of("main").await, main_before);
+        assert_eq!(
+            branches(f.repo.path()).await.unwrap().current.as_deref(),
+            Some("main")
+        );
+        // The borrowed worktree is handed back, and `feature` is still ours.
+        assert!(stdout(f.repo.path(), &["worktree", "list"])
+            .await
+            .unwrap()
+            .matches("land-")
+            .next()
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn land_refuses_uncommitted_worktree_work() {
+        let _env = crate::test_util::StateEnv::new();
+        let f = Fixture::new().await;
+        f.agent_commits("agent.txt", "x\n", "agent work").await;
+        // Loose work that a Land would otherwise leave behind.
+        std::fs::write(f.wt_path().join("scratch.txt"), "not committed\n").unwrap();
+
+        let err = f.land_onto("main").await.unwrap_err();
+
+        assert!(
+            matches!(err, Error::WorktreeDirty { .. }),
+            "expected WorktreeDirty, got {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn land_in_place_refuses_a_dirty_project() {
+        let _env = crate::test_util::StateEnv::new();
+        let f = Fixture::new().await;
+        f.agent_commits("agent.txt", "x\n", "agent work").await;
+        std::fs::write(f.repo.path().join("tracked.txt"), "my own edit\n").unwrap();
+
+        let err = f.land_onto("main").await.unwrap_err();
+
+        assert!(
+            matches!(err, Error::ProjectDirty { .. }),
+            "expected ProjectDirty, got {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_dirty_project_does_not_block_landing_onto_another_branch() {
+        let _env = crate::test_util::StateEnv::new();
+        let f = Fixture::new().await;
+        f.branch_at_head("feature").await;
+        f.agent_commits("agent.txt", "x\n", "agent work").await;
+        // Uncommitted work of the user's own, irrelevant to a merge happening
+        // in a worktree of ours.
+        std::fs::write(f.repo.path().join("tracked.txt"), "my own edit\n").unwrap();
+
+        f.land_onto("feature").await.unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(f.repo.path().join("tracked.txt")).unwrap(),
+            "my own edit\n",
+            "the user's uncommitted work must survive"
+        );
+    }
+
+    #[tokio::test]
+    async fn land_refuses_when_there_is_nothing_to_land() {
+        let _env = crate::test_util::StateEnv::new();
+        let f = Fixture::new().await;
+        // The Agent committed nothing, so its branch is still an ancestor.
+
+        let err = f.land_onto("main").await.unwrap_err();
+
+        assert!(
+            matches!(err, Error::NothingToLand { .. }),
+            "expected NothingToLand, got {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn land_aborts_on_conflict_and_leaves_the_project_byte_identical() {
+        let _env = crate::test_util::StateEnv::new();
+        let f = Fixture::new().await;
+        f.agent_commits("tracked.txt", "the agent's line\n", "agent edit")
+            .await;
+        f.user_commits("tracked.txt", "my line\n", "my edit").await;
+
+        let before = f.tip_of("main").await;
+        let err = f.land_onto("main").await.unwrap_err();
+
+        match err {
+            Error::MergeConflict { target, files } => {
+                assert_eq!(target, "main");
+                assert!(files.contains("tracked.txt"), "got {files:?}");
+            }
+            other => panic!("expected MergeConflict, got {other:?}"),
+        }
+
+        // Byte-identical: same tip, same contents, no merge left in progress.
+        assert_eq!(f.tip_of("main").await, before);
+        assert_eq!(
+            std::fs::read_to_string(f.repo.path().join("tracked.txt")).unwrap(),
+            "my line\n"
+        );
+        assert!(stdout(f.repo.path(), &["status", "--porcelain"])
+            .await
+            .unwrap()
+            .trim()
+            .is_empty());
     }
 }

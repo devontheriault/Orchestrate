@@ -87,6 +87,44 @@
   async function doCommit() {
     if (await store.commit(message)) messageEdited = false;
   }
+
+  /** Which branch the land picker is pointing at. */
+  let target = $state("");
+
+  /**
+   * Which project we last asked for branches. A plain `let`, not `$state`, so
+   * reading it here doesn't make this effect depend on itself — and so a fresh
+   * `agents` array (they arrive constantly) doesn't re-run git on every event.
+   */
+  let branchesFor: string | null = null;
+
+  $effect(() => {
+    const project = store.selectedAgent?.project_id ?? null;
+    if (project === branchesFor) return;
+    branchesFor = project;
+    store.loadBranches();
+  });
+
+  // Point at the branch the project is on, and follow the list rather than
+  // leaving a name in the picker that no longer exists.
+  $effect(() => {
+    const names = store.branches?.names ?? [];
+    if (names.length === 0) {
+      target = "";
+    } else if (!names.includes(target)) {
+      target = store.branches?.current ?? names[0];
+    }
+  });
+
+  const landedOnto = $derived(store.selectedAgent?.landed_branch ?? null);
+
+  // Only committed work lands, and not out from under a working agent.
+  const canLand = $derived(
+    !running &&
+      !store.landing &&
+      !(store.diff?.uncommitted ?? false) &&
+      (store.branches?.names.length ?? 0) > 0,
+  );
 </script>
 
 <div class="diff-pane">
@@ -165,6 +203,44 @@
             >
               {store.committing ? "Committing…" : "Commit all changes"}
             </button>
+          </div>
+        </div>
+      {/if}
+
+      {#if diff.commits.length > 0}
+        <div class="land-box">
+          <div class="land-box-head">
+            <strong>Land this work</strong>
+            {#if landedOnto}
+              <span class="sub">already landed onto <code>{landedOnto}</code></span>
+            {/if}
+          </div>
+          <div class="land-box-foot">
+            {#if running}
+              <span class="sub">Stop the agent before landing — it is still writing.</span>
+            {:else if diff.uncommitted}
+              <span class="sub">Commit the loose work first — only commits land.</span>
+            {:else if (store.branches?.names.length ?? 0) === 0}
+              <span class="sub">No branches to land onto.</span>
+            {:else}
+              <span class="sub">
+                Merges <code>{store.selectedAgent?.branch}</code> in, keeping it one commit.
+              </span>
+            {/if}
+            <div class="land-controls">
+              <select bind:value={target} disabled={!canLand}>
+                {#each store.branches?.names ?? [] as name (name)}
+                  <option value={name}>{name}</option>
+                {/each}
+              </select>
+              <button
+                class="primary"
+                disabled={!canLand || target.length === 0}
+                onclick={() => store.land(target)}
+              >
+                {store.landing ? "Landing…" : "Land"}
+              </button>
+            </div>
           </div>
         </div>
       {/if}
@@ -444,6 +520,80 @@
   }
 
   .commit-box-foot button.primary:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+
+  /* Deliberately quieter than the commit box: landing is the ordinary next
+     step, not a warning that work is at risk. */
+  .land-box {
+    border: 1px solid var(--border);
+    background: var(--surface);
+    border-radius: 6px;
+    padding: 0.7rem 0.85rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+  }
+
+  .land-box-head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    font-size: 0.87rem;
+  }
+
+  .land-box-foot {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem 1rem;
+  }
+
+  .land-box-foot .sub {
+    flex: 1 1 12rem;
+  }
+
+  .land-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex: none;
+  }
+
+  .land-controls select {
+    font-family: inherit;
+    font-size: 0.83rem;
+    color: var(--fg);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 0.3rem 0.4rem;
+    max-width: 14rem;
+  }
+
+  .land-controls select:disabled {
+    opacity: 0.5;
+  }
+
+  .land-controls button.primary {
+    background: var(--accent);
+    border: 1px solid var(--accent);
+    /* Same pairing the composer's send button uses. */
+    color: var(--surface);
+    font-weight: 500;
+    border-radius: 5px;
+    padding: 0.35rem 0.85rem;
+    font-size: 0.83rem;
+    cursor: pointer;
+  }
+
+  .land-controls button.primary:hover:not(:disabled) {
+    filter: brightness(1.08);
+  }
+
+  .land-controls button.primary:disabled {
     opacity: 0.5;
     cursor: default;
   }
