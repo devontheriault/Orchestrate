@@ -18,9 +18,9 @@
    */
   const inFlight = $derived(store.sending || store.spawning);
   /**
-   * Whether what's typed now would be queued rather than sent. Needs a session
-   * to resume into later, so an agent that can't be continued at all still just
-   * offers Stop.
+   * Whether Enter would queue what's typed rather than send it. Needs a session
+   * to resume into later: on an agent that can't be continued at all there is
+   * nothing to line a message up behind.
    */
   const queueing = $derived(working && !!agent?.session_id);
 
@@ -122,20 +122,19 @@
           bind:value={prompt}
           onkeydown={onKeydown}
           rows="1"
-          class:two-up={queueing}
           disabled={inFlight}
           placeholder={drafting
             ? "What should the agent do?"
             : queueing
-              ? "Working… type to queue a message"
+              ? "Working… press Enter to queue a message"
               : working
                 ? "Working… stop it to change course"
                 : "Reply to this agent…"}
         ></textarea>
         <div class="slot">
           {#if working}
-            <!-- While the agent runs, interrupting it lives in the same corner
-                 as sending: one place to look, whichever the moment needs. -->
+            <!-- Stop takes the send button's place rather than sitting beside
+                 it: one corner, one button, whichever the moment calls for. -->
             <button
               class="send stop"
               onclick={() => store.stopAgent(agent!.id)}
@@ -146,29 +145,7 @@
                 <rect x="5" y="5" width="6" height="6" rx="1.2" fill="currentColor" />
               </svg>
             </button>
-          {/if}
-          {#if queueing}
-            <!-- Outlined rather than filled: the same gesture as send, but the
-                 message waits for the agent instead of reaching it now. -->
-            <button
-              class="send queue"
-              onclick={send}
-              disabled={inFlight || !prompt.trim()}
-              aria-label="Queue this message"
-              title="Queue this message for when the agent finishes (Enter)"
-            >
-              <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
-                <path
-                  d="M8 10.5V3.5M8 3.5L4.5 7M8 3.5L11.5 7M3.5 13.5h9"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.8"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                />
-              </svg>
-            </button>
-          {:else if !working}
+          {:else}
             <button
               class="send"
               onclick={send}
@@ -277,11 +254,6 @@
     line-height: var(--leading-normal);
   }
 
-  /* Clears both buttons when Stop and Queue share the corner. */
-  textarea.two-up {
-    padding-right: 5.1rem;
-  }
-
   textarea:focus {
     outline: none;
   }
@@ -291,15 +263,14 @@
     cursor: not-allowed;
   }
 
-  /* Pinned to the bottom-right of the box, so the buttons stay put as the text
-     grows — and Stop keeps its corner when a queue button appears beside it. */
+  /* Pinned to the bottom-right of the box, so whichever button the moment
+     calls for stays put as the text grows. */
   .slot {
     position: absolute;
     right: 0.45rem;
     bottom: 0.45rem;
     display: flex;
     align-items: center;
-    gap: var(--space-2);
   }
 
   .send {
@@ -336,18 +307,6 @@
   .send.stop {
     background: var(--danger);
     color: var(--on-danger);
-  }
-
-  /* Outlined: sending's sibling, held back a step. */
-  .send.queue {
-    background: none;
-    border: 1.5px solid var(--accent);
-    color: var(--accent);
-  }
-
-  .send.queue:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--accent) 14%, transparent);
-    filter: none;
   }
 
   .below {
