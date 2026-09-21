@@ -3,6 +3,7 @@
   import { store } from "./store.svelte";
   import { usage } from "./usage.svelte";
   import AgentTree from "./AgentTree.svelte";
+  import ThemeToggle from "./ThemeToggle.svelte";
 
   /** Rail mode: initials only, for windows too narrow to spare the width. */
   let { collapsed = false }: { collapsed?: boolean } = $props();
@@ -94,7 +95,7 @@
 <aside bind:this={asideEl} class:collapsed>
   <header>
     {#if !collapsed}<span class="title">Projects</span>{/if}
-    <button class="add" onclick={pickAndAdd} title="Add project" aria-label="Add project"
+    <button class="btn btn-icon add" onclick={pickAndAdd} title="Add project" aria-label="Add project"
       >+</button
     >
   </header>
@@ -107,7 +108,7 @@
     {:else}
       <div class="empty">
         No projects yet.<br />
-        <button onclick={pickAndAdd}>Add a project</button>
+        <button class="btn btn-lg" onclick={pickAndAdd}>Add a project</button>
       </div>
     {/if}
   {:else}
@@ -132,25 +133,25 @@
                 <span class="name">{collapsed ? initials(p.name) : p.name}</span>
                 {#if activity.running > 0}
                   <span
-                    class="badge running"
+                    class="badge badge-running"
                     title={`${activity.running} agent${activity.running === 1 ? "" : "s"} running`}
                   >
-                    <span class="dot"></span>
+                    <span class="badge-dot"></span>
                     {#if !collapsed}{activity.running}{/if}
                   </span>
                 {:else if activity.attention > 0}
                   <span
-                    class="badge attention"
+                    class="badge badge-attention"
                     title={`${activity.attention} agent${activity.attention === 1 ? "" : "s"} need attention`}
                   >
                     {activity.attention}
                   </span>
                 {:else if activity.completed > 0}
                   <span
-                    class="badge completed"
+                    class="badge badge-completed"
                     title={`${activity.completed} agent${activity.completed === 1 ? "" : "s"} completed`}
                   >
-                    <span class="dot"></span>
+                    <span class="badge-dot"></span>
                     {#if !collapsed}{activity.completed}{/if}
                   </span>
                 {/if}
@@ -179,8 +180,10 @@
   {/if}
 
   <footer>
+    <ThemeToggle {collapsed} />
     <button
-      class="usage"
+      class="btn btn-ghost usage"
+      class:collapsed
       onclick={() => usage.show()}
       title="Token usage (Ctrl+Shift+U)"
       aria-label="Token usage"
@@ -200,14 +203,16 @@
 {#if flyout && flyoutProject}
   <div
     bind:this={flyoutEl}
-    class="flyout"
+    class="popover flyout"
     role="dialog"
     aria-label={`Agents in ${flyoutProject.name}`}
     style={`top: ${flyout.top}px; left: ${flyout.left}px; max-height: ${flyout.maxHeight}px`}
   >
     <div class="flyout-head">
       <span class="flyout-name" title={flyoutProject.path}>{flyoutProject.name}</span>
-      <button onclick={() => (flyout = null)} aria-label="Close agent list">×</button>
+      <button class="btn btn-ghost btn-sm" onclick={() => (flyout = null)} aria-label="Close agent list"
+        >×</button
+      >
     </div>
     <div class="flyout-body">
       <AgentTree projectId={flyoutProject.id} flat onpick={() => (flyout = null)} />
@@ -236,7 +241,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 0.4rem;
+    gap: var(--space-3);
     min-height: 2.8rem;
   }
 
@@ -246,8 +251,8 @@
   }
 
   .title {
-    font-size: 0.78rem;
-    font-weight: 600;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
     color: var(--fg-muted);
     text-transform: uppercase;
     letter-spacing: 0.05em;
@@ -256,49 +261,25 @@
     text-overflow: ellipsis;
   }
 
+  /* A tighter square than `.btn-icon`, to sit in the header's row. */
   .add {
-    background: transparent;
-    border: 1px solid var(--border);
-    border-radius: 4px;
     width: 1.6rem;
     height: 1.6rem;
     flex: none;
-    padding: 0;
-    color: var(--fg);
-    cursor: pointer;
-    font-size: 1rem;
-    line-height: 1;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .add:hover {
-    border-color: var(--accent);
-    color: var(--accent);
+    background: transparent;
+    font-size: var(--text-2xl);
+    line-height: var(--leading-none);
   }
 
   .empty {
     padding: 1.5rem 1rem;
     text-align: center;
     color: var(--fg-muted);
-    font-size: 0.88rem;
+    font-size: var(--text-lg);
   }
 
-  .empty button {
-    margin-top: 0.75rem;
-    padding: 0.4rem 0.8rem;
-    border-radius: 5px;
-    border: 1px solid var(--border);
-    background: var(--surface);
-    color: var(--fg);
-    cursor: pointer;
-    font-family: inherit;
-    font-size: 0.85rem;
-  }
-
-  .empty button:hover {
-    border-color: var(--accent);
+  .empty :global(button) {
+    margin-top: var(--space-5);
   }
 
   .empty-rail {
@@ -310,13 +291,13 @@
   .empty-rail button {
     width: 2rem;
     height: 2rem;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     border: 1px dashed var(--border);
     background: transparent;
     color: var(--fg-muted);
     cursor: pointer;
-    font-size: 1rem;
-    line-height: 1;
+    font-size: var(--text-2xl);
+    line-height: var(--leading-none);
   }
 
   .empty-rail button:hover {
@@ -338,29 +319,20 @@
   footer {
     flex: none;
     margin-top: auto;
-    padding: 0.35rem;
+    padding: var(--space-3);
   }
 
+  /* The theme toggle's twin: the same quiet, full-width footer row. */
   .usage {
     width: 100%;
-    display: flex;
-    align-items: center;
-    gap: 0.45rem;
-    background: transparent;
-    border: none;
-    border-radius: 5px;
+    justify-content: flex-start;
+    gap: var(--space-3);
     padding: 0.35rem 0.45rem;
-    color: var(--fg-muted);
-    font-size: 0.8rem;
-    cursor: pointer;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-normal);
   }
 
-  .usage:hover {
-    background: var(--hover);
-    color: var(--fg);
-  }
-
-  aside.collapsed .usage {
+  .usage.collapsed {
     justify-content: center;
     padding: 0.35rem 0;
   }
@@ -368,7 +340,7 @@
   .usage .gauge {
     display: flex;
     align-items: center;
-    line-height: 1;
+    line-height: var(--leading-none);
   }
 
   .usage .label {
@@ -379,15 +351,15 @@
   /* The shortcut is a reminder, not a label: it keeps its space in the row so
      nothing shifts, but only surfaces when the tile is pointed at. */
   .usage kbd {
-    font-family: ui-monospace, monospace;
-    font-size: 0.62rem;
+    font-family: var(--font-mono);
+    font-size: var(--text-3xs);
     white-space: nowrap;
     color: var(--fg-muted);
     background: var(--code-bg);
-    border-radius: 3px;
+    border-radius: var(--radius-xs);
     padding: 0.05em 0.3em;
     opacity: 0;
-    transition: opacity 0.12s ease;
+    transition: opacity var(--transition-fast);
   }
 
   .usage:hover kbd,
@@ -428,7 +400,7 @@
     flex: 1;
     display: flex;
     flex-direction: column;
-    gap: 0.15rem;
+    gap: var(--space-1);
     padding: 0.55rem 1.7rem 0.55rem var(--pad-x);
     background: transparent;
     border: none;
@@ -448,21 +420,21 @@
   .name-row {
     display: flex;
     align-items: center;
-    gap: 0.4rem;
+    gap: var(--space-3);
     min-width: 0;
   }
 
   aside.collapsed .name-row {
-    gap: 0.2rem;
+    gap: var(--space-2);
   }
 
   .chevron {
     flex: none;
     width: 0.6rem;
-    font-size: 0.95rem;
-    line-height: 1;
+    font-size: var(--text-xl);
+    line-height: var(--leading-none);
     color: var(--fg-muted);
-    transition: transform 0.12s ease;
+    transition: transform var(--transition-fast);
     transform-origin: 40% 50%;
   }
 
@@ -471,93 +443,30 @@
     color: var(--accent);
   }
 
-  @media (prefers-reduced-motion: reduce) {
-    .chevron {
-      transition: none;
-    }
-  }
-
   .name {
-    font-size: 0.9rem;
-    font-weight: 500;
+    font-size: var(--text-lg);
+    font-weight: var(--weight-medium);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
 
   aside.collapsed .name {
-    font-family: ui-monospace, monospace;
-    font-size: 0.82rem;
+    font-family: var(--font-mono);
+    font-size: var(--text-md);
     letter-spacing: 0.02em;
   }
 
   .row.active .name {
-    font-weight: 600;
-  }
-
-  .badge {
-    flex: 0 0 auto;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.28rem;
-    font-size: 0.68rem;
-    font-weight: 600;
-    line-height: 1;
-    padding: 0.16rem 0.38rem;
-    border-radius: 999px;
-    font-variant-numeric: tabular-nums;
+    font-weight: var(--weight-semibold);
   }
 
   aside.collapsed .badge {
-    padding: 0.16rem;
-  }
-
-  .badge.running {
-    color: var(--running);
-    background: var(--running-bg);
-  }
-
-  .badge.attention {
-    color: var(--attention);
-    background: var(--attention-bg);
-  }
-
-  /* Nothing running and nothing wrong: the work that's waiting to be looked at.
-     Same shape as the running badge, but still — there's nothing to watch. */
-  .badge.completed {
-    color: var(--completed);
-    background: var(--completed-bg);
-  }
-
-  .badge .dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: currentColor;
-  }
-
-  .badge.running .dot {
-    animation: pulse 2s infinite;
-  }
-
-  @keyframes pulse {
-    0%,
-    100% {
-      opacity: 1;
-    }
-    50% {
-      opacity: 0.35;
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .badge.running .dot {
-      animation: none;
-    }
+    padding: var(--space-1);
   }
 
   .sub {
-    font-size: 0.72rem;
+    font-size: var(--text-xs);
     color: var(--fg-muted);
     white-space: nowrap;
     overflow: hidden;
@@ -569,7 +478,7 @@
   }
 
   .sub.path {
-    font-family: ui-monospace, monospace;
+    font-family: var(--font-mono);
   }
 
   .remove {
@@ -581,10 +490,10 @@
     border: none;
     color: var(--fg-muted);
     cursor: pointer;
-    font-size: 1.1rem;
-    line-height: 1;
+    font-size: var(--text-3xl);
+    line-height: var(--leading-none);
     padding: 0.15rem 0.35rem;
-    border-radius: 3px;
+    border-radius: var(--radius-xs);
     opacity: 0;
   }
 
@@ -598,25 +507,23 @@
   }
 
   /* Fixed, so the rail's own scrolling and overflow can't clip it. */
+  /* A `.popover`, on the rail's panel surface rather than the page's: it is
+     the collapsed sidebar's own row, opened sideways. */
   .flyout {
-    position: fixed;
-    z-index: 40;
+    z-index: var(--z-titlebar);
     width: 17rem;
     /* Anchored to the rail's right edge, so this is all the room there is. */
     max-width: calc(100vw - var(--rail) - 1rem);
     display: flex;
     flex-direction: column;
     background: var(--panel-bg);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
     overflow: hidden;
   }
 
   .flyout-head {
     display: flex;
     align-items: center;
-    gap: 0.4rem;
+    gap: var(--space-3);
     padding: 0.4rem 0.4rem 0.4rem 0.7rem;
     border-bottom: 1px solid var(--border);
   }
@@ -624,28 +531,17 @@
   .flyout-name {
     flex: 1;
     min-width: 0;
-    font-size: 0.82rem;
-    font-weight: 600;
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
 
-  .flyout-head button {
+  .flyout-head :global(button) {
     flex: none;
-    background: transparent;
-    border: none;
-    color: var(--fg-muted);
-    cursor: pointer;
-    font-size: 1.1rem;
-    line-height: 1;
-    padding: 0.1rem 0.3rem;
-    border-radius: 3px;
-  }
-
-  .flyout-head button:hover {
-    background: var(--hover);
-    color: var(--fg);
+    font-size: var(--text-3xl);
+    line-height: var(--leading-none);
   }
 
   .flyout-body {

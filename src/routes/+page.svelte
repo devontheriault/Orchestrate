@@ -134,15 +134,15 @@
   }
 
   .error {
-    background: #fee2e2;
-    color: #991b1b;
+    background: var(--danger-bg);
+    color: var(--danger-fg);
     padding: 0.55rem var(--pad-x);
     display: flex;
     justify-content: space-between;
     align-items: center;
-    gap: 0.5rem;
-    font-size: 0.85rem;
-    border-bottom: 1px solid #fca5a5;
+    gap: var(--space-4);
+    font-size: var(--text-md);
+    border-bottom: 1px solid var(--danger-border);
     /* A long backend error wraps rather than pushing the dismiss off-screen. */
     overflow-wrap: anywhere;
     max-height: 30vh;
@@ -155,13 +155,13 @@
     border: none;
     color: inherit;
     cursor: pointer;
-    font-size: 1.1rem;
+    font-size: var(--text-3xl);
     padding: 0 0.5rem;
   }
 
   .orphan-banner {
-    background: rgba(245, 158, 11, 0.12);
-    border-bottom: 1px solid rgba(245, 158, 11, 0.35);
+    background: var(--warning-soft-bg);
+    border-bottom: 1px solid var(--warning-soft-border);
     color: var(--fg);
     padding: 0.55rem var(--pad-x);
     display: flex;
@@ -169,47 +169,39 @@
     align-items: center;
     justify-content: space-between;
     gap: 0.5rem 1rem;
-    font-size: 0.88rem;
+    font-size: var(--text-lg);
   }
 
   .orphan-banner .actions {
     display: flex;
-    gap: 0.4rem;
+    gap: var(--space-3);
     flex: none;
     margin-left: auto;
   }
 
   .orphan-banner button {
     padding: 0.3rem 0.75rem;
-    border-radius: 5px;
+    border-radius: var(--radius-sm);
     border: 1px solid var(--border);
     background: var(--surface);
     color: var(--fg);
     cursor: pointer;
-    font-size: 0.82rem;
+    font-size: var(--text-md);
     font-family: inherit;
   }
 
   .orphan-banner button:hover {
-    border-color: #f59e0b;
+    border-color: var(--warning);
   }
 
   .orphan-banner button.primary {
-    background: #f59e0b;
-    color: #1a1206;
-    border-color: #f59e0b;
-    font-weight: 500;
+    background: var(--warning);
+    color: var(--on-warning);
+    border-color: var(--warning);
+    font-weight: var(--weight-medium);
   }
 
   .orphan-banner button.primary:hover {
     filter: brightness(1.08);
-  }
-
-  @media (prefers-color-scheme: dark) {
-    .error {
-      background: #451a1a;
-      color: #fca5a5;
-      border-color: #7f1d1d;
-    }
   }
 </style>

@@ -231,7 +231,7 @@
     content: "";
     position: absolute;
     inset: 0 -4px;
-    z-index: 5;
+    z-index: var(--z-sticky);
   }
 
   .divider:hover,

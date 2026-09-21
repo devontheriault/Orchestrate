@@ -112,7 +112,7 @@
        outside the document and stayed reachable behind any modal; this one has
        to earn that back, or opening usage would strand the close button. */
     position: relative;
-    z-index: 200;
+    z-index: var(--z-modal);
   }
 
   /* Leave the traffic lights their corner, and never get shorter than they
@@ -138,9 +138,9 @@
   .wordmark {
     /* Stands in for the app icon until there is one, so it carries more weight
        than a caption would. Sized to still clear the 2.1rem bar. */
-    font-size: 1.05rem;
-    line-height: 1;
-    font-weight: 600;
+    font-size: var(--text-2xl);
+    line-height: var(--leading-none);
+    font-weight: var(--weight-semibold);
     letter-spacing: 0.01em;
     color: var(--fg-muted);
     min-width: 0;
@@ -159,8 +159,8 @@
   }
 
   .name {
-    font-size: 0.85rem;
-    font-weight: 600;
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
     min-width: 0;
     white-space: nowrap;
     overflow: hidden;
@@ -179,7 +179,7 @@
   }
 
   .idle {
-    font-size: 0.85rem;
+    font-size: var(--text-md);
     color: var(--fg-muted);
     font-style: italic;
   }
@@ -217,7 +217,7 @@
   }
 
   .ctl.close:hover {
-    background: #e81123;
-    color: #fff;
+    background: var(--window-close-bg);
+    color: var(--window-close-fg);
   }
 </style>

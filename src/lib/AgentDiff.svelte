@@ -188,6 +188,7 @@
             <span class="sub">A reap now would discard it.</span>
           </div>
           <textarea
+            class="textarea"
             bind:value={message}
             oninput={() => (messageEdited = true)}
             rows="2"
@@ -201,7 +202,7 @@
               <span class="sub">Stages everything in the worktree onto the agent's branch.</span>
             {/if}
             <button
-              class="primary"
+              class="btn btn-warning btn-lg"
               disabled={running || store.committing || message.trim().length === 0}
               onclick={doCommit}
             >
@@ -321,7 +322,7 @@
     padding: 0.85rem var(--pad-x) 2rem;
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: var(--space-5);
   }
 
   /* A long list gets its own scrollbar rather than pushing the rest away. */
@@ -340,18 +341,18 @@
     font-style: italic;
     text-align: center;
     padding: 3rem 1rem;
-    font-size: 0.9rem;
+    font-size: var(--text-lg);
   }
 
   .mono {
-    font-family: ui-monospace, monospace;
+    font-family: var(--font-mono);
   }
 
   code {
-    font-family: ui-monospace, monospace;
+    font-family: var(--font-mono);
     background: var(--code-bg);
     padding: 0.05em 0.35em;
-    border-radius: 3px;
+    border-radius: var(--radius-xs);
   }
 
   .summary {
@@ -363,33 +364,33 @@
     align-items: center;
     justify-content: space-between;
     gap: 0.4rem 1rem;
-    font-size: 0.85rem;
+    font-size: var(--text-md);
     color: var(--fg-muted);
   }
 
   .summary .n {
     color: var(--fg);
-    font-weight: 600;
+    font-weight: var(--weight-semibold);
   }
 
   .summary-right {
     display: flex;
     align-items: center;
-    gap: 0.6rem;
+    gap: var(--space-4);
     margin-left: auto;
   }
 
   .base {
-    font-size: 0.78rem;
+    font-size: var(--text-sm);
   }
 
   .summary button {
-    border-radius: 5px;
+    border-radius: var(--radius-sm);
     border: 1px solid var(--border);
     background: var(--surface);
     color: var(--fg);
     padding: 0.28rem 0.7rem;
-    font-size: 0.8rem;
+    font-size: var(--text-sm);
     cursor: pointer;
   }
 
@@ -404,21 +405,21 @@
   }
 
   .ins {
-    color: #16a34a;
-    font-family: ui-monospace, monospace;
+    color: var(--success);
+    font-family: var(--font-mono);
   }
 
   .del {
-    color: #dc2626;
-    font-family: ui-monospace, monospace;
+    color: var(--danger-text);
+    font-family: var(--font-mono);
   }
 
   .section-label {
-    font-size: 0.78rem;
+    font-size: var(--text-sm);
     color: var(--fg-muted);
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    margin-bottom: 0.4rem;
+    margin-bottom: var(--space-3);
   }
 
   .section-label code {
@@ -428,7 +429,7 @@
 
   .commits {
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     background: var(--panel-bg);
     padding: 0.6rem 0.8rem;
     min-width: 0;
@@ -436,9 +437,9 @@
 
   .commit {
     display: flex;
-    gap: 0.6rem;
+    gap: var(--space-4);
     align-items: baseline;
-    font-size: 0.85rem;
+    font-size: var(--text-md);
     padding: 0.12rem 0;
     min-width: 0;
   }
@@ -457,55 +458,40 @@
   }
 
   .commit-box {
-    border: 1px solid rgba(245, 158, 11, 0.4);
-    background: rgba(245, 158, 11, 0.08);
-    border-radius: 6px;
+    border: 1px solid var(--warning-soft-border);
+    background: var(--warning-soft-bg);
+    border-radius: var(--radius-md);
     padding: 0.7rem 0.85rem;
     display: flex;
     flex-direction: column;
-    gap: 0.55rem;
+    gap: var(--space-4);
   }
 
   .commit-box-head {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    font-size: 0.87rem;
+    gap: var(--space-4);
+    font-size: var(--text-lg);
   }
 
   .warn-dot {
     width: 7px;
     height: 7px;
-    border-radius: 50%;
-    background: #f59e0b;
+    border-radius: var(--radius-circle);
+    background: var(--warning);
     flex: none;
   }
 
   .sub {
     color: var(--fg-muted);
-    font-size: 0.8rem;
+    font-size: var(--text-sm);
   }
 
-  .commit-box textarea {
-    width: 100%;
+  /* Only what makes this field different from the app's `.textarea`: it is
+     a commit message, so it grows by the handle rather than by the line. */
+  .commit-box :global(textarea) {
     resize: vertical;
-    font-family: inherit;
-    font-size: 0.87rem;
-    line-height: 1.5;
-    color: var(--fg);
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 5px;
-    padding: 0.45rem 0.6rem;
-  }
-
-  .commit-box textarea:focus {
-    outline: none;
-    border-color: var(--accent);
-  }
-
-  .commit-box textarea:disabled {
-    opacity: 0.6;
+    font-size: var(--text-lg);
   }
 
   .commit-box-foot {
@@ -520,25 +506,8 @@
     flex: 1 1 12rem;
   }
 
-  .commit-box-foot button.primary {
-    background: #f59e0b;
-    border: 1px solid #f59e0b;
-    color: #1a1206;
-    font-weight: 500;
-    border-radius: 5px;
-    padding: 0.35rem 0.85rem;
-    font-size: 0.83rem;
-    cursor: pointer;
+  .commit-box-foot :global(button) {
     flex: none;
-  }
-
-  .commit-box-foot button.primary:hover:not(:disabled) {
-    filter: brightness(1.08);
-  }
-
-  .commit-box-foot button.primary:disabled {
-    opacity: 0.5;
-    cursor: default;
   }
 
   /* Deliberately quieter than the commit box: merging is the ordinary next
@@ -546,11 +515,11 @@
   .merge-box {
     border: 1px solid var(--border);
     background: var(--surface);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     padding: 0.7rem 0.85rem;
     display: flex;
     flex-direction: column;
-    gap: 0.55rem;
+    gap: var(--space-4);
   }
 
   /* Quieter still once there is nothing to do but read where it went. */
@@ -561,8 +530,8 @@
   .merge-box-head {
     display: flex;
     align-items: baseline;
-    gap: 0.5rem;
-    font-size: 0.87rem;
+    gap: var(--space-4);
+    font-size: var(--text-lg);
   }
 
   .merge-box-foot {
@@ -580,7 +549,7 @@
   .merge-controls {
     display: flex;
     align-items: center;
-    gap: 0.4rem;
+    gap: var(--space-3);
     flex: none;
   }
 
@@ -590,12 +559,12 @@
     border: 1px solid var(--accent);
     /* Same pairing the composer's send button uses. */
     color: var(--surface);
-    font-weight: 500;
+    font-weight: var(--weight-medium);
     /* Matches the picker's radius, so the pair reads as one strip. */
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     padding: 0.3rem 0.85rem;
-    font-size: 0.83rem;
-    line-height: 1.4;
+    font-size: var(--text-md);
+    line-height: var(--leading-snug);
     cursor: pointer;
   }
 
@@ -610,15 +579,15 @@
 
   .files {
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
   }
 
   .file-row {
     display: flex;
     align-items: center;
-    gap: 0.6rem;
+    gap: var(--space-4);
     padding: 0.35rem 0.7rem;
-    font-size: 0.83rem;
+    font-size: var(--text-md);
     border-bottom: 1px solid var(--border);
     min-width: 0;
   }
@@ -644,28 +613,28 @@
   .badge {
     width: 1.15rem;
     text-align: center;
-    font-family: ui-monospace, monospace;
-    font-size: 0.72rem;
-    font-weight: 700;
-    border-radius: 3px;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    font-weight: var(--weight-bold);
+    border-radius: var(--radius-xs);
     background: var(--code-bg);
     color: var(--fg-muted);
     flex: none;
   }
 
-  .badge-a { color: #16a34a; }
-  .badge-m { color: #d97706; }
-  .badge-d { color: #dc2626; }
+  .badge-a { color: var(--success); }
+  .badge-m { color: var(--warning-text); }
+  .badge-d { color: var(--danger-text); }
 
   .binary {
     color: var(--fg-muted);
-    font-size: 0.78rem;
+    font-size: var(--text-sm);
     font-style: italic;
   }
 
   .patch-file {
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     min-width: 0;
   }
 
@@ -673,14 +642,14 @@
     cursor: pointer;
     padding: 0.4rem 0.7rem;
     background: var(--panel-bg);
-    font-size: 0.82rem;
+    font-size: var(--text-md);
     color: var(--fg-muted);
     overflow-wrap: anywhere;
-    border-radius: 5px 5px 0 0;
+    border-radius: var(--radius-sm) var(--radius-sm) 0 0;
     /* Stays put while its own patch scrolls past underneath. */
     position: sticky;
     top: 0;
-    z-index: 1;
+    z-index: var(--z-base);
   }
 
   .patch-file[open] summary {
@@ -693,10 +662,10 @@
     overflow: auto;
     overscroll-behavior: contain;
     max-height: clamp(10rem, 50vh, 32rem);
-    border-radius: 0 0 5px 5px;
-    font-family: ui-monospace, monospace;
-    font-size: 0.78rem;
-    line-height: 1.55;
+    border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    line-height: var(--leading-relaxed);
   }
 
   .line {
@@ -706,13 +675,13 @@
   }
 
   .line.add {
-    background: rgba(22, 163, 74, 0.12);
-    color: #15803d;
+    background: var(--diff-add-bg);
+    color: var(--diff-add-fg);
   }
 
   .line.del {
-    background: rgba(220, 38, 38, 0.1);
-    color: #b91c1c;
+    background: var(--diff-del-bg);
+    color: var(--diff-del-fg);
   }
 
   .line.hunk {
@@ -722,16 +691,16 @@
 
   .diff-error,
   .clipped {
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     padding: 0.55rem 0.85rem;
-    font-size: 0.84rem;
+    font-size: var(--text-md);
   }
 
   .diff-error {
-    background: rgba(239, 68, 68, 0.08);
-    border: 1px solid rgba(239, 68, 68, 0.3);
+    background: var(--danger-soft-bg);
+    border: 1px solid var(--danger-soft-border);
     color: var(--fg);
-    font-family: ui-monospace, monospace;
+    font-family: var(--font-mono);
     white-space: pre-wrap;
     overflow-wrap: anywhere;
   }
@@ -741,10 +710,5 @@
     border: 1px solid var(--border);
     color: var(--fg-muted);
     overflow-wrap: anywhere;
-  }
-
-  @media (prefers-color-scheme: dark) {
-    .line.add { color: #86efac; }
-    .line.del { color: #fca5a5; }
   }
 </style>

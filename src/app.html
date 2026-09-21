@@ -5,6 +5,20 @@
     <link rel="icon" href="%sveltekit.assets%/favicon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Claude Wrapper</title>
+    <!-- Resolves the theme before the first paint, so the window never flashes
+         the wrong one on launch. Deliberately duplicates the three lines of
+         logic in src/lib/theme.svelte.ts rather than waiting on the module —
+         they must agree on the key and the attribute. -->
+    <script>
+      (() => {
+        const pref = localStorage.getItem("devcode:theme");
+        const dark =
+          pref === "dark" ||
+          (pref !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.dataset.theme = dark ? "dark" : "light";
+        document.documentElement.style.colorScheme = dark ? "dark" : "light";
+      })();
+    </script>
     %sveltekit.head%
   </head>
   <body data-sveltekit-preload-data="hover">

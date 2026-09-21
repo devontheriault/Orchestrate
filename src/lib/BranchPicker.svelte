@@ -168,7 +168,7 @@
   <button
     bind:this={triggerEl}
     type="button"
-    class="trigger"
+    class="btn btn-select trigger"
     disabled={disabled || options.length === 0}
     aria-haspopup="listbox"
     aria-expanded={open}
@@ -177,8 +177,8 @@
     onclick={() => (open ? close() : openMenu())}
     onkeydown={onTriggerKeydown}
   >
-    <span class="current">{value || "No branches"}</span>
-    <span class="chevron" aria-hidden="true">
+    <span class="btn-select-label">{value || "No branches"}</span>
+    <span class="btn-select-chevron" aria-hidden="true">
       <svg viewBox="0 0 10 6" width="10" height="6">
         <path
           d="M1 1l4 4 4-4"
@@ -202,7 +202,7 @@
 {#if open && placement}
   <ul
     bind:this={listEl}
-    class="menu"
+    class="popover menu"
     role="listbox"
     aria-label={label}
     aria-activedescendant={`${uid}-opt-${active}`}
@@ -219,6 +219,7 @@
         role="option"
         aria-selected={name === value}
         data-active={i === active}
+        class="menu-item"
         class:on={name === value}
         onclick={() => pick(name)}
         onpointermove={() => {
@@ -226,11 +227,11 @@
           active = i;
         }}
       >
-        <span class="tick" aria-hidden="true">{name === value ? "✓" : ""}</span>
-        <span class="name">{name}</span>
+        <span class="menu-tick" aria-hidden="true">{name === value ? "✓" : ""}</span>
+        <span class="menu-label">{name}</span>
         <!-- Which branch the project itself is on: the one where a merge shows
              up in the user's own checkout right away. -->
-        {#if name === current}<span class="note">checked out</span>{/if}
+        {#if name === current}<span class="menu-note">checked out</span>{/if}
       </li>
     {/each}
   </ul>
@@ -244,112 +245,8 @@
     min-width: 0;
   }
 
-  /* The model picker's trigger, sized for the merge row: same surface, border,
-     radius and chevron, so the two read as one control in two places. */
+  /* The app's select trigger, capped for the merge row it sits in. */
   .trigger {
-    display: flex;
-    align-items: center;
-    gap: 0.35rem;
     max-width: 14rem;
-    min-width: 0;
-    font-family: inherit;
-    font-size: 0.83rem;
-    line-height: 1.4;
-    color: var(--fg);
-    background: var(--panel-bg);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 0.3rem 0.5rem;
-    cursor: pointer;
-  }
-
-  .trigger:hover:not(:disabled) {
-    border-color: var(--accent);
-  }
-
-  .trigger:focus-visible {
-    outline: none;
-    border-color: var(--accent);
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
-  }
-
-  .trigger:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .current {
-    min-width: 0;
-    text-align: left;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .chevron {
-    flex: none;
-    margin-left: auto;
-    display: flex;
-    /* Drawn in currentColor, so it follows the theme instead of needing a
-       second copy of the icon for dark mode. */
-    color: var(--fg-muted);
-  }
-
-  .menu {
-    position: fixed;
-    z-index: 60;
-    margin: 0;
-    padding: 0.25rem;
-    list-style: none;
-    overflow-y: auto;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
-  }
-
-  .menu:focus {
-    outline: none;
-  }
-
-  .menu li {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    padding: 0.38rem 0.5rem;
-    /* Rounded rows inside a rounded box: a square highlight in the corners is
-       the tell that this is a list bolted into a panel. */
-    border-radius: 6px;
-    font-size: 0.82rem;
-    color: var(--fg);
-    cursor: pointer;
-  }
-
-  .menu li[data-active="true"] {
-    background: var(--hover);
-  }
-
-  .menu li.on {
-    color: var(--accent);
-  }
-
-  .tick {
-    flex: none;
-    width: 0.8rem;
-    font-size: 0.72rem;
-  }
-
-  .menu .name {
-    flex: 1;
-    min-width: 0;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .note {
-    flex: none;
-    color: var(--fg-muted);
-    font-size: 0.72rem;
   }
 </style>
