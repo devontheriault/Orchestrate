@@ -29,7 +29,7 @@
   let model = $state(DEFAULT_MODEL);
   /** The effort chosen beside it; DEFAULT_EFFORT passes no --effort. */
   let effort = $state(DEFAULT_EFFORT);
-  /** What this turn may do without asking: bypass, or plan and write nothing. */
+  /** What this turn may do without asking: YOLO, or plan and write nothing. */
   let mode = $state(DEFAULT_MODE);
   let textarea: HTMLTextAreaElement | undefined = $state();
 

@@ -35,7 +35,7 @@ export type Agent = {
   effort?: string | null;
   /**
    * What its turns may do without asking, as `claude --permission-mode` takes
-   * it. Null = the bypass mode every agent ran in before the picker existed.
+   * it. Null = YOLO, the mode every agent ran in before the picker existed.
    */
   permission_mode?: string | null;
   /** Turns started so far, including the opening one. */
@@ -106,10 +106,11 @@ export const DEFAULT_EFFORT = "";
  * no input channel, so a mode that puts up a permission prompt would hang the
  * turn with nowhere to answer it. Isolation is the safety story here — the
  * worktree is the sandbox — so acting freely inside one is the default, and
- * plan is for the agent you want thinking before it touches anything.
+ * plan is for the agent you want thinking before it touches anything. The
+ * names here are the UI's; the ids are what `claude` takes.
  */
 export const MODES = [
-  { id: "bypassPermissions", name: "Bypass", note: "acts freely in its worktree" },
+  { id: "bypassPermissions", name: "YOLO", note: "acts freely in its worktree" },
   { id: "plan", name: "Plan", note: "reads and proposes, writes nothing" },
 ] as const;
 
