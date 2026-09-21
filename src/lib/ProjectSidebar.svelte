@@ -1,9 +1,8 @@
 <script lang="ts">
   import { open } from "@tauri-apps/plugin-dialog";
   import { store } from "./store.svelte";
-  import { usage } from "./usage.svelte";
   import AgentTree from "./AgentTree.svelte";
-  import ThemeToggle from "./ThemeToggle.svelte";
+  import SettingsMenu from "./SettingsMenu.svelte";
 
   /** Rail mode: initials only, for windows too narrow to spare the width. */
   let { collapsed = false }: { collapsed?: boolean } = $props();
@@ -180,23 +179,7 @@
   {/if}
 
   <footer>
-    <ThemeToggle {collapsed} />
-    <button
-      class="btn btn-ghost usage"
-      class:collapsed
-      onclick={() => usage.show()}
-      title="Token usage (Ctrl+Shift+U)"
-      aria-label="Token usage"
-    >
-      <span class="gauge" aria-hidden="true">
-        <svg viewBox="0 0 10 8" width="10" height="8">
-          <rect x="0.5" y="5" width="2" height="3" rx="0.5" fill="currentColor" />
-          <rect x="4" y="2.5" width="2" height="5.5" rx="0.5" fill="currentColor" />
-          <rect x="7.5" y="0.5" width="2" height="7.5" rx="0.5" fill="currentColor" />
-        </svg>
-      </span>
-      {#if !collapsed}<span class="label">Usage</span><kbd>Ctrl + Shift + U</kbd>{/if}
-    </button>
+    <SettingsMenu {collapsed} />
   </footer>
 </aside>
 
@@ -320,51 +303,6 @@
     flex: none;
     margin-top: auto;
     padding: var(--space-3);
-  }
-
-  /* The theme toggle's twin: the same quiet, full-width footer row. */
-  .usage {
-    width: 100%;
-    justify-content: flex-start;
-    gap: var(--space-3);
-    padding: 0.35rem 0.45rem;
-    font-size: var(--text-sm);
-    font-weight: var(--weight-normal);
-  }
-
-  .usage.collapsed {
-    justify-content: center;
-    padding: 0.35rem 0;
-  }
-
-  .usage .gauge {
-    display: flex;
-    align-items: center;
-    line-height: var(--leading-none);
-  }
-
-  .usage .label {
-    flex: 1;
-    text-align: left;
-  }
-
-  /* The shortcut is a reminder, not a label: it keeps its space in the row so
-     nothing shifts, but only surfaces when the tile is pointed at. */
-  .usage kbd {
-    font-family: var(--font-mono);
-    font-size: var(--text-3xs);
-    white-space: nowrap;
-    color: var(--fg-muted);
-    background: var(--code-bg);
-    border-radius: var(--radius-xs);
-    padding: 0.05em 0.3em;
-    opacity: 0;
-    transition: opacity var(--transition-fast);
-  }
-
-  .usage:hover kbd,
-  .usage:focus-visible kbd {
-    opacity: 1;
   }
 
   li {
