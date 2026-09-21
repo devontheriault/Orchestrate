@@ -31,6 +31,8 @@ export type Agent = {
   session_id?: string | null;
   /** The model its turns run on, as `claude --model` takes it. Null = Claude Code's default. */
   model?: string | null;
+  /** The effort its turns run on, as `claude --effort` takes it. Null = Claude Code's default. */
+  effort?: string | null;
   /** Turns started so far, including the opening one. */
   turns: number;
   spawned_at: string;
@@ -60,6 +62,24 @@ export type ModelInfo = {
  * picker still works when the models call fails.
  */
 export const DEFAULT_MODEL = "";
+
+/**
+ * Anthropic's display names lead with "Claude", which is noise in an app that
+ * runs nothing else: "Claude Opus 4.5" is just "Opus 4.5" here.
+ */
+export function modelLabel(displayName: string): string {
+  return displayName.replace(/^claude\s+/i, "");
+}
+
+/**
+ * How hard Claude Code works a turn, as `claude --effort` takes it. The picker
+ * offers these under each model; the empty value passes no `--effort` and
+ * leaves the level to Claude Code.
+ */
+export const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
+
+/** The picker's value for "no effort named". */
+export const DEFAULT_EFFORT = "";
 
 export type ChangedFile = {
   path: string;
@@ -149,10 +169,18 @@ export const api = {
   removeProject: (id: string) => invoke<void>("remove_project", { id }),
 
   listAgents: () => invoke<Agent[]>("list_agents"),
-  spawnAgent: (projectId: string, prompt: string, model: string | null) =>
-    invoke<Agent>("spawn_agent", { projectId, prompt, model }),
-  resumeAgent: (agentId: string, prompt: string, model: string | null) =>
-    invoke<Agent>("resume_agent", { agentId, prompt, model }),
+  spawnAgent: (
+    projectId: string,
+    prompt: string,
+    model: string | null,
+    effort: string | null,
+  ) => invoke<Agent>("spawn_agent", { projectId, prompt, model, effort }),
+  resumeAgent: (
+    agentId: string,
+    prompt: string,
+    model: string | null,
+    effort: string | null,
+  ) => invoke<Agent>("resume_agent", { agentId, prompt, model, effort }),
   stopAgent: (agentId: string) => invoke<void>("stop_agent", { agentId }),
   reapAgent: (agentId: string) => invoke<void>("reap_agent", { agentId }),
   agentEvents: (agentId: string) =>

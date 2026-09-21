@@ -1,15 +1,17 @@
 <script lang="ts">
-  import { DEFAULT_MODEL } from "./api";
+  import { DEFAULT_EFFORT, DEFAULT_MODEL, EFFORTS, modelLabel } from "./api";
   import { store } from "./store.svelte";
 
   let {
     value = $bindable(DEFAULT_MODEL),
+    effort = $bindable(DEFAULT_EFFORT),
     disabled = false,
     /** Sized for the composer strip rather than a dialog. */
     compact = false,
     label = "Model",
   }: {
     value?: string;
+    effort?: string;
     disabled?: boolean;
     compact?: boolean;
     label?: string;
@@ -21,7 +23,10 @@
   // ran on a retired model shows what it ran on instead of silently reading as
   // something else.
   const options = $derived.by(() => {
-    const listed = store.models.map((m) => ({ id: m.id, name: m.display_name }));
+    const listed = store.models.map((m) => ({
+      id: m.id,
+      name: modelLabel(m.display_name),
+    }));
     const known = value === DEFAULT_MODEL || listed.some((o) => o.id === value);
     return [
       { id: DEFAULT_MODEL, name: "Default" },
@@ -32,20 +37,43 @@
 
   const selected = $derived(options.find((o) => o.id === value) ?? options[0]);
 
+  /** `claude --effort` takes these verbatim; the menu just title-cases them. */
+  const efforts = [
+    { id: DEFAULT_EFFORT, name: "Default" },
+    ...EFFORTS.map((id) => ({
+      id,
+      name: id === "xhigh" ? "XHigh" : id[0].toUpperCase() + id.slice(1),
+    })),
+  ];
+
   let open = $state(false);
   /** Index the keyboard is on while the menu is up. */
   let active = $state(0);
+  /** Which model row's effort submenu is showing, and where the keys are in it. */
+  let sub = $state<number | null>(null);
+  let subActive = $state(0);
+  /** Whether the keys are driving the submenu rather than the model list. */
+  let inSub = $state(false);
+  /**
+   * Whether the last move came from the keyboard. Only then is it right to
+   * scroll the list — doing it on hover fires a scroll the dismisser sees.
+   */
+  let keyNav = $state(false);
+
   let triggerEl: HTMLButtonElement | undefined = $state();
   let listEl: HTMLElement | undefined = $state();
+  let subEl: HTMLElement | undefined = $state();
 
-  /** Where the fixed menu sits — anchored to the trigger, flipped if needed. */
+  /** Where a fixed menu sits — anchored to what opened it, flipped if needed. */
   type Placement = { left: number; width: number; maxHeight: number; y: string };
   let placement = $state<Placement | null>(null);
+  let subPlacement = $state<Placement | null>(null);
 
   const GAP = 6;
   const EDGE = 8;
   const MENU_MIN_WIDTH = 176;
   const MENU_MAX_HEIGHT = 280;
+  const SUB_WIDTH = 132;
 
   function place() {
     if (!triggerEl) return;
@@ -67,12 +95,46 @@
     };
   }
 
+  /** Hang the effort list off a model row, on whichever side has the room. */
+  function placeSub(row: HTMLElement) {
+    const r = row.getBoundingClientRect();
+    const menu = listEl?.getBoundingClientRect() ?? r;
+    // No gap: the pointer has to cross from the row into the submenu, and a
+    // gap there is a dead zone that closes it mid-travel.
+    const right = menu.right;
+    const left =
+      right + SUB_WIDTH <= window.innerWidth - EDGE ? right : menu.left - SUB_WIDTH;
+    const height = efforts.length * 30 + 10;
+    subPlacement = {
+      left: Math.max(EDGE, left),
+      width: SUB_WIDTH,
+      maxHeight: height,
+      y: `top: ${Math.round(Math.min(Math.max(EDGE, r.top - 5), window.innerHeight - height - EDGE))}px`,
+    };
+  }
+
+  function openSub(i: number, row: HTMLElement) {
+    sub = i;
+    subActive = Math.max(
+      0,
+      efforts.findIndex((e) => e.id === effort),
+    );
+    placeSub(row);
+  }
+
+  function closeSub() {
+    sub = null;
+    inSub = false;
+  }
+
   function openMenu() {
     if (disabled) return;
     active = Math.max(
       0,
       options.findIndex((o) => o.id === value),
     );
+    closeSub();
+    keyNav = true;
     place();
     open = true;
   }
@@ -80,43 +142,52 @@
   function close(refocus = true) {
     if (!open) return;
     open = false;
+    closeSub();
     if (refocus) triggerEl?.focus();
   }
 
-  function pick(id: string) {
-    value = id;
+  /** Commit a row — and, from the submenu, the effort chosen on it. */
+  function pick(model: string, level: string = effort) {
+    value = model;
+    effort = level;
     close();
   }
 
-  // The menu is pinned to the trigger's position, so anything that moves it
-  // dismisses the menu rather than leaving it stranded mid-air.
+  // The menus are pinned to the trigger's position, so anything that moves it
+  // dismisses them rather than leaving them stranded mid-air.
   $effect(() => {
     if (!open) return;
+    const ours = (t: Node | null) =>
+      !!t && (!!listEl?.contains(t) || !!subEl?.contains(t) || !!triggerEl?.contains(t));
     const onDown = (e: PointerEvent) => {
-      const t = e.target as Node;
-      if (listEl?.contains(t) || triggerEl?.contains(t)) return;
+      if (ours(e.target as Node)) return;
       close(false);
     };
-    const onMove = () => close(false);
+    const onScroll = (e: Event) => {
+      // A menu scrolling inside itself isn't the page moving under it.
+      if (ours(e.target as Node)) return;
+      close(false);
+    };
+    const onResize = () => close(false);
     window.addEventListener("pointerdown", onDown, true);
-    window.addEventListener("resize", onMove);
+    window.addEventListener("resize", onResize);
     // Capture: the transcript and project list scroll, not the window.
-    window.addEventListener("scroll", onMove, true);
+    window.addEventListener("scroll", onScroll, true);
     return () => {
       window.removeEventListener("pointerdown", onDown, true);
-      window.removeEventListener("resize", onMove);
-      window.removeEventListener("scroll", onMove, true);
+      window.removeEventListener("resize", onResize);
+      window.removeEventListener("scroll", onScroll, true);
     };
   });
 
-  // Keys land on the list, so it takes the focus while it's up.
+  // Keys land on the model list, including while it is driving the submenu.
   $effect(() => {
     if (open) listEl?.focus();
   });
 
   // A menu taller than its box opens on the current choice, not at the top.
   $effect(() => {
-    if (!open) return;
+    if (!open || !keyNav) return;
     active;
     listEl
       ?.querySelector<HTMLElement>('[data-active="true"]')
@@ -130,35 +201,71 @@
     }
   }
 
+  function rowEl(i: number): HTMLElement | null {
+    return listEl?.querySelector<HTMLElement>(`#${CSS.escape(`${uid}-opt-${i}`)}`) ?? null;
+  }
+
   function onListKeydown(e: KeyboardEvent) {
+    keyNav = true;
     switch (e.key) {
       case "Escape":
         e.preventDefault();
-        close();
+        if (inSub) closeSub();
+        else close();
         break;
       case "Tab":
         close(false);
         break;
       case "ArrowDown":
         e.preventDefault();
-        active = (active + 1) % options.length;
+        if (inSub) subActive = (subActive + 1) % efforts.length;
+        else {
+          active = (active + 1) % options.length;
+          closeSub();
+        }
         break;
       case "ArrowUp":
         e.preventDefault();
-        active = (active - 1 + options.length) % options.length;
+        if (inSub) subActive = (subActive - 1 + efforts.length) % efforts.length;
+        else {
+          active = (active - 1 + options.length) % options.length;
+          closeSub();
+        }
+        break;
+      case "ArrowRight": {
+        e.preventDefault();
+        const row = rowEl(active);
+        if (row) {
+          openSub(active, row);
+          inSub = true;
+        }
+        break;
+      }
+      case "ArrowLeft":
+        e.preventDefault();
+        closeSub();
         break;
       case "Home":
         e.preventDefault();
-        active = 0;
+        if (inSub) subActive = 0;
+        else {
+          active = 0;
+          closeSub();
+        }
         break;
       case "End":
         e.preventDefault();
-        active = options.length - 1;
+        if (inSub) subActive = efforts.length - 1;
+        else {
+          active = options.length - 1;
+          closeSub();
+        }
         break;
       case "Enter":
       case " ":
         e.preventDefault();
-        pick(options[active].id);
+        if (inSub && sub !== null) pick(options[sub].id, efforts[subActive].id);
+        else pick(options[active].id);
         break;
     }
   }
@@ -173,11 +280,14 @@
     aria-haspopup="listbox"
     aria-expanded={open}
     aria-label={label}
-    title={label}
+    title={effort ? `${label} — ${effort} effort` : label}
     onclick={() => (open ? close() : openMenu())}
     onkeydown={onTriggerKeydown}
   >
     <span class="current">{selected?.name ?? value}</span>
+    <!-- The effort rides along with the model rather than claiming a control of
+         its own: quieter than the name it qualifies. -->
+    {#if effort}<span class="effort">{effort}</span>{/if}
     <span class="chevron" aria-hidden="true">
       <svg viewBox="0 0 10 6" width="10" height="6">
         <path
@@ -195,9 +305,9 @@
 
 <!--
   A native <select> hands its open list to the OS, which draws square corners in
-  the desktop theme's colours and ignores everything this stylesheet says. The
-  list below is ours, so it can match the composer it drops out of. Fixed
-  position keeps the panes' `overflow: hidden` from clipping it.
+  the desktop theme's colours, ignores everything this stylesheet says, and has
+  no submenu to hang the effort off. The lists below are ours. Fixed position
+  keeps the panes' `overflow: hidden` from clipping them.
 -->
 {#if open && placement}
   <ul
@@ -205,7 +315,9 @@
     class="menu"
     role="listbox"
     aria-label={label}
-    aria-activedescendant={`${uid}-opt-${active}`}
+    aria-activedescendant={inSub
+      ? `${uid}-eff-${subActive}`
+      : `${uid}-opt-${active}`}
     tabindex="-1"
     onkeydown={onListKeydown}
     style={`left: ${Math.round(placement.left)}px; width: ${Math.round(placement.width)}px; max-height: ${Math.round(placement.maxHeight)}px; ${placement.y}`}
@@ -218,13 +330,51 @@
         id={`${uid}-opt-${i}`}
         role="option"
         aria-selected={option.id === value}
-        data-active={i === active}
+        data-active={!inSub && i === active}
         class:on={option.id === value}
+        class:sub-open={sub === i}
         onclick={() => pick(option.id)}
-        onpointermove={() => (active = i)}
+        onpointermove={(e) => {
+          keyNav = false;
+          active = i;
+          if (sub !== i) openSub(i, e.currentTarget as HTMLElement);
+          inSub = false;
+        }}
       >
         <span class="tick" aria-hidden="true">{option.id === value ? "✓" : ""}</span>
         <span class="name">{option.name}</span>
+        <span class="more" aria-hidden="true">›</span>
+      </li>
+    {/each}
+  </ul>
+{/if}
+
+{#if open && sub !== null && subPlacement}
+  <ul
+    bind:this={subEl}
+    class="menu sub"
+    role="listbox"
+    aria-label={`Effort for ${options[sub].name}`}
+    tabindex="-1"
+    style={`left: ${Math.round(subPlacement.left)}px; width: ${Math.round(subPlacement.width)}px; ${subPlacement.y}`}
+  >
+    {#each efforts as level, j (level.id)}
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <li
+        id={`${uid}-eff-${j}`}
+        role="option"
+        aria-selected={level.id === effort}
+        data-active={inSub && j === subActive}
+        class:on={level.id === effort}
+        onclick={() => pick(options[sub!].id, level.id)}
+        onpointermove={() => {
+          keyNav = false;
+          subActive = j;
+          inSub = true;
+        }}
+      >
+        <span class="tick" aria-hidden="true">{level.id === effort ? "✓" : ""}</span>
+        <span class="name">{level.name}</span>
       </li>
     {/each}
   </ul>
@@ -245,8 +395,8 @@
    */
   .trigger {
     display: flex;
-    align-items: center;
-    gap: 0.4rem;
+    align-items: baseline;
+    gap: 0.35rem;
     width: 100%;
     min-width: 0;
     font-family: inherit;
@@ -276,7 +426,6 @@
   }
 
   .current {
-    flex: 1;
     min-width: 0;
     text-align: left;
     white-space: nowrap;
@@ -284,8 +433,16 @@
     text-overflow: ellipsis;
   }
 
+  .effort {
+    flex: none;
+    opacity: 0.55;
+    font-size: 0.92em;
+  }
+
   .chevron {
     flex: none;
+    margin-left: auto;
+    align-self: center;
     display: flex;
     /* Drawn in currentColor, so it follows the theme instead of needing a
        second copy of the icon for dark mode. */
@@ -305,6 +462,10 @@
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
   }
 
+  .menu.sub {
+    z-index: 61;
+  }
+
   .menu:focus {
     outline: none;
   }
@@ -322,7 +483,9 @@
     cursor: pointer;
   }
 
-  .menu li[data-active="true"] {
+  /* The row whose submenu is up stays lit while the pointer is off in it. */
+  .menu li[data-active="true"],
+  .menu li.sub-open {
     background: var(--hover);
   }
 
@@ -344,11 +507,18 @@
     text-overflow: ellipsis;
   }
 
+  .more {
+    flex: none;
+    color: var(--fg-muted);
+    font-size: 0.9rem;
+    line-height: 1;
+  }
+
   /* Under the composer box this is a quiet secondary control, not an input to
      fill in: no border or fill until it's pointed at. A long model name
      ellipses rather than pushing it off a narrow pane. */
   .compact {
-    max-width: 10rem;
+    max-width: 13rem;
   }
 
   .compact .trigger {

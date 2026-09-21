@@ -1,7 +1,9 @@
 import {
   api,
+  DEFAULT_EFFORT,
   DEFAULT_MODEL,
   events,
+  modelLabel,
   type Agent,
   type AgentEvent,
   type ModelInfo,
@@ -61,9 +63,12 @@ const RESUME_KEY = "cw:resume-selection";
  */
 const MODEL_KEY = "cw:preferred-model";
 
-function readPreferredModel(): string | null {
+/** The effort the user picked last, stored on the same terms as the model. */
+const EFFORT_KEY = "cw:preferred-effort";
+
+function readStored(key: string): string | null {
   try {
-    return localStorage.getItem(MODEL_KEY);
+    return localStorage.getItem(key);
   } catch {
     return null;
   }
@@ -122,7 +127,10 @@ class AppStore {
   spawning = $state<boolean>(false);
 
   /** The model the user picked for the most recent Turn. Null = never picked. */
-  preferredModel = $state<string | null>(readPreferredModel());
+  preferredModel = $state<string | null>(readStored(MODEL_KEY));
+
+  /** The effort the user picked for the most recent Turn. Null = never picked. */
+  preferredEffort = $state<string | null>(readStored(EFFORT_KEY));
 
   /** The models this account can run, newest first. Empty until loaded. */
   models = $state<ModelInfo[]>([]);
@@ -196,24 +204,29 @@ class AppStore {
   );
 
   /**
-   * The model the most recently spawned Agent ran on, as a picker value. Stands
+   * The most recently spawned Agent, for the model and effort it ran on. Stands
    * in for a stored preference on a profile that has none yet — the Agents on
    * disk are a record of the user's picks too, and reading them means the picker
    * is right on the first spawn after an update rather than the second.
    */
-  private lastSpawnedModel = $derived.by(() => {
+  private lastSpawned = $derived.by(() => {
     let latest: Agent | null = null;
     for (const a of this.agents) {
       if (!latest || Date.parse(a.spawned_at) >= Date.parse(latest.spawned_at)) {
         latest = a;
       }
     }
-    return latest ? latest.model ?? DEFAULT_MODEL : null;
+    return latest;
   });
 
   /** What a new agent's picker opens on: the last model the user ran on. */
   defaultSpawnModel = $derived(
-    this.preferredModel ?? this.lastSpawnedModel ?? DEFAULT_MODEL,
+    this.preferredModel ?? this.lastSpawned?.model ?? DEFAULT_MODEL,
+  );
+
+  /** The same, for the effort level beside it. */
+  defaultSpawnEffort = $derived(
+    this.preferredEffort ?? this.lastSpawned?.effort ?? DEFAULT_EFFORT,
   );
 
   /**
@@ -276,7 +289,8 @@ class AppStore {
    */
   modelName(id: string | null | undefined): string {
     if (!id) return "Default";
-    return this.models.find((m) => m.id === id)?.display_name ?? id;
+    const found = this.models.find((m) => m.id === id);
+    return found ? modelLabel(found.display_name) : id;
   }
 
   async stop() {
@@ -518,10 +532,12 @@ class AppStore {
    * Turn the user starts, so "the model I ran last" is what the next one opens
    * on, whether that Turn was a Spawn or a reply to a running conversation.
    */
-  rememberModel(model: string) {
+  rememberTurn(model: string, effort: string) {
     this.preferredModel = model;
+    this.preferredEffort = effort;
     try {
       localStorage.setItem(MODEL_KEY, model);
+      localStorage.setItem(EFFORT_KEY, effort);
     } catch {
       // A preference isn't worth failing a turn over.
     }
@@ -532,7 +548,7 @@ class AppStore {
    * empty means no `--model` at all. Returns whether it started — the draft
    * page keeps the prompt on failure so the user can retry rather than retype.
    */
-  async spawn(prompt: string, model: string): Promise<boolean> {
+  async spawn(prompt: string, model: string, effort: string): Promise<boolean> {
     if (!this.selectedProjectId || !prompt.trim() || this.spawning) return false;
     this.spawning = true;
     this.error = null;
@@ -541,8 +557,9 @@ class AppStore {
         this.selectedProjectId,
         prompt,
         model || null,
+        effort || null,
       );
-      this.rememberModel(model);
+      this.rememberTurn(model, effort);
       this.agents.push(agent);
       this.selectAgent(agent.id);
       return true;
@@ -558,14 +575,14 @@ class AppStore {
    * Send a follow-up prompt to the selected agent, putting it back to work in
    * the worktree it already has, on `model`. Returns whether the agent took it.
    */
-  async resume(prompt: string, model: string) {
+  async resume(prompt: string, model: string, effort: string) {
     const id = this.selectedAgentId;
     if (!id || !prompt.trim() || this.sending) return false;
     this.sending = true;
     this.error = null;
     try {
-      const agent = await api.resumeAgent(id, prompt, model || null);
-      this.rememberModel(model);
+      const agent = await api.resumeAgent(id, prompt, model || null, effort || null);
+      this.rememberTurn(model, effort);
       const i = this.agents.findIndex((a) => a.id === agent.id);
       if (i >= 0) this.agents[i] = agent;
       // It's working again, so it's nobody's leftover any more.

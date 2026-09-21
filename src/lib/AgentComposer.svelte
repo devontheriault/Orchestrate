@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import { store } from "./store.svelte";
-  import { DEFAULT_MODEL } from "./api";
+  import { DEFAULT_EFFORT, DEFAULT_MODEL } from "./api";
   import ModelPicker from "./ModelPicker.svelte";
 
   const agent = $derived(store.selectedAgent);
@@ -13,6 +13,8 @@
   let prompt = $state("");
   /** The picker's value; DEFAULT_MODEL passes no --model. */
   let model = $state(DEFAULT_MODEL);
+  /** The effort chosen beside it; DEFAULT_EFFORT passes no --effort. */
+  let effort = $state(DEFAULT_EFFORT);
   let textarea: HTMLTextAreaElement | undefined = $state();
 
   // Grow with the text, up to a ceiling — a long follow-up shouldn't need
@@ -36,11 +38,15 @@
     store.selectedAgentId;
     store.drafting;
     prompt = "";
-    model = untrack(() =>
-      store.drafting && !store.selectedAgent
+    untrack(() => {
+      const fresh = store.drafting && !store.selectedAgent;
+      model = fresh
         ? store.defaultSpawnModel
-        : store.selectedAgent?.model ?? DEFAULT_MODEL,
-    );
+        : store.selectedAgent?.model ?? DEFAULT_MODEL;
+      effort = fresh
+        ? store.defaultSpawnEffort
+        : store.selectedAgent?.effort ?? DEFAULT_EFFORT;
+    });
   });
 
   // The blank page exists to be typed into, so put the cursor there.
@@ -53,8 +59,8 @@
     // Keep the text on failure either way, so the user can retry rather
     // than retype.
     const sent = drafting
-      ? await store.spawn(prompt, model)
-      : await store.resume(prompt, model);
+      ? await store.spawn(prompt, model, effort)
+      : await store.resume(prompt, model, effort);
     if (sent) prompt = "";
   }
 
@@ -126,6 +132,7 @@
         </span>
         <ModelPicker
           bind:value={model}
+          bind:effort
           disabled={busy}
           compact
           label={drafting ? "Model for the new agent" : "Model for this prompt"}

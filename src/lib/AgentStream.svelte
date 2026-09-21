@@ -245,6 +245,13 @@
           {#if store.selectedAgent.model}
             <span class="model" title="Model this agent runs on">
               {store.modelName(store.selectedAgent.model)}
+              {#if store.selectedAgent.effort}
+                <span class="effort">{store.selectedAgent.effort}</span>
+              {/if}
+            </span>
+          {:else if store.selectedAgent.effort}
+            <span class="model" title="Effort this agent runs at">
+              <span class="effort">{store.selectedAgent.effort}</span>
             </span>
           {/if}
         </div>
@@ -447,6 +454,11 @@
     border: 1px solid var(--border);
     border-radius: 999px;
     padding: 0.05em 0.5em;
+  }
+
+  /* Qualifies the model rather than standing beside it as an equal. */
+  .meta .effort {
+    opacity: 0.6;
   }
 
   .live-stat {

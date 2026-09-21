@@ -82,6 +82,11 @@ pub struct Agent {
     /// at all and Claude Code picks, which is also what pre-model Agents get.
     #[serde(default)]
     pub model: Option<String>,
+    /// How hard the Agent's Turns work, as `claude --effort` takes it: `low`,
+    /// `medium`, `high`, `xhigh`, or `max`. `None` means we pass no `--effort`
+    /// and Claude Code picks, which is also what pre-effort Agents get.
+    #[serde(default)]
+    pub effort: Option<String>,
     /// How many Turns have been started, including the opening one.
     #[serde(default = "one")]
     pub turns: u32,
@@ -160,6 +165,7 @@ mod tests {
                 base_commit: Some("deadbeef".into()),
                 session_id: Some("0b8b3a6e-5d2f-4a71-8c3e-1f9d7a2b4c60".into()),
                 model: Some("opus".into()),
+                effort: Some("high".into()),
                 turns: 3,
                 spawned_at: datetime!(2026-09-20 14:00:00 UTC),
                 turn_started_at: Some(datetime!(2026-09-20 14:02:00 UTC)),
@@ -208,6 +214,10 @@ mod tests {
         assert_eq!(
             a.model, None,
             "no recorded model means Claude Code's own default"
+        );
+        assert_eq!(
+            a.effort, None,
+            "no recorded effort means Claude Code's own default"
         );
         assert_eq!(a.turns, 1, "a pre-Session agent had exactly one turn");
         assert_eq!(
