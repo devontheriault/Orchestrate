@@ -1,7 +1,6 @@
 <script lang="ts">
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { isMac, ownsWindowFrame } from "./platform";
-  import { store } from "./store.svelte";
 
   const win = getCurrentWindow();
 
@@ -28,24 +27,12 @@
       unlisten?.();
     };
   });
-
-  const running = $derived(
-    store.agents.filter((a) => a.state === "running").length,
-  );
 </script>
 
 <!-- The whole bar is a drag handle; the controls below opt out by not carrying
      the attribute, so a click on a button never starts a window drag. -->
 <header class="chrome" class:mac={isMac} data-tauri-drag-region>
-  <div class="identity" data-tauri-drag-region>
-    <span class="wordmark" data-tauri-drag-region>Claude Wrapper</span>
-    {#if running > 0}
-      <span class="running" title="{running} agent{running === 1 ? '' : 's'} running">
-        <span class="dot"></span>
-        {running} running
-      </span>
-    {/if}
-  </div>
+  <span class="wordmark" data-tauri-drag-region>Claude Wrapper</span>
 
   {#if ownsWindowFrame}
     <div class="controls">
@@ -103,41 +90,15 @@
     padding-right: var(--pad-x);
   }
 
-  .identity {
-    display: flex;
-    align-items: center;
-    gap: 0.6rem;
-    min-width: 0;
-  }
-
   .wordmark {
     font-size: 0.8rem;
     font-weight: 600;
     letter-spacing: 0.01em;
     color: var(--fg-muted);
+    min-width: 0;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-  }
-
-  .running {
-    display: flex;
-    align-items: center;
-    gap: 0.35rem;
-    flex: none;
-    font-size: 0.72rem;
-    color: var(--running);
-    background: var(--running-bg);
-    border-radius: 999px;
-    padding: 0.1rem 0.5rem;
-    white-space: nowrap;
-  }
-
-  .dot {
-    width: 0.4rem;
-    height: 0.4rem;
-    border-radius: 50%;
-    background: currentColor;
   }
 
   .controls {
