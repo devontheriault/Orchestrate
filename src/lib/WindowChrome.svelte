@@ -2,12 +2,20 @@
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { isMac, ownsWindowFrame } from "./platform";
   import { panes } from "./panes.svelte";
+  import { store } from "./store.svelte";
 
   const win = getCurrentWindow();
 
   // Drives the maximize/restore glyph. Only tracked where this app draws the
   // button — macOS has its own and never asks.
   let maximized = $state(false);
+
+  /** What the detail pane is showing, which is what the bar names. */
+  const agent = $derived(store.selectedAgent);
+  const drafting = $derived(store.drafting && !agent);
+  const projectName = $derived(
+    store.projects.find((p) => p.id === agent?.project_id)?.name ?? "",
+  );
 
   $effect(() => {
     if (!ownsWindowFrame) return;
@@ -38,6 +46,24 @@
        band laid across them. -->
   <div class="lead" style="width: {panes.cssWidth}" data-tauri-drag-region>
     <span class="wordmark" data-tauri-drag-region>DevCode</span>
+  </div>
+
+  <!-- The detail pane's heading, in the bar that continues it: the name Claude
+       gave the work, with the prompt behind it a hover away. -->
+  <div class="title" data-tauri-drag-region>
+    {#if agent}
+      <span class="name" title={agent.task.prompt} data-tauri-drag-region>
+        {#if projectName}
+          <span class="project">{projectName}</span>
+          <span class="sep">/</span>
+        {/if}
+        {store.agentName(agent)}
+      </span>
+    {:else if drafting}
+      <span class="name" data-tauri-drag-region>New agent</span>
+    {:else}
+      <span class="idle" data-tauri-drag-region>No agent selected</span>
+    {/if}
   </div>
 
   {#if ownsWindowFrame}
@@ -121,6 +147,41 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  .title {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    padding: 0 var(--pad-x);
+    overflow: hidden;
+  }
+
+  .name {
+    font-size: 0.85rem;
+    font-weight: 600;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Muted colour alone separates the project from the agent name; both stay
+     bold so the whole title reads as one heading. */
+  .name .project,
+  .name .sep {
+    color: var(--fg-muted);
+  }
+
+  .name .sep {
+    margin: 0 0.1rem;
+  }
+
+  .idle {
+    font-size: 0.85rem;
+    color: var(--fg-muted);
+    font-style: italic;
   }
 
   .controls {
