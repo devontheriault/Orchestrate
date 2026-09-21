@@ -15,23 +15,46 @@
     flat = false,
   }: { projectId: string; onpick?: () => void; flat?: boolean } = $props();
 
-  const stateOrder = ["running", "failed", "orphaned", "completed", "stopped"];
-  const stateLabel: Record<Agent["state"], string> = {
+  /**
+   * The heading an agent sits under. Usually its state, but an agent whose work
+   * has reached the project is bucketed as Delivered instead: where the work
+   * went says more to a reader than how the last turn happened to end. A bucket
+   * is a view of an agent, not a property of one — a Merge stays a record.
+   */
+  type Bucket = Agent["state"] | "delivered";
+
+  // Delivered sits last: it is the pile you are done with.
+  const bucketOrder: Bucket[] = [
+    "running",
+    "failed",
+    "orphaned",
+    "completed",
+    "stopped",
+    "delivered",
+  ];
+  const bucketLabel: Record<Bucket, string> = {
     running: "Running",
     completed: "Completed",
     failed: "Failed",
     stopped: "Stopped",
     orphaned: "Orphaned",
+    delivered: "Delivered",
   };
+
+  // Running outranks the merge record: an agent that is working is the thing
+  // you most need to see, wherever its last turn's work ended up.
+  function bucketOf(a: Agent): Bucket {
+    return a.state !== "running" && a.merged_at ? "delivered" : a.state;
+  }
 
   const agents = $derived(store.agentsForProject(projectId));
 
   const grouped = $derived.by(() => {
-    const groups: Record<string, Agent[]> = {};
-    for (const a of agents) (groups[a.state] ??= []).push(a);
-    return stateOrder
-      .filter((s) => groups[s]?.length)
-      .map((s) => ({ state: s as Agent["state"], agents: groups[s] }));
+    const groups: Partial<Record<Bucket, Agent[]>> = {};
+    for (const a of agents) (groups[bucketOf(a)] ??= []).push(a);
+    return bucketOrder
+      .filter((b) => groups[b]?.length)
+      .map((b) => ({ bucket: b, agents: groups[b]! }));
   });
 
   const anyRunning = $derived(agents.some((a) => a.state === "running"));
@@ -90,11 +113,11 @@
     <span class="plus">+</span> New agent
   </button>
 
-  {#each grouped as { state, agents: group } (state)}
+  {#each grouped as { bucket, agents: group } (bucket)}
     <div class="group">
       <div class="group-label">
-        <span class={`status-dot status-${state}`}></span>
-        {stateLabel[state]}
+        <span class={`status-dot status-${bucket}`}></span>
+        {bucketLabel[bucket]}
         <span class="count">{group.length}</span>
       </div>
       {#each group as a (a.id)}
