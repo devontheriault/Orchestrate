@@ -124,8 +124,6 @@
             Spawning…
           {:else if store.sending}
             Sending…
-          {:else if working}
-            Stop the agent to send a new prompt
           {/if}
         </span>
         <ModelPicker
