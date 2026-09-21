@@ -124,8 +124,6 @@
             Spawning…
           {:else if store.sending}
             Sending…
-          {:else if drafting}
-            Enter to spawn · Esc to cancel
           {:else if working}
             Stop the agent to send a new prompt
           {/if}
