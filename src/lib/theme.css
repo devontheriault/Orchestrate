@@ -84,6 +84,10 @@
   --completed-bg: rgba(59, 130, 246, 0.14);
   --failed: var(--danger);
   --stopped: var(--fg-muted);
+  /* Delivered is the one lifecycle colour that isn't an alias of a semantic
+     one: work that reached the project is neither a success signal nor a
+     warning, and grey would make it indistinguishable from stopped. */
+  --delivered: #7c3aed;
 
   /* Dims the app behind a modal. */
   --scrim: rgba(0, 0, 0, 0.4);
@@ -252,6 +256,7 @@
   --attention-bg: rgba(245, 158, 11, 0.2);
   --completed: #60a5fa;
   --completed-bg: rgba(59, 130, 246, 0.2);
+  --delivered: #a78bfa;
 
   --scrim: rgba(0, 0, 0, 0.6);
 
@@ -757,6 +762,7 @@ samp {
 .status-failed { background: var(--failed); }
 .status-orphaned { background: var(--attention); }
 .status-stopped { background: var(--stopped); }
+.status-delivered { background: var(--delivered); }
 
 .badge-running {
   color: var(--running);

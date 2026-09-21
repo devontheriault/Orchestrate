@@ -12,6 +12,14 @@
   onMount(() => {
     viewport.start();
     store.start();
+    // TEMP-PREVIEW
+    setTimeout(() => {
+      const p = store.projects[0];
+      if (p) {
+        store.selectedProjectId = p.id;
+        store.expandedProjects[p.id] = true;
+      }
+    }, 1500);
   });
 
   onDestroy(() => {
