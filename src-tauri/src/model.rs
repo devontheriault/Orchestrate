@@ -12,6 +12,12 @@ pub type Id = String;
 /// multi-agent coordination rather than finishing a piece of work.
 pub const AGENT_BRANCH_PREFIX: &str = "cw/agent-";
 
+/// The Permission Mode an Agent's Turns run in unless the user picks otherwise:
+/// free to act inside its own Worktree, which is the sandbox here. Also what
+/// Agents recorded before Modes existed get, so their Turns keep running as
+/// they always have.
+pub const DEFAULT_PERMISSION_MODE: &str = "bypassPermissions";
+
 /// Generate a new 8-hex-char ID from 4 random bytes.
 pub fn new_id() -> Id {
     let bytes: [u8; 4] = rand::random();
@@ -93,6 +99,13 @@ pub struct Agent {
     /// and Claude Code picks, which is also what pre-effort Agents get.
     #[serde(default)]
     pub effort: Option<String>,
+    /// What the Agent's Turns may do without asking, as
+    /// `claude --permission-mode` takes it: `bypassPermissions` to act freely
+    /// inside the Worktree, or `plan` to read and propose without writing.
+    /// `None` means `DEFAULT_PERMISSION_MODE`, which is what Agents recorded
+    /// before Modes existed ran on.
+    #[serde(default)]
+    pub permission_mode: Option<String>,
     /// How many Turns have been started, including the opening one.
     #[serde(default = "one")]
     pub turns: u32,
@@ -190,6 +203,7 @@ mod tests {
                 session_id: Some("0b8b3a6e-5d2f-4a71-8c3e-1f9d7a2b4c60".into()),
                 model: Some("opus".into()),
                 effort: Some("high".into()),
+                permission_mode: Some("plan".into()),
                 turns: 3,
                 title: Some("Wire up the thing".into()),
                 spawned_at: datetime!(2026-09-20 14:00:00 UTC),
@@ -245,6 +259,10 @@ mod tests {
         assert_eq!(
             a.effort, None,
             "no recorded effort means Claude Code's own default"
+        );
+        assert_eq!(
+            a.permission_mode, None,
+            "no recorded mode means the Agent runs as it always has: bypassing"
         );
         assert_eq!(a.turns, 1, "a pre-Session agent had exactly one turn");
         assert_eq!(

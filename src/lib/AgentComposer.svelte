@@ -1,8 +1,9 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import { store } from "./store.svelte";
-  import { DEFAULT_EFFORT, DEFAULT_MODEL } from "./api";
+  import { DEFAULT_EFFORT, DEFAULT_MODE, DEFAULT_MODEL } from "./api";
   import ModelPicker from "./ModelPicker.svelte";
+  import ModePicker from "./ModePicker.svelte";
   import AgentQueue from "./AgentQueue.svelte";
   import TurnStats from "./TurnStats.svelte";
 
@@ -28,6 +29,8 @@
   let model = $state(DEFAULT_MODEL);
   /** The effort chosen beside it; DEFAULT_EFFORT passes no --effort. */
   let effort = $state(DEFAULT_EFFORT);
+  /** What this turn may do without asking: bypass, or plan and write nothing. */
+  let mode = $state(DEFAULT_MODE);
   let textarea: HTMLTextAreaElement | undefined = $state();
 
   // Grow with the text, up to a ceiling — a long follow-up shouldn't need
@@ -59,6 +62,9 @@
       effort = fresh
         ? store.defaultSpawnEffort
         : store.selectedAgent?.effort ?? DEFAULT_EFFORT;
+      mode = fresh
+        ? store.defaultSpawnMode
+        : store.selectedAgent?.permission_mode ?? DEFAULT_MODE;
     });
   });
 
@@ -72,14 +78,14 @@
     // Mid-Turn, the same gesture lines the message up instead: one `claude` per
     // worktree, so it goes out as its own Turn once this one ends.
     if (working) {
-      if (queueing && store.enqueue(prompt, model, effort)) prompt = "";
+      if (queueing && store.enqueue(prompt, model, effort, mode)) prompt = "";
       return;
     }
     // Keep the text on failure either way, so the user can retry rather
     // than retype.
     const sent = drafting
-      ? await store.spawn(prompt, model, effort)
-      : await store.resume(prompt, model, effort);
+      ? await store.spawn(prompt, model, effort, mode)
+      : await store.resume(prompt, model, effort, mode);
     if (sent) prompt = "";
   }
 
@@ -194,13 +200,23 @@
             Sending…
           {/if}
         </span>
-        <ModelPicker
-          bind:value={model}
-          bind:effort
-          disabled={inFlight}
-          compact
-          label={drafting ? "Model for the new agent" : "Model for this prompt"}
-        />
+        <div class="picks">
+          <ModelPicker
+            bind:value={model}
+            bind:effort
+            disabled={inFlight}
+            compact
+            label={drafting ? "Model for the new agent" : "Model for this prompt"}
+          />
+          <!-- Right of the model: the same decision, one step further out —
+               which model runs the turn, and what it's allowed to do. -->
+          <ModePicker
+            bind:value={mode}
+            disabled={inFlight}
+            compact
+            label={drafting ? "Mode for the new agent" : "Mode for this prompt"}
+          />
+        </div>
       </div>
     {:else if agent}
       <p class="closed">
@@ -342,6 +358,15 @@
     padding: 0 0.15rem;
   }
 
+  /* The two pickers read as one group on the right — model, then what it may
+     do — rather than two controls that happen to share a row. */
+  .picks {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+  }
+
   .hint {
     font-size: var(--text-2xs);
     color: var(--fg-muted);
@@ -357,8 +382,8 @@
     font-style: italic;
   }
 
-  /* On a narrow pane the hint is the first thing worth dropping — the model
-     picker stays on the right either way. */
+  /* On a narrow pane the hint is the first thing worth dropping — the pickers
+     stay on the right either way. */
   @media (max-width: 560px) {
     .hint {
       display: none;

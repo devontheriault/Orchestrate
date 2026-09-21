@@ -1,5 +1,6 @@
 <script lang="ts">
   import { store } from "./store.svelte";
+  import { DEFAULT_MODE, modeLabel } from "./api";
 
   let {
     agentId,
@@ -91,7 +92,12 @@
             <span class="n">{i + 1}</span>
             <p class="text">{message.prompt}</p>
             {#if message.model}
-              <span class="model">{store.modelName(message.model)}</span>
+              <span class="badge">{store.modelName(message.model)}</span>
+            {/if}
+            <!-- Only when it isn't the usual one: a queued message that will
+                 plan rather than act should say so before it goes out. -->
+            {#if message.mode && message.mode !== DEFAULT_MODE}
+              <span class="badge mode">{modeLabel(message.mode)}</span>
             {/if}
             <button
               class="del"
@@ -268,7 +274,7 @@
 
   /* Sits centred against the row rather than riding the first line of a
      multi-line prompt: the badge labels the whole message. */
-  .model {
+  .badge {
     flex: none;
     align-self: center;
     display: inline-flex;
@@ -307,9 +313,15 @@
     outline-offset: 1px;
   }
 
-  /* On a narrow pane the model badge is the first thing worth dropping. */
+  /* The mode is a departure from the default, so it carries the accent the
+     picker gives it rather than the model badge's quiet grey. */
+  .badge.mode {
+    color: var(--accent);
+  }
+
+  /* On a narrow pane the badges are the first thing worth dropping. */
   @media (max-width: 560px) {
-    .model {
+    .badge {
       display: none;
     }
   }

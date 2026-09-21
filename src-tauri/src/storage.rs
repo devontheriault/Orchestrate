@@ -151,6 +151,7 @@ mod tests {
             session_id: Some("7c9e6679-7425-40de-944b-e07fc1f90ae7".into()),
             model: None,
             effort: None,
+            permission_mode: None,
             turns: 1,
             title: None,
             branch: "cw/agent-test".into(),

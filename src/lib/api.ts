@@ -33,6 +33,11 @@ export type Agent = {
   model?: string | null;
   /** The effort its turns run on, as `claude --effort` takes it. Null = Claude Code's default. */
   effort?: string | null;
+  /**
+   * What its turns may do without asking, as `claude --permission-mode` takes
+   * it. Null = the bypass mode every agent ran in before the picker existed.
+   */
+  permission_mode?: string | null;
   /** Turns started so far, including the opening one. */
   turns: number;
   /**
@@ -94,6 +99,28 @@ export const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
 
 /** The picker's value for "no effort named". */
 export const DEFAULT_EFFORT = "";
+
+/**
+ * What a turn may do without asking, as `claude --permission-mode` takes it.
+ * Only the two modes that never stop to ask are offered: the app hands `claude`
+ * no input channel, so a mode that puts up a permission prompt would hang the
+ * turn with nowhere to answer it. Isolation is the safety story here — the
+ * worktree is the sandbox — so acting freely inside one is the default, and
+ * plan is for the agent you want thinking before it touches anything.
+ */
+export const MODES = [
+  { id: "bypassPermissions", name: "Bypass", note: "acts freely in its worktree" },
+  { id: "plan", name: "Plan", note: "reads and proposes, writes nothing" },
+] as const;
+
+/** The mode a turn runs in unless the user picks otherwise. */
+export const DEFAULT_MODE = "bypassPermissions";
+
+/** What to call a mode. Falls back to the id, for a mode this build predates. */
+export function modeLabel(id: string | null | undefined): string {
+  if (!id) return modeLabel(DEFAULT_MODE);
+  return MODES.find((m) => m.id === id)?.name ?? id;
+}
 
 export type ChangedFile = {
   path: string;
@@ -208,13 +235,29 @@ export const api = {
     prompt: string,
     model: string | null,
     effort: string | null,
-  ) => invoke<Agent>("spawn_agent", { projectId, prompt, model, effort }),
+    permissionMode: string | null,
+  ) =>
+    invoke<Agent>("spawn_agent", {
+      projectId,
+      prompt,
+      model,
+      effort,
+      permissionMode,
+    }),
   resumeAgent: (
     agentId: string,
     prompt: string,
     model: string | null,
     effort: string | null,
-  ) => invoke<Agent>("resume_agent", { agentId, prompt, model, effort }),
+    permissionMode: string | null,
+  ) =>
+    invoke<Agent>("resume_agent", {
+      agentId,
+      prompt,
+      model,
+      effort,
+      permissionMode,
+    }),
   stopAgent: (agentId: string) => invoke<void>("stop_agent", { agentId }),
   reapAgent: (agentId: string) => invoke<void>("reap_agent", { agentId }),
   agentEvents: (agentId: string) =>
