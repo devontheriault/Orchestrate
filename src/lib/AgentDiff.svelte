@@ -106,25 +106,28 @@
     store.loadBranches();
   });
 
+  /** Branches that already have this work: merging into them would do nothing. */
+  const mergedInto = $derived(store.diff?.merged_into ?? []);
+
+  /** What is left to merge into, which is what the picker offers. */
+  const targets = $derived(
+    (store.branches?.names ?? []).filter((n) => !mergedInto.includes(n)),
+  );
+
   // Point at the branch the project is on, and follow the list rather than
   // leaving a name in the picker that no longer exists.
   $effect(() => {
-    const names = store.branches?.names ?? [];
-    if (names.length === 0) {
+    const current = store.branches?.current ?? null;
+    if (targets.length === 0) {
       target = "";
-    } else if (!names.includes(target)) {
-      target = store.branches?.current ?? names[0];
+    } else if (!targets.includes(target)) {
+      target = current && targets.includes(current) ? current : targets[0];
     }
   });
 
-  const mergedInto = $derived(store.selectedAgent?.merged_branch ?? null);
-
   // Only committed work merges, and not out from under a working agent.
   const canMerge = $derived(
-    !running &&
-      !store.merging &&
-      !(store.diff?.uncommitted ?? false) &&
-      (store.branches?.names.length ?? 0) > 0,
+    !running && !store.merging && !(store.diff?.uncommitted ?? false) && targets.length > 0,
   );
 </script>
 
@@ -209,43 +212,54 @@
       {/if}
 
       {#if diff.commits.length > 0}
-        <div class="merge-box">
-          <div class="merge-box-head">
-            <strong>Merge this work</strong>
-            {#if mergedInto}
-              <span class="sub">already merged into <code>{mergedInto}</code></span>
-            {/if}
-          </div>
-          <div class="merge-box-foot">
-            {#if running}
-              <span class="sub">Stop the agent before merging — it is still writing.</span>
-            {:else if diff.uncommitted}
-              <span class="sub">Commit the loose work first — only commits merge.</span>
-            {:else if (store.branches?.names.length ?? 0) === 0}
-              <span class="sub">No branches to merge into.</span>
-            {:else}
-              <span class="sub">
-                Merges <code>{store.selectedAgent?.branch}</code> in, keeping it one commit.
-              </span>
-            {/if}
-            <div class="merge-controls">
-              <BranchPicker
-                bind:value={target}
-                options={store.branches?.names ?? []}
-                current={store.branches?.current ?? null}
-                disabled={!canMerge}
-                label="Branch to merge into"
-              />
-              <button
-                class="primary"
-                disabled={!canMerge || target.length === 0}
-                onclick={() => store.merge(target)}
-              >
-                {store.merging ? "Merging…" : "Merge"}
-              </button>
+        {#if targets.length === 0 && mergedInto.length > 0}
+          <!-- Nowhere left to merge: say where the work went instead of
+               offering a control that has nothing to do. -->
+          <div class="merge-box merged">
+            <div class="merge-box-head">
+              <strong>Merged</strong>
+              <span class="sub">this work is in <code>{mergedInto.join(", ")}</code></span>
             </div>
           </div>
-        </div>
+        {:else}
+          <div class="merge-box">
+            <div class="merge-box-head">
+              <strong>Merge this work</strong>
+              {#if mergedInto.length > 0}
+                <span class="sub">already in <code>{mergedInto.join(", ")}</code></span>
+              {/if}
+            </div>
+            <div class="merge-box-foot">
+              {#if running}
+                <span class="sub">Stop the agent before merging — it is still writing.</span>
+              {:else if diff.uncommitted}
+                <span class="sub">Commit the loose work first — only commits merge.</span>
+              {:else if targets.length === 0}
+                <span class="sub">No branches to merge into.</span>
+              {:else}
+                <span class="sub">
+                  Merges <code>{store.selectedAgent?.branch}</code> in, keeping it one commit.
+                </span>
+              {/if}
+              <div class="merge-controls">
+                <BranchPicker
+                  bind:value={target}
+                  options={targets}
+                  current={store.branches?.current ?? null}
+                  disabled={!canMerge}
+                  label="Branch to merge into"
+                />
+                <button
+                  class="primary"
+                  disabled={!canMerge || target.length === 0}
+                  onclick={() => store.merge(target)}
+                >
+                  {store.merging ? "Merging…" : "Merge"}
+                </button>
+              </div>
+            </div>
+          </div>
+        {/if}
       {/if}
 
       {#if diff.files.length > 0}
@@ -537,6 +551,11 @@
     display: flex;
     flex-direction: column;
     gap: 0.55rem;
+  }
+
+  /* Quieter still once there is nothing to do but read where it went. */
+  .merge-box.merged {
+    padding: 0.55rem 0.85rem;
   }
 
   .merge-box-head {

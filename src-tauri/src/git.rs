@@ -52,6 +52,10 @@ pub struct WorktreeDiff {
     /// There are changes not yet in a commit — i.e. [`commit`] has something to
     /// capture, and a Reap right now would destroy work.
     pub uncommitted: bool,
+    /// Project branches that already contain the Agent's tip, so a Merge into
+    /// them would have nothing left to do. Empty until the work is merged, and
+    /// empty again the moment the Agent commits something new.
+    pub merged_into: Vec<String>,
 }
 
 /// Run git in `dir`, optionally against a scratch index instead of the
@@ -218,7 +222,37 @@ pub async fn diff(
         patch,
         truncated,
         uncommitted: status.split('\0').any(|f| !f.trim().is_empty()),
+        merged_into: branches_containing_head(worktree_path).await,
     })
+}
+
+/// The Project branches that already have the Worktree's tip in their history.
+///
+/// Agent branches are left out, exactly as in [`branches`], so this lines up
+/// with the branches the Merge picker offers. Best-effort: if git fails here
+/// the picker simply keeps offering a branch that has nothing to take, which
+/// [`merge`] itself still refuses.
+async fn branches_containing_head(worktree_path: &Path) -> Vec<String> {
+    let listed = stdout(
+        worktree_path,
+        &[
+            "for-each-ref",
+            "--format=%(refname:short)",
+            "--contains",
+            "HEAD",
+            "refs/heads",
+        ],
+    )
+    .await
+    .unwrap_or_default();
+
+    listed
+        .lines()
+        .map(str::trim)
+        .filter(|n| !n.is_empty())
+        .filter(|n| !n.starts_with(crate::model::AGENT_BRANCH_PREFIX))
+        .map(str::to_owned)
+        .collect()
 }
 
 /// Stage everything in the Worktree and commit it. Project hooks run as usual —
@@ -916,6 +950,25 @@ mod tests {
             matches!(err, Error::NothingToMerge { .. }),
             "expected NothingToMerge, got {err:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn diff_reports_the_branches_that_already_have_the_work() {
+        let _env = crate::test_util::StateEnv::new();
+        let f = Fixture::new().await;
+        f.agent_commits("agent.txt", "from the agent\n", "agent work")
+            .await;
+
+        // Unmerged work belongs to nobody but the Agent's own branch.
+        assert!(f.diff().await.merged_into.is_empty());
+
+        f.merge_into_branch("main").await.unwrap();
+        assert_eq!(f.diff().await.merged_into, vec!["main"]);
+
+        // A Merge is a record, not a state: new commits are unmerged again.
+        f.agent_commits("agent.txt", "second thoughts\n", "more agent work")
+            .await;
+        assert!(f.diff().await.merged_into.is_empty());
     }
 
     #[tokio::test]
