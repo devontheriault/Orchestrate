@@ -276,7 +276,7 @@
      stays grey so the blue reads in one place. Listed after the hover rule so
      it holds while the pointer is over the row. */
   .agent.selected::before {
-    background: var(--fg-muted);
+    background: color-mix(in srgb, var(--fg-muted) 55%, var(--border));
   }
 
   .agent.selected {
