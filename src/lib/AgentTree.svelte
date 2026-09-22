@@ -17,9 +17,10 @@
 
   /**
    * The heading an agent sits under. Usually its state, but an agent whose work
-   * has reached the project is bucketed as Delivered instead: where the work
-   * went says more to a reader than how the last turn happened to end. A bucket
-   * is a view of an agent, not a property of one — a Merge stays a record.
+   * has reached the project and who has written nothing since is bucketed as
+   * Delivered instead: where the work went says more to a reader than how the
+   * last turn happened to end. A bucket is a view of an agent, not a property
+   * of one — a Merge stays a record.
    */
   type Bucket = Agent["state"] | "delivered";
 
@@ -41,10 +42,25 @@
     delivered: "Delivered",
   };
 
-  // Running outranks the merge record: an agent that is working is the thing
-  // you most need to see, wherever its last turn's work ended up.
+  /**
+   * Checked in order, first match winning:
+   *
+   * 1. Running — an agent that is working is the thing you most need to see,
+   *    wherever its last turn's work ended up, so it outranks the record.
+   * 2. No merge record — it sits under its own state.
+   * 3. Merged but holding work the project hasn't got, because it was resumed
+   *    and left something dirty or committed again — back under its own state,
+   *    which for an agent that exited cleanly is Completed. Delivered is the
+   *    pile you are done with, and an agent still carrying work isn't that.
+   * 4. Otherwise Delivered.
+   *
+   * An agent goes back to its own state rather than always to Completed: one
+   * that merged, was resumed, and then failed belongs under Failed.
+   */
   function bucketOf(a: Agent): Bucket {
-    return a.state !== "running" && a.merged_at ? "delivered" : a.state;
+    if (a.state === "running") return "running";
+    if (!a.merged_at) return a.state;
+    return store.isHoldingWork(a.id) ? a.state : "delivered";
   }
 
   const agents = $derived(store.agentsForProject(projectId));

@@ -244,6 +244,31 @@ pub async fn agent_merge(agent_id: String, target: String) -> Result<Merged, Str
     Ok(merged)
 }
 
+/// The Merged Agents whose Worktree still holds work the Project does not
+/// have — left dirty, or committed again after the Merge.
+///
+/// The sidebar buckets on the merge record alone, which would leave an Agent
+/// that was Resumed and did more work sitting in Delivered as though you were
+/// done with it. This is the one extra fact that reading needs, and it is asked
+/// only of Agents that have a merge record at all, so the git cost stays
+/// bounded by how many Agents you have already Merged rather than by how many
+/// you have. Running Agents are skipped: their Worktree is being written as we
+/// look, and Running outranks the merge record anyway.
+#[tauri::command]
+pub async fn agents_holding_work() -> Result<Vec<String>, String> {
+    let agents = storage::list_agents().map_err(err)?;
+    let mut holding = Vec::new();
+    for agent in agents {
+        if agent.merged_at.is_none() || agent.state == AgentState::Running {
+            continue;
+        }
+        if git::holds_unmerged_work(&agent.worktree_path).await {
+            holding.push(agent.id);
+        }
+    }
+    Ok(holding)
+}
+
 /// The models this user's account can run, newest first, for the model picker.
 /// Asked of Anthropic rather than hardcoded, so the list matches the account
 /// and picks up models released after this build.

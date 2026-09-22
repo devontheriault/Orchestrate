@@ -268,6 +268,8 @@ export const api = {
     invoke<Commit>("agent_commit", { agentId, message }),
   agentMerge: (agentId: string, target: string) =>
     invoke<Merged>("agent_merge", { agentId, target }),
+  /** Ids of merged agents whose worktree still holds work the project lacks. */
+  agentsHoldingWork: () => invoke<string[]>("agents_holding_work"),
   projectBranches: (projectId: string) =>
     invoke<Branches>("project_branches", { projectId }),
 
