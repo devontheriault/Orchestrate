@@ -170,6 +170,15 @@ class AppStore {
    */
   branches = $state<Branches | null>(null);
 
+  /**
+   * Merged agents whose worktree still holds work the project doesn't have.
+   * Read from git rather than from the agent record, because a merge record
+   * only says what once happened — it can't know the agent was resumed and
+   * wrote more since. Empty until the first read lands, so an agent reads as
+   * Delivered until git says otherwise rather than flickering on startup.
+   */
+  holdingWork = $state<string[]>([]);
+
   /** A follow-up prompt is in flight for the selected agent. */
   sending = $state<boolean>(false);
 
@@ -239,6 +248,11 @@ class AppStore {
 
   agentsForProject(projectId: string): Agent[] {
     return this.agentsByProject.get(projectId) ?? [];
+  }
+
+  /** Whether a merged agent has work the project hasn't got. See `holdingWork`. */
+  isHoldingWork(agentId: string): boolean {
+    return this.holdingWork.includes(agentId);
   }
 
   activityByProject = $derived.by(() => {
@@ -339,6 +353,10 @@ class AppStore {
         // A Turn that ended cleanly is the moment anything queued behind it
         // becomes sendable.
         if (agent.state === "completed") this.drainQueue(agent.id);
+        // A merged agent's worktree only changes because the agent ran, so a
+        // turn ending is the one moment its bucket can have moved. That is why
+        // nothing here polls git on a timer.
+        if (agent.state !== "running" && agent.merged_at) this.loadHoldingWork();
       }),
     );
 
@@ -393,15 +411,29 @@ class AppStore {
   async refresh() {
     try {
       this.error = null;
-      [this.projects, this.agents, this.orphans] = await Promise.all([
-        api.listProjects(),
-        api.listAgents(),
-        api.startupOrphans(),
-      ]);
+      [this.projects, this.agents, this.orphans, this.holdingWork] =
+        await Promise.all([
+          api.listProjects(),
+          api.listAgents(),
+          api.startupOrphans(),
+          api.agentsHoldingWork(),
+        ]);
       this.pruneQueues();
       this.applyInitialSelection();
     } catch (e) {
       this.error = String(e);
+    }
+  }
+
+  /**
+   * Re-ask git which merged agents are holding work. Swallows failures: the
+   * previous answer is a better sidebar than an error banner over a reading.
+   */
+  private async loadHoldingWork() {
+    try {
+      this.holdingWork = await api.agentsHoldingWork();
+    } catch {
+      // Keep the last answer.
     }
   }
 
@@ -582,6 +614,9 @@ class AppStore {
     this.diffError = null;
     try {
       await api.agentCommit(id, message);
+      // Committing is the other way a merged agent starts holding work the
+      // project hasn't got — git status goes quiet but the tip moves.
+      await this.loadHoldingWork();
       if (this.selectedAgentId === id) await this.loadDiff();
       return true;
     } catch (e) {

@@ -222,17 +222,46 @@ pub async fn diff(
         patch,
         truncated,
         uncommitted: status.split('\0').any(|f| !f.trim().is_empty()),
-        merged_into: branches_containing_head(worktree_path).await,
+        // Best-effort here: if git can't say, the picker simply keeps offering
+        // a branch that has nothing to take, which [`merge`] itself refuses.
+        merged_into: branches_containing_head(worktree_path).await.unwrap_or_default(),
     })
+}
+
+/// Whether a Worktree holds work the Project does not have — something
+/// uncommitted, or commits no Project branch contains.
+///
+/// This is what tells a Merged Agent that is done from one that has been
+/// Resumed and produced something since. Cheap enough to ask about every
+/// Merged Agent, unlike [`diff`]: it builds no patch and copies no index,
+/// because `git status` reports untracked files on its own and only `git diff`
+/// needs the intent-to-add.
+///
+/// A Worktree that has gone missing, or a git that fails, reads as holding
+/// nothing: the Agent then keeps the reading its merge record gives it rather
+/// than a sidebar row claiming work that may not exist.
+pub async fn holds_unmerged_work(worktree_path: &Path) -> bool {
+    if !worktree_path.exists() {
+        return false;
+    }
+    let Ok(status) = stdout(worktree_path, &["status", "--porcelain", "-z"]).await else {
+        return false;
+    };
+    if status.split('\0').any(|f| !f.trim().is_empty()) {
+        return true;
+    }
+    // No branch having the tip means the Agent has committed since it merged.
+    // An `Err` is git declining to answer, which is not the same thing.
+    matches!(branches_containing_head(worktree_path).await, Ok(b) if b.is_empty())
 }
 
 /// The Project branches that already have the Worktree's tip in their history.
 ///
 /// Agent branches are left out, exactly as in [`branches`], so this lines up
-/// with the branches the Merge picker offers. Best-effort: if git fails here
-/// the picker simply keeps offering a branch that has nothing to take, which
-/// [`merge`] itself still refuses.
-async fn branches_containing_head(worktree_path: &Path) -> Vec<String> {
+/// with the branches the Merge picker offers. `Err` is git failing to answer,
+/// which callers must keep apart from no branch having the tip — the second
+/// means the Agent holds unmerged commits, the first means we don't know.
+async fn branches_containing_head(worktree_path: &Path) -> Result<Vec<String>> {
     let listed = stdout(
         worktree_path,
         &[
@@ -243,16 +272,15 @@ async fn branches_containing_head(worktree_path: &Path) -> Vec<String> {
             "refs/heads",
         ],
     )
-    .await
-    .unwrap_or_default();
+    .await?;
 
-    listed
+    Ok(listed
         .lines()
         .map(str::trim)
         .filter(|n| !n.is_empty())
         .filter(|n| !n.starts_with(crate::model::AGENT_BRANCH_PREFIX))
         .map(str::to_owned)
-        .collect()
+        .collect())
 }
 
 /// Stage everything in the Worktree and commit it. Project hooks run as usual —
@@ -809,6 +837,58 @@ mod tests {
             )
             .await
         }
+    }
+
+    /// The state a Merged Agent is done in: everything it produced is on main,
+    /// and it has written nothing since. This is the only case that stays in
+    /// the Delivered bucket.
+    #[tokio::test]
+    async fn merged_and_quiet_worktree_holds_nothing() {
+        let _env = crate::test_util::StateEnv::new();
+        let f = Fixture::new().await;
+        f.agent_commits("agent.txt", "from the agent\n", "agent work")
+            .await;
+        f.merge_into_branch("main").await.unwrap();
+
+        assert!(!holds_unmerged_work(&f.wt_path()).await);
+    }
+
+    #[tokio::test]
+    async fn work_left_dirty_after_a_merge_is_held() {
+        let _env = crate::test_util::StateEnv::new();
+        let f = Fixture::new().await;
+        f.agent_commits("agent.txt", "from the agent\n", "agent work")
+            .await;
+        f.merge_into_branch("main").await.unwrap();
+
+        // The Agent was Resumed and wrote something it never committed.
+        std::fs::write(f.wt_path().join("later.txt"), "second thoughts\n").unwrap();
+
+        assert!(holds_unmerged_work(&f.wt_path()).await);
+    }
+
+    /// The case `git status` alone misses: a clean tree whose tip no Project
+    /// branch has, because the Agent committed again after the Merge.
+    #[tokio::test]
+    async fn committing_again_after_a_merge_is_held() {
+        let _env = crate::test_util::StateEnv::new();
+        let f = Fixture::new().await;
+        f.agent_commits("agent.txt", "from the agent\n", "agent work")
+            .await;
+        f.merge_into_branch("main").await.unwrap();
+        f.agent_commits("later.txt", "second thoughts\n", "agent: more work")
+            .await;
+
+        assert!(holds_unmerged_work(&f.wt_path()).await);
+    }
+
+    /// A Worktree that isn't there any more can't be claiming to hold work:
+    /// the row keeps whatever its merge record says rather than erroring.
+    #[tokio::test]
+    async fn missing_worktree_holds_nothing() {
+        let f = Fixture::new().await;
+
+        assert!(!holds_unmerged_work(&f.wt.path().join("gone")).await);
     }
 
     #[tokio::test]

@@ -124,6 +124,7 @@ pub fn run() {
             commands::agent_diff,
             commands::agent_commit,
             commands::agent_merge,
+            commands::agents_holding_work,
             commands::project_branches,
             commands::startup_orphans,
             commands::list_models,
