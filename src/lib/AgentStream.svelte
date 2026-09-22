@@ -117,6 +117,28 @@
   const SILENT_EVENT_TYPES = new Set(["rate_limit_event"]);
   const SILENT_SYSTEM_SUBTYPES = new Set(["thinking_tokens"]);
 
+  /**
+   * Claude Code's system subtypes, in the words the user reads them in. The
+   * set is open-ended — the CLI adds to it without telling us — so anything
+   * unknown falls back to its own name as a sentence rather than leaking the
+   * protocol's snake_case into the transcript.
+   */
+  const SYSTEM_LABELS: Record<string, string> = {
+    "": "Session update",
+    init: "Session started",
+    compact_boundary: "Conversation compacted to free up context",
+  };
+
+  /** `compact_boundary` -> `Compact boundary`. */
+  function humanize(s: string): string {
+    const words = s.replace(/[_-]+/g, " ").trim();
+    return words ? words[0].toUpperCase() + words.slice(1) : "";
+  }
+
+  function systemLabel(subtype: string): string {
+    return SYSTEM_LABELS[subtype] ?? humanize(subtype);
+  }
+
   function classify(ev: AgentEvent): Kind[] {
     const e = ev.event as {
       type?: string;
@@ -134,7 +156,7 @@
     if (e.type === "cw_prompt") return [{ kind: "prompt", text: e.prompt ?? "" }];
     if (e.type === "system") {
       if (SILENT_SYSTEM_SUBTYPES.has(e.subtype ?? "")) return [];
-      return [{ kind: "system", subtype: e.subtype ?? "?" }];
+      return [{ kind: "system", subtype: e.subtype ?? "" }];
     }
     if (e.type === "result")
       return [
@@ -484,7 +506,7 @@
                 <div class="thinking-body"><Markdown text={row.parts.join("\n\n")} /></div>
               </details>
             {:else if row.kind === "system"}
-              <div class="block system">session: {row.subtype}</div>
+              <div class="block system">{systemLabel(row.subtype)}</div>
             {:else if row.kind === "result"}
               <div class="block done" class:err={row.is_error}>
                 {row.is_error ? "✗ error" : "✓ done"}
@@ -500,7 +522,7 @@
               </div>
             {:else}
               <details class="block raw-detail">
-                <summary>event: {row.type ?? "unknown"}</summary>
+                <summary>{humanize(row.type ?? "") || "Unrecognized event"}</summary>
                 <pre>{JSON.stringify(row.event, null, 2)}</pre>
               </details>
             {/if}
