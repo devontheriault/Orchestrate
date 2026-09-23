@@ -69,8 +69,10 @@ impl Emitter {
         Self(tx)
     }
 
-    /// Append an event to the Agent's log, then push it to the UI.
-    pub(super) fn record(&self, agent_id: &str, event: AgentEvent) {
+    /// Append an event to the Agent's log, then push it to the UI, both
+    /// without the weight the transcript never shows (see [`storage::slim`]).
+    pub(super) fn record(&self, agent_id: &str, mut event: AgentEvent) {
+        storage::slim(&mut event.event);
         let _ = storage::append_event(agent_id, &event);
         let _ = self.0.send(RuntimeEvent::AgentEvent {
             agent_id: agent_id.to_owned(),

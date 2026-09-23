@@ -161,7 +161,14 @@ function toolResultText(content: unknown): string {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
     return content
-      .map((c: any) => (c?.type === "text" ? c.text : JSON.stringify(c)))
+      .map((c: any) =>
+        c?.type === "text"
+          ? c.text
+          : // Its bytes aren't kept (see `storage::slim`), so name it instead.
+            c?.source?.type === "base64"
+            ? `[${c.type}${c.source.media_type ? `: ${c.source.media_type}` : ""}]`
+            : JSON.stringify(c),
+      )
       .join("\n");
   }
   return JSON.stringify(content);
