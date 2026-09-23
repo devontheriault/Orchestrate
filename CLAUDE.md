@@ -48,7 +48,7 @@ Avoid building a custom agent loop or sophisticated multi-agent planning system 
 Conventions the directory tree won't tell you:
 
 - `src/lib` is grouped by feature. Import across folders with `$lib/...`, within a folder with `./`.
-- `src/lib/api.ts` is the IPC boundary only. Its types mirror the Rust structs (`domain.rs`, `git/`, `usage.rs`); change both together.
+- `src/lib/api.ts` is the IPC boundary only. Its types mirror the Rust structs (`domain.rs`, `git/`, `usage/`); change both together.
 - App state lives in `src/lib/state/store.svelte.ts`. Slices that need the agents or the selection hang off it as `store.review`, `store.queue` and `store.prefs`, each in its own file. Standalone stores (`models`, `usage`, `panes`, `theme`) are their own singletons.
 - Pure logic sits in `.ts` beside the component that renders it (`transcript/rows.ts`, `agent/patch.ts`, `menus/menu.ts`). Put new pure logic there too, not in the component's script.
 - Every drop-down menu uses `menus/menu.ts` for placement, dismissal and keyboard walking.

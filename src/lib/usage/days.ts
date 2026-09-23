@@ -4,7 +4,7 @@
  * the user's midnight falls; here those slots are folded into days.
  */
 
-import type { AgentUsage } from "$lib/api";
+import type { SlotUsage } from "$lib/api";
 
 export type DayUsage = {
   /** `YYYY-MM-DD` in local time — stable across refreshes, so a row key. */
@@ -20,11 +20,11 @@ export type DayUsage = {
 };
 
 /**
- * Add up every Agent's slots over this calendar week, Monday through Sunday.
+ * Add up every source's slots over this calendar week, Monday through Sunday.
  * Every day gets a row, spent on or not — the days still to come included —
  * so the week reads as a week.
  */
-export function byDay(agents: AgentUsage[], now: Date): DayUsage[] {
+export function byDay(sources: { slots: SlotUsage[] }[], now: Date): DayUsage[] {
   // getDay() counts from Sunday; shift it so the week opens on Monday.
   const monday = now.getDate() - ((now.getDay() + 6) % 7);
   const days = new Map<string, DayUsage>();
@@ -41,7 +41,7 @@ export function byDay(agents: AgentUsage[], now: Date): DayUsage[] {
       turns: 0,
     });
   }
-  for (const a of agents) {
+  for (const a of sources) {
     for (const s of a.slots) {
       const day = days.get(dayKey(new Date(s.start * 1000)));
       if (!day) continue;

@@ -333,13 +333,17 @@ pub async fn list_models() -> Result<Vec<ModelInfo>, String> {
     crate::models::list().await.map_err(err)
 }
 
-/// What every Agent has spent — tokens and money per Model — plus the account's
-/// rate-limit windows as last reported. Read from the logs on each call rather
-/// than tallied as events arrive, so the numbers are right after a restart and
-/// cover Agents this window never opened.
+/// What the account and every Agent have spent — tokens and money per Model —
+/// plus the account's rate-limit windows as last reported. Read from disk on
+/// each call rather than tallied as events arrive, so the numbers are right
+/// after a restart and cover sessions this window never opened. Off the async
+/// runtime: the first read walks every Claude Code transcript.
 #[tauri::command]
 pub async fn usage_summary() -> Result<UsageSummary, String> {
-    crate::usage::summary().map_err(err)
+    tokio::task::spawn_blocking(crate::usage::summary)
+        .await
+        .map_err(err)?
+        .map_err(err)
 }
 
 /// The launch-time Orphans that are still Orphaned. Read fresh from disk, so
