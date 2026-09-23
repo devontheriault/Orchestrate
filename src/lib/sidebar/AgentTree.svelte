@@ -298,6 +298,7 @@
           class="agent"
           data-flip={`agent:${a.id}`}
           class:selected={store.selectedAgentId === a.id}
+          class:running={a.state === "running"}
           class:doomed={bucket === "delivered" && (confirmingReap || !!bulkReap)}
           onclick={() => pick(a.id)}
           role="button"
@@ -525,6 +526,49 @@
 
   .agent:hover {
     background: var(--hover);
+  }
+
+  /* A running agent's row has a band of its green sweeping through it, so the
+     work shows across the whole row rather than in one small dot. It sits
+     under the text and over the hover/selected tint, so both still show. */
+  .agent.running {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+  }
+
+  .agent.running::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      var(--running-bg) 35%,
+      var(--running-bg) 65%,
+      transparent
+    );
+    transform: translateX(-100%);
+    animation: running-sweep 2.8s var(--ease) infinite;
+  }
+
+  /* Most of the cycle is the sweep; the rest is a rest, so the rows don't
+     read as a constant flicker. */
+  @keyframes running-sweep {
+    70%,
+    100% {
+      transform: translateX(100%);
+    }
+  }
+
+  /* With motion off the band would stop off the row's edge; a flat tint says
+     "running" instead. */
+  @media (prefers-reduced-motion: reduce) {
+    .agent.running::before {
+      transform: none;
+      background: var(--running-bg);
+    }
   }
 
   /* Just a faint wash of the accent: the project's own edge already carries
