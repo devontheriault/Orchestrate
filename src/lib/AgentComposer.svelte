@@ -142,7 +142,7 @@
               title="Stop this agent"
             >
               <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
-                <rect x="5" y="5" width="6" height="6" rx="1.2" fill="currentColor" />
+                <rect x="3.5" y="3.5" width="9" height="9" rx="1.8" fill="currentColor" />
               </svg>
             </button>
           {:else}
