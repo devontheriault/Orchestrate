@@ -1,13 +1,13 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
-  import ProjectSidebar from "$lib/ProjectSidebar.svelte";
-  import AgentStream from "$lib/AgentStream.svelte";
-  import UsageWindow from "$lib/UsageWindow.svelte";
-  import PaneDivider from "$lib/PaneDivider.svelte";
-  import { store } from "$lib/store.svelte";
-  import { usage } from "$lib/usage.svelte";
-  import { viewport } from "$lib/viewport.svelte";
-  import { panes, MIN_DETAIL, MIN_PROJECTS_DRAG } from "$lib/panes.svelte";
+  import ProjectSidebar from "$lib/sidebar/ProjectSidebar.svelte";
+  import AgentPane from "$lib/agent/AgentPane.svelte";
+  import UsageWindow from "$lib/usage/UsageWindow.svelte";
+  import PaneDivider from "$lib/layout/PaneDivider.svelte";
+  import { store } from "$lib/state/store.svelte";
+  import { usage } from "$lib/usage/usage.svelte";
+  import { viewport } from "$lib/layout/viewport.svelte";
+  import { panes, MIN_DETAIL, MIN_PROJECTS_DRAG } from "$lib/layout/panes.svelte";
 
   onMount(() => {
     viewport.start();
@@ -126,7 +126,7 @@
     onresize={(w) => panes.setProjects(w)}
     onreset={() => panes.setProjects(null)}
   />
-  <AgentStream />
+  <AgentPane />
 </main>
 
 {#if usage.open}

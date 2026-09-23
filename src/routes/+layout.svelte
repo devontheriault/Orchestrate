@@ -1,14 +1,14 @@
 <script lang="ts">
   // The app's theme — colour, type, spacing, radii, motion, and the shared
   // button and input classes. Imported here because it is the one place every
-  // page passes through. See src/lib/theme.css.
-  import "$lib/theme.css";
+  // page passes through. See src/lib/theme/theme.css.
+  import "$lib/theme/theme.css";
   // The named palettes — Dracula, Nord, Tokyo Night and the rest. After
   // theme.css, because a palette overrides the colours it declares.
-  import "$lib/themes.css";
-  import { theme } from "$lib/theme.svelte";
-  import WindowChrome from "$lib/WindowChrome.svelte";
-  import WindowResizeEdges from "$lib/WindowResizeEdges.svelte";
+  import "$lib/theme/themes.css";
+  import { theme } from "$lib/theme/theme.svelte";
+  import WindowChrome from "$lib/layout/WindowChrome.svelte";
+  import WindowResizeEdges from "$lib/layout/WindowResizeEdges.svelte";
 
   let { children } = $props();
 

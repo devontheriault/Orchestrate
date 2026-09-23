@@ -1,9 +1,9 @@
 pub mod attachments;
 pub mod commands;
+pub mod domain;
 pub mod error;
 pub mod git;
 pub mod merging;
-pub mod model;
 pub mod models;
 pub mod paths;
 pub mod runtime;
@@ -19,7 +19,7 @@ use serde::Serialize;
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
 use commands::AppState;
-use model::{Agent, AgentEvent};
+use domain::{Agent, AgentEvent};
 use runtime::{AgentRuntime, RuntimeEvent};
 
 /// Payload for the `agent-event` Tauri event: one stream-json line from a
@@ -74,10 +74,17 @@ fn build_main_window(app: &tauri::AppHandle) -> tauri::Result<()> {
 /// read off the variables each one exports into the programs it launches.
 #[cfg(any(target_os = "linux", test))]
 fn is_tiling_compositor(var: impl Fn(&str) -> Option<String>) -> bool {
-    const SOCKETS: [&str; 4] = ["HYPRLAND_INSTANCE_SIGNATURE", "SWAYSOCK", "NIRI_SOCKET", "I3SOCK"];
+    const SOCKETS: [&str; 4] = [
+        "HYPRLAND_INSTANCE_SIGNATURE",
+        "SWAYSOCK",
+        "NIRI_SOCKET",
+        "I3SOCK",
+    ];
     const DESKTOPS: [&str; 5] = ["hyprland", "sway", "niri", "river", "i3"];
 
-    SOCKETS.iter().any(|k| var(k).is_some_and(|v| !v.is_empty()))
+    SOCKETS
+        .iter()
+        .any(|k| var(k).is_some_and(|v| !v.is_empty()))
         || var("XDG_CURRENT_DESKTOP").is_some_and(|v| {
             v.split(':')
                 .any(|d| DESKTOPS.contains(&d.to_ascii_lowercase().as_str()))
@@ -174,20 +181,40 @@ mod tests {
     use super::is_tiling_compositor;
 
     fn env<'a>(pairs: &'a [(&str, &str)]) -> impl Fn(&str) -> Option<String> + 'a {
-        move |k| pairs.iter().find(|(n, _)| *n == k).map(|(_, v)| v.to_string())
+        move |k| {
+            pairs
+                .iter()
+                .find(|(n, _)| *n == k)
+                .map(|(_, v)| v.to_string())
+        }
     }
 
     #[test]
     fn tiling_compositors_are_recognised() {
-        assert!(is_tiling_compositor(env(&[("HYPRLAND_INSTANCE_SIGNATURE", "abc")])));
-        assert!(is_tiling_compositor(env(&[("XDG_CURRENT_DESKTOP", "sway")])));
-        assert!(is_tiling_compositor(env(&[("XDG_CURRENT_DESKTOP", "Hyprland")])));
+        assert!(is_tiling_compositor(env(&[(
+            "HYPRLAND_INSTANCE_SIGNATURE",
+            "abc"
+        )])));
+        assert!(is_tiling_compositor(env(&[(
+            "XDG_CURRENT_DESKTOP",
+            "sway"
+        )])));
+        assert!(is_tiling_compositor(env(&[(
+            "XDG_CURRENT_DESKTOP",
+            "Hyprland"
+        )])));
     }
 
     #[test]
     fn stacking_desktops_are_not() {
         assert!(!is_tiling_compositor(env(&[])));
-        assert!(!is_tiling_compositor(env(&[("XDG_CURRENT_DESKTOP", "ubuntu:GNOME")])));
-        assert!(!is_tiling_compositor(env(&[("XDG_CURRENT_DESKTOP", "KDE"), ("SWAYSOCK", "")])));
+        assert!(!is_tiling_compositor(env(&[(
+            "XDG_CURRENT_DESKTOP",
+            "ubuntu:GNOME"
+        )])));
+        assert!(!is_tiling_compositor(env(&[
+            ("XDG_CURRENT_DESKTOP", "KDE"),
+            ("SWAYSOCK", "")
+        ])));
     }
 }

@@ -15,8 +15,8 @@ use serde::Serialize;
 use serde_json::Value;
 use time::OffsetDateTime;
 
+use crate::domain::AgentEvent;
 use crate::error::{Error, Result};
-use crate::model::AgentEvent;
 use crate::paths;
 
 /// Cheap prefilters. Parsing every line of every log as JSON costs far more
