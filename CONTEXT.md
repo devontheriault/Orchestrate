@@ -108,7 +108,7 @@ The user's answer to a Merge that conflicted: Spawn a **Resolver** to settle the
 _Avoid_: Fixer, Conflict agent, Rebase.
 
 **Reap**:
-Ends an Agent for good: destroys its Worktree, deletes its branch, and removes it from the app's list. Always an explicit user action, and the only action that destroys anything — so it discards Commits the Agent made as well as uncommitted work, and takes the Session with it (a Session cannot outlive the directory it ran in). Refused while the Agent is working. After Reap, the Agent's on-disk log file (JSONL) is still preserved.
+Ends an Agent for good: destroys its Worktree, deletes its branch, and removes it from the app's list. Always an explicit user action, and the only action that destroys anything — so it discards Commits the Agent made as well as uncommitted work, and takes the Session with it (a Session cannot outlive the directory it ran in). Refused while the Agent is working. After Reap, the Agent's on-disk log file (JSONL) is still preserved. The Delivered Bucket can be Reaped in one go from its sidebar heading; git is asked afresh first, so an Agent that has picked up work since its Merge is left alone.
 _Avoid_: Cleanup, Delete, Remove.
 
 **Orphan**:
