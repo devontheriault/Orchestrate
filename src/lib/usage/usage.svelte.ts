@@ -25,6 +25,8 @@ class UsageWindow {
   refreshing = $state(false);
   error = $state<string | null>(null);
   scope = $state<Scope>("all");
+  /** The by-agent list is folded away until asked for; kept across openings. */
+  agentsOpen = $state(false);
 
   /** The read in flight, so a second asker waits on it instead of starting another. */
   #inFlight: Promise<void> | null = null;

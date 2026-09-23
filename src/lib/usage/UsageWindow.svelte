@@ -2,6 +2,7 @@
   import { store } from "$lib/state/store.svelte";
   import { models as modelList } from "$lib/state/models.svelte";
   import { usage, REFRESH_MS } from "./usage.svelte";
+  import { byDay, dayLabel } from "./days";
   import type { ModelUsage } from "$lib/api";
 
   /** Claude Code's window names, in the words the user sees them in. */
@@ -91,15 +92,37 @@
       : agents.reduce((n, a) => n + a.turns, 0),
   );
 
+  /** Days follow the scope toggle, like the totals above them. */
+  const days = $derived(
+    byDay(
+      usage.scope === "agent"
+        ? selectedUsage
+          ? [selectedUsage]
+          : []
+        : agents,
+    ),
+  );
+
+  /** The costliest day fills its bar; the rest are measured against it. */
+  const busiestDay = $derived(Math.max(0, ...days.map((d) => d.cost_usd)));
+
+  const allAgentsCost = $derived(agents.reduce((n, a) => n + agentCost(a.models), 0));
+
   function agentCost(models: ModelUsage[]): number {
     return models.reduce((n, m) => n + m.cost_usd, 0);
   }
 
   function agentTokens(models: ModelUsage[]): number {
-    return models.reduce(
-      (n, m) => n + m.input_tokens + m.output_tokens + m.cache_read_tokens,
-      0,
-    );
+    return models.reduce((n, m) => n + spentTokens(m), 0);
+  }
+
+  /** The tokens a row's token column counts: everything but cache writes. */
+  function spentTokens(t: {
+    input_tokens: number;
+    output_tokens: number;
+    cache_read_tokens: number;
+  }): number {
+    return t.input_tokens + t.output_tokens + t.cache_read_tokens;
   }
 
   /**
@@ -319,10 +342,59 @@
         {/if}
       </section>
 
+      {#if days.length > 0}
+        <section>
+          <div class="section-label">By day</div>
+          <div class="day-list">
+            {#each days as d (d.key)}
+              <div class="day-row" title={`${d.turns} repl${d.turns === 1 ? "y" : "ies"}`}>
+                <span class="day">{dayLabel(d.start, new Date(now))}</span>
+                <div class="day-bar" aria-hidden="true">
+                  <div
+                    class="fill"
+                    style={`width: ${busiestDay > 0 ? (d.cost_usd / busiestDay) * 100 : 0}%`}
+                  ></div>
+                </div>
+                <span class="tokens">{formatTokens(spentTokens(d))}</span>
+                <span class="money">{formatCost(d.cost_usd)}</span>
+              </div>
+            {/each}
+          </div>
+        </section>
+      {/if}
+
       {#if usage.scope === "all" && agents.length > 0}
         <section>
-          <div class="section-label">By agent</div>
-          <div class="agent-list">
+          <button
+            class="section-label fold"
+            onclick={() => (usage.agentsOpen = !usage.agentsOpen)}
+            aria-expanded={usage.agentsOpen}
+            aria-controls="usage-agent-list"
+          >
+            <svg
+              class="chevron"
+              class:open={usage.agentsOpen}
+              viewBox="0 0 16 16"
+              width="12"
+              height="12"
+              aria-hidden="true"
+            >
+              <path
+                d="M6 4l4 4-4 4"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+            By agent
+            <span class="fold-sum">
+              {agents.length} agent{agents.length === 1 ? "" : "s"} · {formatCost(allAgentsCost)}
+            </span>
+          </button>
+          {#if usage.agentsOpen}
+          <div class="agent-list" id="usage-agent-list">
             {#each agents as a (a.agent_id)}
               {@const label = agentLabel(a.agent_id)}
               <button
@@ -339,6 +411,7 @@
               </button>
             {/each}
           </div>
+          {/if}
         </section>
       {/if}
     </div>
@@ -616,6 +689,106 @@
 
   td.muted {
     color: var(--fg-muted);
+  }
+
+  /* The whole label is the toggle, so it reads as a heading that opens. */
+  .fold {
+    width: 100%;
+    background: transparent;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    font: inherit;
+    font-size: var(--text-xs);
+  }
+
+  .fold:hover {
+    color: var(--fg);
+  }
+
+  .fold:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+
+  /* Folded, the list's space goes too — nothing sits under the label. */
+  .fold[aria-expanded="false"] {
+    margin-bottom: 0;
+  }
+
+  .chevron {
+    flex: none;
+    margin-right: calc(-1 * var(--space-2));
+    transition: transform var(--transition-fast);
+  }
+
+  .chevron.open {
+    transform: rotate(90deg);
+  }
+
+  .fold-sum {
+    margin-left: auto;
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+
+  .day-list {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    max-height: 12rem;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .day-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    padding: 0.35rem 0.6rem;
+    border-top: 1px solid var(--border);
+    font-size: var(--text-sm);
+  }
+
+  .day-row:first-child {
+    border-top: none;
+  }
+
+  .day-row .day {
+    flex: none;
+    width: 7.5rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .day-bar {
+    flex: 1;
+    min-width: 2rem;
+    height: 0.4rem;
+    border-radius: var(--radius-pill);
+    background: var(--code-bg);
+    overflow: hidden;
+  }
+
+  .day-row .tokens,
+  .day-row .money {
+    flex: none;
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-size: var(--text-xs);
+    text-align: right;
+  }
+
+  .day-row .tokens {
+    color: var(--fg-muted);
+    width: 3.5rem;
+  }
+
+  .day-row .money {
+    width: 3.5rem;
   }
 
   .agent-list {
