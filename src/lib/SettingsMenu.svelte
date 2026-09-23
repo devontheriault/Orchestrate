@@ -9,8 +9,9 @@
 
   /**
    * One flat list, so the keyboard walks it without a mode: the three themes,
-   * then the actions. Picking a theme is the only row that leaves the menu up —
-   * the point of a theme picker is seeing the app change under it.
+   * then the actions. A theme row is worn by the whole window as soon as it is
+   * pointed at, and picking one is the only row that leaves the menu up — the
+   * point of a theme picker is seeing the app change under it.
    */
   const themes: { id: ThemePref; name: string }[] = [
     { id: "system", name: "System" },
@@ -83,6 +84,18 @@
     // fastest way to try the three and keep the one you like.
     theme.set(themes[i].id);
   }
+
+  /**
+   * Wear the row the user is on. `active` is what the pointer is over and what
+   * the arrow keys are on, so hover and keyboard preview the same way, and the
+   * rows that aren't themes (Usage) drop the preview rather than freezing it.
+   * Clearing on close is what puts the chosen theme back after a look around.
+   */
+  $effect(() => {
+    if (!open) return;
+    theme.preview = active < themes.length ? themes[active].id : null;
+    return () => (theme.preview = null);
+  });
 
   // The menu is pinned to the trigger's position, so anything that moves it
   // dismisses the menu rather than leaving it stranded mid-air.
@@ -219,7 +232,7 @@
         >
           <span class="menu-tick" aria-hidden="true">{t.id === theme.pref ? "✓" : ""}</span>
           <span class="menu-label">{t.name}</span>
-          {#if t.id === "system"}<span class="menu-note">{theme.resolved}</span>{/if}
+          {#if t.id === "system"}<span class="menu-note">{theme.system}</span>{/if}
         </div>
       {/each}
     </div>
