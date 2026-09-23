@@ -118,7 +118,7 @@
   }
 
   /* Leave the traffic lights their corner, and never get shorter than they
-     are — at the small end of the root font scale 2.1rem would clip them. */
+     are — at the small end of the root font scale the bar could clip them. */
   .chrome.mac {
     height: max(var(--titlebar-h), 28px);
   }
@@ -139,7 +139,7 @@
 
   .wordmark {
     /* Stands in for the app icon until there is one, so it carries more weight
-       than a caption would. Sized to still clear the 2.1rem bar. */
+       than a caption would. Sized to sit comfortably in the bar. */
     font-size: var(--text-2xl);
     line-height: var(--leading-none);
     font-weight: var(--weight-normal);

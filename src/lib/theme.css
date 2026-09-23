@@ -223,7 +223,7 @@
   --pane-projects: clamp(12rem, 20vw, 20rem);
   /* The app's own title bar. Fixed rather than scaled: it holds the window
      controls, which want a constant hit target however small the window. */
-  --titlebar-h: 2.1rem;
+  --titlebar-h: 2.8rem;
   --rail: 3.4rem;
   /* Breathing room scales too, so a narrow window spends it on content. */
   --pad-x: clamp(0.6rem, 1.1vw, 1.1rem);
