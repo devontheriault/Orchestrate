@@ -352,7 +352,7 @@
           <div class="day-list">
             {#each days as d (d.key)}
               <div class="day-row" class:idle={d.turns === 0} title={`${d.turns} repl${d.turns === 1 ? "y" : "ies"}`}>
-                <span class="day">{dayLabel(d.start, new Date(now))}</span>
+                <span class="day">{dayLabel(d.start)}</span>
                 <div class="day-bar" aria-hidden="true">
                   <div
                     class="fill"
