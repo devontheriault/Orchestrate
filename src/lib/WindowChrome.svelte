@@ -41,9 +41,9 @@
 <!-- The whole bar is a drag handle; the controls below opt out by not carrying
      the attribute, so a click on a button never starts a window drag. -->
 <header class="chrome" class:mac={isMac} data-tauri-drag-region>
-  <!-- The title sits in a segment as wide as the project pane and painted in
-       the accent, so it caps that pane like a masthead while the rest of the
-       bar continues the detail pane. -->
+  <!-- The title sits in a segment as wide as the project pane and painted like
+       it, so the bar reads as the top of the two panes below rather than as a
+       band laid across them. -->
   <div class="lead" style="width: {panes.cssWidth}" data-tauri-drag-region>
     <span class="wordmark" data-tauri-drag-region
       ><b data-tauri-drag-region>DEV</b> Code</span
@@ -105,8 +105,8 @@
     align-items: stretch;
     justify-content: space-between;
     padding: 0;
-    /* Continues the detail pane below it; the lead segment carries the
-       accent. */
+    /* Continues the detail pane below it; the lead segment carries the project
+       pane's colour. */
     background: var(--surface);
     user-select: none;
     -webkit-user-select: none;
@@ -128,32 +128,8 @@
     display: flex;
     align-items: center;
     padding: 0 var(--pad-x);
-    /* A solid block of the accent, deepening top to bottom, with a soft sheen
-       in the top-left corner. Mixed in oklch so the colour stays saturated
-       rather than going grey as it darkens. */
-    background:
-      radial-gradient(
-        140% 120% at 0% 0%,
-        color-mix(in oklch, var(--accent), white 22%) 0%,
-        transparent 55%
-      ),
-      linear-gradient(
-        to bottom,
-        var(--accent),
-        color-mix(in oklch, var(--accent), black 30%)
-      );
-    position: relative;
+    background: var(--panel-bg);
     overflow: hidden;
-  }
-
-  /* A hairline at the bottom edge, so the block ends crisply against the
-     project pane instead of just stopping. */
-  .lead::after {
-    content: "";
-    position: absolute;
-    inset: auto 0 0 0;
-    height: 1px;
-    background: color-mix(in srgb, var(--on-accent) 20%, transparent);
   }
 
   /* The traffic lights live in this corner, so the title starts after them. */
@@ -167,8 +143,8 @@
     font-size: var(--text-2xl);
     line-height: var(--leading-none);
     font-weight: var(--weight-normal);
-    letter-spacing: 0.02em;
-    color: var(--on-accent);
+    letter-spacing: 0.01em;
+    color: var(--fg-muted);
     min-width: 0;
     white-space: nowrap;
     overflow: hidden;
