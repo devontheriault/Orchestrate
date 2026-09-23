@@ -22,6 +22,9 @@ pub enum Error {
     #[error("{path} is not a Git repository with a commit yet; set it up before adding it")]
     NotSetUp { path: PathBuf },
 
+    #[error("cannot attach {path}: it is not a file, or no longer exists")]
+    AttachmentMissing { path: PathBuf },
+
     #[error("agent not found: {0}")]
     AgentNotFound(String),
 

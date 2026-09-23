@@ -57,6 +57,10 @@ pub struct Project {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Task {
     pub prompt: String,
+    /// Files handed over with the prompt, by absolute path. Empty for most
+    /// Tasks, and for every Task recorded before attachments existed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<PathBuf>,
 }
 
 /// Lifecycle state of an Agent. See CONTEXT.md for the semantics.
@@ -210,6 +214,7 @@ mod tests {
                 project_id: "proj0001".into(),
                 task: Task {
                     prompt: "do the thing".into(),
+                    attachments: vec![],
                 },
                 state,
                 worktree_path: "/tmp/wt".into(),

@@ -87,6 +87,8 @@ export type QueuedMessage = {
   /** Local id, so the UI can delete one message out of the middle. */
   id: string;
   prompt: string;
+  /** Files attached to it, by path. Absent on messages queued before attachments. */
+  attachments?: string[];
   model: string;
   effort: string;
   /** Absent on messages queued before modes existed — those run the default. */
@@ -783,12 +785,14 @@ class AppStore {
   }
 
   /**
-   * Start a new agent on the selected project. `model` is the picker's value;
-   * empty means no `--model` at all. Returns whether it started — the draft
-   * page keeps the prompt on failure so the user can retry rather than retype.
+   * Start a new agent on the selected project, with any files attached to its
+   * prompt. `model` is the picker's value; empty means no `--model` at all.
+   * Returns whether it started — the draft page keeps the prompt on failure so
+   * the user can retry rather than retype.
    */
   async spawn(
     prompt: string,
+    attachments: string[],
     model: string,
     effort: string,
     mode: string,
@@ -800,6 +804,7 @@ class AppStore {
       const agent = await api.spawnAgent(
         this.selectedProjectId,
         prompt,
+        attachments,
         model || null,
         effort || null,
         mode || null,
@@ -817,14 +822,20 @@ class AppStore {
   }
 
   /**
-   * Send a follow-up prompt to the selected agent, putting it back to work in
-   * the worktree it already has, on `model` and in `mode`. Returns whether the
-   * agent took it.
+   * Send a follow-up prompt, and any files attached to it, to the selected
+   * agent, putting it back to work in the worktree it already has, on `model`
+   * and in `mode`. Returns whether the agent took it.
    */
-  async resume(prompt: string, model: string, effort: string, mode: string) {
+  async resume(
+    prompt: string,
+    attachments: string[],
+    model: string,
+    effort: string,
+    mode: string,
+  ) {
     const id = this.selectedAgentId;
     if (!id || !prompt.trim() || this.sending) return false;
-    return this.sendTurn(id, prompt, model, effort, mode);
+    return this.sendTurn(id, prompt, attachments, model, effort, mode);
   }
 
   /**
@@ -835,6 +846,7 @@ class AppStore {
   private async sendTurn(
     id: string,
     prompt: string,
+    attachments: string[],
     model: string,
     effort: string,
     mode: string,
@@ -848,6 +860,7 @@ class AppStore {
       const agent = await api.resumeAgent(
         id,
         prompt,
+        attachments,
         model || null,
         effort || null,
         mode || null,
@@ -879,13 +892,19 @@ class AppStore {
    * whether it was taken, on the same terms as a send: false leaves the text in
    * the composer rather than losing it.
    */
-  enqueue(prompt: string, model: string, effort: string, mode: string): boolean {
+  enqueue(
+    prompt: string,
+    attachments: string[],
+    model: string,
+    effort: string,
+    mode: string,
+  ): boolean {
     const id = this.selectedAgentId;
     const agent = this.selectedAgent;
     if (!id || !agent?.session_id || !prompt.trim()) return false;
     this.queues[id] = [
       ...this.queueFor(id),
-      { id: queuedId(), prompt: prompt.trim(), model, effort, mode },
+      { id: queuedId(), prompt: prompt.trim(), attachments, model, effort, mode },
     ];
     this.saveQueues();
     // The Turn may have ended between the user typing and pressing Enter; in
@@ -927,6 +946,7 @@ class AppStore {
     const sent = await this.sendTurn(
       agentId,
       next.prompt,
+      next.attachments ?? [],
       next.model,
       next.effort,
       // Queued before modes existed: run it as every Turn ran back then.

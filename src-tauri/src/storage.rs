@@ -144,6 +144,7 @@ mod tests {
             project_id: new_id(),
             task: Task {
                 prompt: "test".into(),
+                attachments: vec![],
             },
             state: AgentState::Running,
             worktree_path: "/tmp/wt".into(),

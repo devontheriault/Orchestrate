@@ -17,6 +17,8 @@ export type Project = {
 
 export type Task = {
   prompt: string;
+  /** Files handed over with the prompt, by absolute path. Absent when there are none. */
+  attachments?: string[];
 };
 
 export type Agent = {
@@ -255,6 +257,7 @@ export const api = {
   spawnAgent: (
     projectId: string,
     prompt: string,
+    attachments: string[],
     model: string | null,
     effort: string | null,
     permissionMode: string | null,
@@ -262,6 +265,7 @@ export const api = {
     invoke<Agent>("spawn_agent", {
       projectId,
       prompt,
+      attachments,
       model,
       effort,
       permissionMode,
@@ -269,6 +273,7 @@ export const api = {
   resumeAgent: (
     agentId: string,
     prompt: string,
+    attachments: string[],
     model: string | null,
     effort: string | null,
     permissionMode: string | null,
@@ -276,9 +281,19 @@ export const api = {
     invoke<Agent>("resume_agent", {
       agentId,
       prompt,
+      attachments,
       model,
       effort,
       permissionMode,
+    }),
+  /**
+   * Write a pasted file to disk so it can be attached by path, and return the
+   * path. Sent as raw bytes rather than JSON; the name rides in a header,
+   * which only carries ASCII.
+   */
+  saveAttachment: (name: string, bytes: Uint8Array) =>
+    invoke<string>("save_attachment", bytes, {
+      headers: { "x-name": name.replace(/[^\x20-\x7e]/g, "_") },
     }),
   stopAgent: (agentId: string) => invoke<void>("stop_agent", { agentId }),
   reapAgent: (agentId: string) => invoke<void>("reap_agent", { agentId }),

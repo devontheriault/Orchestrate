@@ -1,7 +1,10 @@
 <script lang="ts">
   import { untrack } from "svelte";
+  import { getCurrentWebview } from "@tauri-apps/api/webview";
+  import { open } from "@tauri-apps/plugin-dialog";
   import { store } from "./store.svelte";
-  import { DEFAULT_EFFORT, DEFAULT_MODE, DEFAULT_MODEL } from "./api";
+  import { api, DEFAULT_EFFORT, DEFAULT_MODE, DEFAULT_MODEL } from "./api";
+  import Attachments from "./Attachments.svelte";
   import ModelPicker from "./ModelPicker.svelte";
   import ModePicker from "./ModePicker.svelte";
   import AgentQueue from "./AgentQueue.svelte";
@@ -25,6 +28,10 @@
   const queueing = $derived(working && !!agent?.session_id);
 
   let prompt = $state("");
+  /** Files going out with the prompt, by absolute path. */
+  let attachments = $state<string[]>([]);
+  /** Files are being dragged over the window, and would land here. */
+  let dropping = $state(false);
   /** The picker's value; DEFAULT_MODEL passes no --model. */
   let model = $state(DEFAULT_MODEL);
   /** The effort chosen beside it; DEFAULT_EFFORT passes no --effort. */
@@ -54,6 +61,7 @@
     store.selectedAgentId;
     store.drafting;
     prompt = "";
+    attachments = [];
     untrack(() => {
       const fresh = store.drafting && !store.selectedAgent;
       model = fresh
@@ -78,20 +86,111 @@
     // Mid-Turn, the same gesture lines the message up instead: one `claude` per
     // worktree, so it goes out as its own Turn once this one ends.
     if (working) {
-      if (queueing && store.enqueue(prompt, model, effort, mode)) prompt = "";
+      if (queueing && store.enqueue(prompt, attachments, model, effort, mode)) clear();
       return;
     }
-    // Keep the text on failure either way, so the user can retry rather
-    // than retype.
+    // Keep the text and files on failure either way, so the user can retry
+    // rather than gather them again.
     const sent = drafting
-      ? await store.spawn(prompt, model, effort, mode)
-      : await store.resume(prompt, model, effort, mode);
-    if (sent) prompt = "";
+      ? await store.spawn(prompt, attachments, model, effort, mode)
+      : await store.resume(prompt, attachments, model, effort, mode);
+    if (sent) clear();
   }
+
+  function clear() {
+    prompt = "";
+    attachments = [];
+  }
+
+  /** The box is up and taking input — the only time a file has somewhere to go. */
+  const accepting = $derived((drafting || store.canContinue || working) && !inFlight);
+
+  function attach(paths: string[]) {
+    const fresh = paths.filter((p) => !attachments.includes(p));
+    if (fresh.length) attachments = [...attachments, ...fresh];
+    textarea?.focus();
+  }
+
+  function detach(path: string) {
+    attachments = attachments.filter((p) => p !== path);
+  }
+
+  async function pick() {
+    const picked = await open({ multiple: true, title: "Attach files" });
+    if (picked) attach(picked);
+  }
+
+  // A pasted screenshot has no path for `claude` to read it from, so it's
+  // written to disk first. Only when the clipboard holds files and no text:
+  // copying from a document can carry an image rendition of the text too, and
+  // the text is what was meant.
+  async function onPaste(e: ClipboardEvent) {
+    const data = e.clipboardData;
+    const files = Array.from(data?.files ?? []);
+    if (!files.length || data?.getData("text/plain")) return;
+    e.preventDefault();
+    try {
+      const saved = await Promise.all(
+        files.map(async (f) =>
+          api.saveAttachment(pastedName(f), new Uint8Array(await f.arrayBuffer())),
+        ),
+      );
+      attach(saved);
+    } catch (err) {
+      store.error = String(err);
+    }
+  }
+
+  /**
+   * Clipboard images come named "image.png" or not at all, which tells the
+   * user nothing once there are two of them. Name those after the moment
+   * they were pasted instead.
+   */
+  function pastedName(f: File): string {
+    if (f.name && !/^image\.\w+$/.test(f.name)) return f.name;
+    const ext = f.type.split("/")[1]?.replace(/\W.*$/, "") || "png";
+    const t = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `pasted-${pad(t.getHours())}${pad(t.getMinutes())}${pad(t.getSeconds())}.${ext}`;
+  }
+
+  // Files dropped anywhere on the window land here: the composer is the one
+  // place a file can go, so there's no target to aim for. The webview hands
+  // over real paths only through Tauri's own drag-drop events — the DOM's
+  // drop event has no paths to give.
+  $effect(() => {
+    if (!accepting) return;
+    let unlisten: (() => void) | undefined;
+    let gone = false;
+    getCurrentWebview()
+      .onDragDropEvent(({ payload }) => {
+        if (payload.type === "enter") dropping = payload.paths.length > 0;
+        else if (payload.type === "leave") dropping = false;
+        else if (payload.type === "drop") {
+          dropping = false;
+          attach(payload.paths);
+        }
+      })
+      .then((fn) => {
+        if (gone) fn();
+        else unlisten = fn;
+      });
+    return () => {
+      gone = true;
+      dropping = false;
+      unlisten?.();
+    };
+  });
 
   function onKeydown(e: KeyboardEvent) {
     // Esc on an untouched blank page walks back out of it.
-    if (e.key === "Escape" && drafting && !prompt.trim() && !inFlight) {
+    if (
+      e.key === "Escape" &&
+      drafting &&
+      !prompt.trim() &&
+      !attachments.length &&
+      !inFlight
+    ) {
       e.preventDefault();
       store.cancelDraft();
       return;
@@ -116,15 +215,52 @@
       <TurnStats />
     {/if}
     {#if drafting || store.canContinue || working}
-      <div class="box">
+      <div class="box" class:dropping>
+        {#if attachments.length}
+          <div class="files">
+            <Attachments paths={attachments} onremove={inFlight ? undefined : detach} />
+          </div>
+        {/if}
         <textarea
           bind:this={textarea}
           bind:value={prompt}
           onkeydown={onKeydown}
+          onpaste={onPaste}
           rows="1"
           disabled={inFlight}
-          placeholder={drafting ? "What should the agent do?" : "Reply to this agent…"}
+          placeholder={attachments.length && !prompt
+            ? "Say what to do with the attached files…"
+            : drafting
+              ? "What should the agent do?"
+              : "Reply to this agent…"}
         ></textarea>
+        {#if dropping}
+          <!-- Over the whole box, so while a drag is on the window the eye is
+               told where the files will land. -->
+          <div class="drop" aria-hidden="true">Drop to attach</div>
+        {/if}
+        <!-- Bottom-left, mirroring send: what goes out with the message on
+             one side, the button that sends it on the other. -->
+        <div class="slot left">
+          <button
+            class="clip"
+            onclick={pick}
+            disabled={inFlight}
+            aria-label="Attach files"
+            title="Attach files — or drop them on the window, or paste an image"
+          >
+            <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+              <path
+                d="M13.2 7.6l-5 5a3.2 3.2 0 01-4.5-4.5l5.3-5.3a2.1 2.1 0 013 3L6.8 11a1 1 0 01-1.5-1.5l4.6-4.6"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </button>
+        </div>
         <div class="slot">
           {#if working}
             <!-- Stop takes the send button's place rather than sitting beside
@@ -222,6 +358,7 @@
   .box {
     position: relative;
     display: flex;
+    flex-direction: column;
     border: 1px solid var(--border);
     border-radius: var(--radius-xl);
     background: var(--panel-bg);
@@ -232,14 +369,39 @@
     border-color: var(--accent);
   }
 
+  .box.dropping {
+    border-color: var(--accent);
+    border-style: dashed;
+  }
+
+  .files {
+    padding: 0.6rem 0.7rem 0;
+  }
+
+  .drop {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: inherit;
+    background: color-mix(in srgb, var(--accent) 10%, var(--panel-bg));
+    color: var(--accent);
+    font-weight: var(--weight-medium);
+    pointer-events: none;
+    /* Over the attach and send buttons too: mid-drag, neither is the point. */
+    z-index: 1;
+  }
+
   textarea {
     flex: 1;
     min-width: 0;
     resize: none;
     max-height: 30vh;
     overflow-y: auto;
-    /* Right padding clears the send button so text never runs under it. */
-    padding: 0.7rem 3rem 0.7rem 0.85rem;
+    /* Side padding clears the attach and send buttons so text never runs
+       under either. */
+    padding: 0.7rem 3rem 0.7rem 2.6rem;
     border: none;
     background: none;
     color: var(--fg);
@@ -265,6 +427,43 @@
     bottom: 0.45rem;
     display: flex;
     align-items: center;
+  }
+
+  .slot.left {
+    right: auto;
+    left: 0.45rem;
+  }
+
+  /* Quiet beside send: an extra, not the thing the box is for. */
+  .clip {
+    width: 1.85rem;
+    height: 1.85rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: var(--radius-pill);
+    background: none;
+    color: var(--fg-muted);
+    cursor: pointer;
+    transition:
+      background var(--transition-fast),
+      color var(--transition-fast);
+  }
+
+  .clip:hover:not(:disabled) {
+    background: var(--hover);
+    color: var(--fg);
+  }
+
+  .clip:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  .clip:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
   }
 
   .send {
