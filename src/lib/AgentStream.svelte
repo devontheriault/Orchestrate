@@ -10,7 +10,7 @@
   import HighlightedCode from "./HighlightedCode.svelte";
   import NumberedCode from "./NumberedCode.svelte";
   import { languageOf } from "./highlight.svelte";
-  import { outputLanguage } from "./shell";
+  import { outputLanguage, terminalText } from "./shell";
   import type { AgentEvent } from "./api";
 
   /** The blank page for an agent that hasn't been spawned yet. */
@@ -502,6 +502,12 @@
     return { lang: languageOf(o.file_path), lines, rest: all.slice(lines.length).join("\n").trim() };
   }
 
+  /** What a call returned, as text; a command's as its terminal would show it. */
+  function resultText(c: ToolCall): string {
+    const text = toolResultText(c.result);
+    return c.name === "Bash" ? terminalText(text) : text;
+  }
+
   function toolResultText(content: unknown): string {
     if (typeof content === "string") return content;
     if (Array.isArray(content)) {
@@ -525,9 +531,9 @@
       <pre class="read"><NumberedCode lines={read.lines} lang={read.lang} /></pre>
       {#if read.rest}<pre>{read.rest}</pre>{/if}
     {:else if printed}
-      <pre class="read"><HighlightedCode code={toolResultText(c.result)} lang={printed} /></pre>
+      <pre class="read"><HighlightedCode code={resultText(c)} lang={printed} /></pre>
     {:else}
-      <pre>{toolResultText(c.result)}</pre>
+      <pre>{resultText(c)}</pre>
     {/if}
   </div>
 {/snippet}

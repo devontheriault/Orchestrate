@@ -376,3 +376,18 @@ function splitSteps(command: string): { sep: string; words: string[] }[] | null 
   endWord();
   return steps.filter((s) => s.words.length > 0);
 }
+
+/**
+ * A command's output as a terminal would leave it on screen. Tools like
+ * cargo colour their output and redraw a progress bar in place, which comes
+ * through as escape codes (`\x1b[1m\x1b[92m`) and `\r`-separated redraws.
+ * The codes are dropped, and each line keeps only what its last `\r` left —
+ * so a progress bar shows its final state, not every step of it.
+ */
+export function terminalText(output: string): string {
+  return output
+    .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b\[[0-?]*[ -/]*[@-~]|\x1b[@-Z\\-_]/g, "")
+    .split("\n")
+    .map((line) => line.replace(/\r+$/, "").split("\r").pop()!)
+    .join("\n");
+}
