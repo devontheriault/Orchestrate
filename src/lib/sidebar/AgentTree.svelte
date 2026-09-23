@@ -113,7 +113,10 @@
   }
 
   function toggle(bucket: Bucket) {
-    (store.openBuckets[projectId] ??= {})[bucket] = !isOpen(bucket);
+    const opening = !isOpen(bucket);
+    (store.openBuckets[projectId] ??= {})[bucket] = opening;
+    // Reap-all only shows while Delivered is open, so folding it backs out.
+    if (bucket === "delivered" && !opening) confirmingReap = false;
   }
 
   /**
@@ -230,7 +233,7 @@
           <span class="rule" aria-hidden="true"></span>
           <span class="chevron" class:open aria-hidden="true">›</span>
         </button>
-        {#if bucket === "delivered"}
+        {#if bucket === "delivered" && open}
           {#if !bulkReap}
             <button
               class="reap-all"
