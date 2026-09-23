@@ -4,7 +4,7 @@
  * the user's midnight falls; here those slots are folded into days.
  */
 
-import type { AgentUsage } from "$lib/api";
+import type { SlotUsage } from "$lib/api";
 
 export type DayUsage = {
   /** `YYYY-MM-DD` in local time — stable across refreshes, so a row key. */
@@ -19,10 +19,10 @@ export type DayUsage = {
   turns: number;
 };
 
-/** Add up every Agent's slots by the local day they fell on, newest day first. */
-export function byDay(agents: AgentUsage[]): DayUsage[] {
+/** Add up every source's slots by the local day they fell on, newest day first. */
+export function byDay(sources: { slots: SlotUsage[] }[]): DayUsage[] {
   const days = new Map<string, DayUsage>();
-  for (const a of agents) {
+  for (const a of sources) {
     for (const s of a.slots) {
       const at = new Date(s.start * 1000);
       const key = dayKey(at);

@@ -13,8 +13,11 @@ import { api, type UsageSummary } from "$lib/api";
 /** How often an open window re-reads the logs. */
 export const REFRESH_MS = 8000;
 
-/** Whose tokens the tables count. */
-export type Scope = "all" | "agent";
+/**
+ * Whose tokens the tables count: every Claude Code session on this computer,
+ * this app's agents, or the selected one.
+ */
+export type Scope = "account" | "all" | "agent";
 
 class UsageWindow {
   open = $state(false);
@@ -24,7 +27,7 @@ class UsageWindow {
   /** The user pressed Refresh and their read hasn't landed yet. */
   refreshing = $state(false);
   error = $state<string | null>(null);
-  scope = $state<Scope>("all");
+  scope = $state<Scope>("account");
   /** The by-agent list is folded away until asked for; kept across openings. */
   agentsOpen = $state(false);
 

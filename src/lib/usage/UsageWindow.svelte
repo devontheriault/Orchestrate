@@ -40,6 +40,7 @@
   });
 
   const limits = $derived(usage.summary?.limits ?? null);
+  const account = $derived(usage.summary?.account ?? null);
   const agents = $derived(usage.summary?.agents ?? []);
 
   const selectedUsage = $derived(
@@ -67,9 +68,11 @@
   }
 
   const models = $derived(
-    usage.scope === "agent"
-      ? selectedUsage?.models ?? []
-      : merge(agents.map((a) => a.models)),
+    usage.scope === "account"
+      ? account?.models ?? []
+      : usage.scope === "agent"
+        ? selectedUsage?.models ?? []
+        : merge(agents.map((a) => a.models)),
   );
 
   const totals = $derived(
@@ -87,19 +90,25 @@
 
   /** Answers the agent has finished — a Turn each, in the domain's terms. */
   const replies = $derived(
-    usage.scope === "agent"
-      ? selectedUsage?.turns ?? 0
-      : agents.reduce((n, a) => n + a.turns, 0),
+    usage.scope === "account"
+      ? account?.turns ?? 0
+      : usage.scope === "agent"
+        ? selectedUsage?.turns ?? 0
+        : agents.reduce((n, a) => n + a.turns, 0),
   );
 
   /** Days follow the scope toggle, like the totals above them. */
   const days = $derived(
     byDay(
-      usage.scope === "agent"
-        ? selectedUsage
-          ? [selectedUsage]
+      usage.scope === "account"
+        ? account
+          ? [account]
           : []
-        : agents,
+        : usage.scope === "agent"
+          ? selectedUsage
+            ? [selectedUsage]
+            : []
+          : agents,
     ),
   );
 
@@ -266,6 +275,13 @@
         <div class="section-label">
           Tokens
           <div class="scope" role="group" aria-label="Whose tokens to count">
+            <button
+              class:active={usage.scope === "account"}
+              onclick={() => (usage.scope = "account")}
+              title="Every Claude Code session on this computer, in this app or not"
+            >
+              Account
+            </button>
             <button class:active={usage.scope === "all"} onclick={() => (usage.scope = "all")}>
               All agents
             </button>
@@ -279,13 +295,21 @@
           </div>
         </div>
 
+        {#if usage.scope === "account"}
+          <div class="scope-note">
+            Every Claude Code session on this computer, in this app or not.
+          </div>
+        {/if}
+
         {#if models.length === 0}
           <div class="empty">
-            {usage.scope === "agent"
-              ? store.selectedAgentId
-                ? "This agent hasn't finished any work yet."
-                : "No agent selected."
-              : "No agent has finished any work yet."}
+            {usage.scope === "account"
+              ? "Claude Code hasn't done any work on this computer yet."
+              : usage.scope === "agent"
+                ? store.selectedAgentId
+                  ? "This agent hasn't finished any work yet."
+                  : "No agent selected."
+                : "No agent has finished any work yet."}
           </div>
         {:else}
           <div class="totals">
@@ -639,6 +663,12 @@
   .scope button:disabled {
     opacity: 0.45;
     cursor: default;
+  }
+
+  .scope-note {
+    font-size: var(--text-xs);
+    color: var(--fg-muted);
+    margin: calc(-1 * var(--space-2)) 0 var(--space-4);
   }
 
   /* A model name can be long; the numbers keep their columns either way. */

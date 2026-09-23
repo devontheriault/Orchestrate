@@ -9,8 +9,9 @@ use tempfile::TempDir;
 
 static ENV_MUTEX: Mutex<()> = Mutex::new(());
 
-/// Scope a test to a fresh `CLAUDEWRAPPER_STATE_DIR` tempdir. Drops both the
-/// env var and the lock when it goes out of scope.
+/// Scope a test to a fresh `CLAUDEWRAPPER_STATE_DIR` tempdir, with Claude
+/// Code's own config dir inside it so nothing reads the developer's real
+/// sessions. Drops the env vars and the lock when it goes out of scope.
 pub struct StateEnv {
     _dir: TempDir,
     _guard: MutexGuard<'static, ()>,
@@ -23,6 +24,7 @@ impl StateEnv {
         // SAFETY: guarded by ENV_MUTEX for the lifetime of this StateEnv.
         unsafe {
             std::env::set_var("CLAUDEWRAPPER_STATE_DIR", dir.path());
+            std::env::set_var("CLAUDE_CONFIG_DIR", dir.path().join("claude"));
         }
         Self {
             _dir: dir,
@@ -36,6 +38,7 @@ impl Drop for StateEnv {
         // SAFETY: still holding ENV_MUTEX.
         unsafe {
             std::env::remove_var("CLAUDEWRAPPER_STATE_DIR");
+            std::env::remove_var("CLAUDE_CONFIG_DIR");
         }
     }
 }

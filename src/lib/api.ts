@@ -1,7 +1,7 @@
 /**
  * The IPC boundary: every Tauri command the backend exposes, the two events it
  * pushes, and the shapes that cross over. Types here mirror the Rust structs
- * they deserialize from (`src-tauri/src/domain.rs`, `git/`, `usage.rs`), so a
+ * they deserialize from (`src-tauri/src/domain.rs`, `git/`, `usage/`), so a
  * field added there is added here.
  */
 import { invoke } from "@tauri-apps/api/core";
@@ -184,6 +184,15 @@ export type AgentUsage = {
   last_at: string | null;
 };
 
+/** Every Claude Code session on this computer, the agents' among them. */
+export type AccountUsage = {
+  /** Priced at list rates — transcripts don't carry Claude Code's own figure. */
+  models: ModelUsage[];
+  slots: SlotUsage[];
+  /** Replies that ended a turn. */
+  turns: number;
+};
+
 /** One rate-limit window on the account. */
 export type LimitWindow = {
   /** Claude Code's name for it: `five_hour`, `seven_day`, … */
@@ -203,6 +212,7 @@ export type Limits = {
 };
 
 export type UsageSummary = {
+  account: AccountUsage;
   agents: AgentUsage[];
   /** Null until some Agent has been told the account's limits. */
   limits: Limits | null;

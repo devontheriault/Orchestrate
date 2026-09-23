@@ -14,6 +14,16 @@ pub fn state_dir() -> Result<PathBuf> {
         .ok_or(Error::NoStateDir)
 }
 
+/// Where Claude Code keeps a transcript of every session it runs, whoever
+/// started it. Follows `CLAUDE_CONFIG_DIR` the way `claude` does.
+pub fn claude_projects_dir() -> Option<PathBuf> {
+    let config = match std::env::var_os("CLAUDE_CONFIG_DIR") {
+        Some(dir) => PathBuf::from(dir),
+        None => dirs::home_dir()?.join(".claude"),
+    };
+    Some(config.join("projects"))
+}
+
 pub fn state_file() -> Result<PathBuf> {
     Ok(state_dir()?.join("state.json"))
 }
