@@ -361,8 +361,15 @@
     return "";
   }
 
-  /** The targets of a grouped run: the first couple, then a count. */
+  /**
+   * The targets of a grouped run. While a call in it is still going, it's
+   * the only one named — each new call overwrites the last, so the row reads
+   * as what's happening now. Once the run settles: the first couple, then a
+   * count.
+   */
   function groupTargets(calls: ToolCall[]): string {
+    const running = calls.findLast((c) => !c.hasResult);
+    if (running && calls.length > 1) return truncate(callTarget(running.name, running.input), 80);
     const seen: string[] = [];
     for (const c of calls) {
       const t = truncate(callTarget(c.name, c.input), 40);
