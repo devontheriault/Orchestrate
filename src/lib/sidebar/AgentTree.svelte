@@ -293,8 +293,8 @@
     display: flex;
     flex-direction: column;
     gap: var(--space-1);
-    /* Indented so each row's dot sits under the project's name. */
-    padding: 0.15rem 0.4rem 0.6rem calc(var(--pad-x) + 0.2rem);
+    /* Just a sliver in from each side, so the rows use the sidebar's width. */
+    padding: 0.15rem var(--space-3) 0.6rem;
   }
 
   .tree.flat {
