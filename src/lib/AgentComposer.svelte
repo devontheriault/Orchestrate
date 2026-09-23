@@ -43,11 +43,17 @@
   // Grow with the text, up to a ceiling — a long follow-up shouldn't need
   // scrolling, but it shouldn't swallow the transcript either. scrollHeight is
   // rounded to a whole pixel while the lines themselves are fractional, so a
-  // few pixels of slack keeps the last line from being clipped.
+  // few pixels of slack keeps the last line from being clipped. Once it's
+  // scrolling, typing at the end keeps the line being typed on exactly where it
+  // sat before the ceiling — the browser alone would scroll it only as far as
+  // the text, leaving it jammed against the bottom edge.
   function fit() {
     if (!textarea) return;
     textarea.style.height = "auto";
     textarea.style.height = `${textarea.scrollHeight + 4}px`;
+    if (textarea.selectionEnd === textarea.value.length) {
+      textarea.scrollTop = textarea.scrollHeight;
+    }
   }
 
   $effect(() => {
@@ -395,11 +401,18 @@
     z-index: 1;
   }
 
+  /* No flex-grow here: as a flex item with flex: 1 the textarea sizes to its
+     one row and ignores the height fit() sets. It grows by a line per line,
+     up to 16 lines or 30% of the window, whichever comes first, then scrolls.
+     The box grows upward because it sits at the foot of the pane, so the line
+     being typed on stays where it was. */
   textarea {
-    flex: 1;
     min-width: 0;
     resize: none;
-    max-height: 30vh;
+    max-height: min(
+      30vh,
+      calc(16 * var(--text-lg) * var(--leading-normal) + 1.9rem)
+    );
     overflow-y: auto;
     /* Side padding clears the attach and send buttons so text never runs
        under either. */
