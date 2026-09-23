@@ -335,12 +335,6 @@
     position: relative;
   }
 
-  /* A full-width rule between projects, so each one — with its agents open
-     under it — reads as its own section. */
-  li + li {
-    border-top: var(--border-width) solid var(--border);
-  }
-
   /* An open project keeps its own row tinted; the guide line under it does
      the work of showing which agents belong to it. */
   li.open {
