@@ -46,7 +46,7 @@
        band laid across them. -->
   <div class="lead" style="width: {panes.cssWidth}" data-tauri-drag-region>
     <span class="wordmark" data-tauri-drag-region
-      ><b data-tauri-drag-region>DEV</b>code</span
+      ><b data-tauri-drag-region>DEV</b> Code</span
     >
   </div>
 
