@@ -8,6 +8,7 @@
   import { models } from "$lib/state/models.svelte";
   import type { Agent } from "$lib/api";
   import { rowDetail } from "./agentRow";
+  import { glide, measure } from "./flip";
 
   let {
     projectId,
@@ -72,6 +73,35 @@
     return bucketOrder
       .filter((b) => groups[b]?.length)
       .map((b) => ({ bucket: b, agents: groups[b]! }));
+  });
+
+  /**
+   * An agent changing heading glides there instead of jumping, and the rows it
+   * passes make room. Only a change of heading does it: a spawn, a reap or a
+   * fold just lands, so the list isn't forever in motion. Positions are taken
+   * before the list re-renders and played back after.
+   */
+  let treeEl: HTMLDivElement | undefined = $state();
+  let lastBucket = new Map<string, Bucket>();
+  let pending: { before: Map<string, DOMRect>; moved: Set<string> } | null = null;
+
+  $effect.pre(() => {
+    const next = new Map<string, Bucket>();
+    for (const g of grouped) for (const a of g.agents) next.set(a.id, g.bucket);
+    const moved = new Set<string>();
+    for (const [id, b] of next) {
+      const was = lastBucket.get(id);
+      if (was && was !== b) moved.add(`agent:${id}`);
+    }
+    lastBucket = next;
+    if (moved.size && treeEl) pending = { before: measure(treeEl), moved };
+  });
+
+  $effect(() => {
+    void grouped;
+    if (!pending || !treeEl) return;
+    glide(treeEl, pending.before, pending.moved);
+    pending = null;
   });
 
   /**
@@ -175,7 +205,7 @@
   }
 </script>
 
-<div class="tree" class:flat>
+<div class="tree" class:flat bind:this={treeEl}>
   <button
     class="new"
     class:active={store.drafting && store.selectedProjectId === projectId}
@@ -188,7 +218,7 @@
   {#each grouped as { bucket, agents: group } (bucket)}
     {@const open = isOpen(bucket)}
     <div class="group">
-      <div class="group-label">
+      <div class="group-label" data-flip={`bucket:${bucket}`}>
         <button
           class="fold"
           aria-expanded={open}
@@ -266,6 +296,7 @@
       {#each shown(bucket, group) as a (a.id)}
         <div
           class="agent"
+          data-flip={`agent:${a.id}`}
           class:selected={store.selectedAgentId === a.id}
           class:doomed={bucket === "delivered" && (confirmingReap || !!bulkReap)}
           onclick={() => pick(a.id)}
