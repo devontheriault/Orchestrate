@@ -382,17 +382,27 @@
   }
 
   /**
-   * A Bash call that's still going opens itself, so the command being run is
-   * in view without a click, and folds back up once its result lands. Only
-   * while the agent is live — a call cut off by a stop never gets a result,
-   * and shouldn't sit open forever when the transcript is read back.
+   * The newest Bash call in the transcript. It opens itself, so the command
+   * being run — and then what it printed — is in view without a click, and
+   * stays open until the next Bash call takes its place.
    */
-  function liveBash(name: string, calls: ToolCall[]): boolean {
-    return (
-      name === "Bash" &&
-      store.selectedAgent?.state === "running" &&
-      calls.some((c) => !c.hasResult)
-    );
+  const lastBashKey = $derived.by(() => {
+    const row = rows.findLast((r) => r.kind === "tools" && r.name === "Bash");
+    return row?.kind === "tools" ? row.calls.at(-1)?.key : undefined;
+  });
+
+  /**
+   * Keeps a `<details>` following `want`, but only touches it when `want`
+   * flips. Rows are rebuilt on every event, and a plain `open={…}` would be
+   * re-applied each time — folding up whatever the user had opened by hand.
+   */
+  const applied = new WeakMap<HTMLDetailsElement, boolean>();
+  function autoOpen(want: boolean) {
+    return (el: HTMLDetailsElement) => {
+      if (applied.get(el) === want) return;
+      applied.set(el, want);
+      el.open = want;
+    };
   }
 
   /** A call's input as shown when expanded. A command reads better bare than JSON-escaped. */
@@ -496,7 +506,10 @@
             {:else if row.kind === "text"}
               <div class="block text"><Markdown text={row.text} /></div>
             {:else if row.kind === "tools"}
-              <details class="block tool" open={liveBash(row.name, row.calls)}>
+              <details
+                class="block tool"
+                {@attach autoOpen(row.calls.some((c) => c.key === lastBashKey))}
+              >
                 <summary>
                   <span class="tool-name">→ {row.name}</span>
                   {#if row.calls.length > 1}<span class="count">×{row.calls.length}</span>{/if}
@@ -517,7 +530,7 @@
                   <!-- A run of same-tool calls: the group is one row, each
                        call inside it still opens on its own. -->
                   {#each row.calls as c (c.key)}
-                    <details class="call" open={liveBash(c.name, [c])}>
+                    <details class="call" {@attach autoOpen(c.key === lastBashKey)}>
                       <summary>
                         {truncate(callTarget(c.name, c.input), 80) || c.name}
                         {#if !c.hasResult}<span class="running-dot"></span>{/if}
