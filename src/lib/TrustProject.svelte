@@ -69,7 +69,7 @@
       <ul>
         <li>its <code>CLAUDE.md</code> and skills shape what every agent does</li>
         <li>hooks in <code>.claude/settings.json</code> run commands on this machine</li>
-        <li>agents start in YOLO mode and act without asking</li>
+        <li>agents start in YOLO mode and act without asking for permission</li>
       </ul>
       <p class="advice">Only add code you wrote or trust.</p>
     </div>
