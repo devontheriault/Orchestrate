@@ -5,10 +5,17 @@ use tokio::process::Command;
 use crate::error::{Error, Result};
 
 /// Create a new git worktree at `worktree_path` in Project at `project_path`,
-/// branched off `HEAD` as `branch`.
+/// branched off `start` as `branch`. An Agent's work starts from `HEAD`; a
+/// Resolver's starts from the conflicted Agent's branch, so it has that work to
+/// merge.
 ///
-/// Runs `git -C <project> worktree add -b <branch> <worktree_path> HEAD`.
-pub async fn create(project_path: &Path, worktree_path: &Path, branch: &str) -> Result<()> {
+/// Runs `git -C <project> worktree add -b <branch> <worktree_path> <start>`.
+pub async fn create(
+    project_path: &Path,
+    worktree_path: &Path,
+    branch: &str,
+    start: &str,
+) -> Result<()> {
     if let Some(parent) = worktree_path.parent() {
         std::fs::create_dir_all(parent).map_err(|source| Error::Io {
             path: parent.to_owned(),
@@ -24,7 +31,7 @@ pub async fn create(project_path: &Path, worktree_path: &Path, branch: &str) -> 
         .arg("-b")
         .arg(branch)
         .arg(worktree_path)
-        .arg("HEAD")
+        .arg(start)
         .output()
         .await
         .map_err(|source| Error::Io {
@@ -189,7 +196,7 @@ mod tests {
         let wt_path = wt.path().join("agent-abcd");
         let branch = "cw/agent-abcd";
 
-        create(repo.path(), &wt_path, branch).await.unwrap();
+        create(repo.path(), &wt_path, branch, "HEAD").await.unwrap();
         assert!(wt_path.exists(), "worktree dir should exist");
         assert!(
             wt_path.join(".git").exists(),

@@ -11,8 +11,10 @@ use tokio::sync::{mpsc, Notify, RwLock};
 use tokio::task::JoinHandle;
 
 use crate::error::{Error, Result};
-use crate::model::{new_id, new_session_id, Agent, AgentEvent, AgentState, Id, Project, Task};
-use crate::{git, paths, storage, title, worktree};
+use crate::model::{
+    new_id, new_session_id, Agent, AgentEvent, AgentState, Id, Project, Resolution, Task,
+};
+use crate::{git, merging, paths, storage, title, worktree};
 
 /// Grace period between SIGTERM and SIGKILL when stopping an Agent.
 const STOP_GRACE: Duration = Duration::from_secs(5);
@@ -32,6 +34,21 @@ fn prompt_event(prompt: &str, turn: u32) -> AgentEvent {
             "type": PROMPT_EVENT_TYPE,
             "prompt": prompt,
             "turn": turn,
+        }),
+    }
+}
+
+/// Event type for something the app itself has to say in an Agent's
+/// transcript — like the prompt, never emitted by `claude`.
+pub const NOTICE_EVENT_TYPE: &str = "cw_notice";
+
+/// Record a line the app wants the user to read in an Agent's transcript.
+fn notice_event(text: &str) -> AgentEvent {
+    AgentEvent {
+        ts: OffsetDateTime::now_utc(),
+        event: serde_json::json!({
+            "type": NOTICE_EVENT_TYPE,
+            "text": text,
         }),
     }
 }
@@ -121,46 +138,54 @@ impl AgentRuntime {
         effort: Option<String>,
         permission_mode: Option<String>,
     ) -> Result<Agent> {
-        let agent_id = new_id();
-        let branch = format!("{}{agent_id}", crate::model::AGENT_BRANCH_PREFIX);
-        let worktree_path = paths::worktrees_dir()?.join(&project.id).join(&agent_id);
-
+        let mut agent = new_agent(project, prompt, model, effort, permission_mode)?;
         // Record the commit we branched from before the Agent can move HEAD, so
         // the diff view has a fixed base even if the Project advances later.
-        let base_commit = git::head_commit(&project.path).await.ok();
+        agent.base_commit = git::head_commit(&project.path).await.ok();
+        let from = agent.base_commit.clone().unwrap_or_else(|| "HEAD".into());
+        self.start(project, &from, agent).await
+    }
 
-        worktree::create(&project.path, &worktree_path, &branch).await?;
-
-        let now = OffsetDateTime::now_utc();
-        let agent = Agent {
-            id: agent_id.clone(),
-            project_id: project.id.clone(),
-            task: Task {
-                prompt: prompt.clone(),
-            },
-            state: AgentState::Running,
-            worktree_path: worktree_path.clone(),
-            branch: branch.clone(),
-            base_commit,
-            // Mint the Session ID rather than waiting to read it off the
-            // stream, so the Agent is resumable even if it dies mid-first-line.
-            session_id: Some(new_session_id()),
+    /// Spawn a Resolver for a Merge of `conflicted` into `target` that hit
+    /// conflicts in `files`: a new Agent on a branch cut from `conflicted`'s,
+    /// told to merge `target` in and settle them. When its Turn Completes, the
+    /// supervisor finishes the Merge (see [`merging::finish_resolution`]).
+    ///
+    /// Always YOLO, whatever the user last picked: a Resolver that may not write
+    /// cannot resolve anything. Its Base is `target`'s tip, so its diff reads as
+    /// what the finished Merge will bring into `target`.
+    pub async fn spawn_resolver(
+        &self,
+        project: &Project,
+        conflicted: &Agent,
+        target: &str,
+        files: &[String],
+        model: Option<String>,
+        effort: Option<String>,
+    ) -> Result<Agent> {
+        let from = git::rev_parse(&project.path, &conflicted.branch).await?;
+        let prompt = merging::resolver_prompt(conflicted, target, files);
+        let mut agent = new_agent(
+            project,
+            prompt,
             model,
             effort,
-            permission_mode,
-            turns: 1,
-            // Named at the end of its first Turn, once there is work to name.
-            title: None,
-            spawned_at: now,
-            turn_started_at: Some(now),
-            exited_at: None,
-            exit_code: None,
-            fail_reason: None,
-            // Nothing has merged yet; a Merge records itself here when it does.
-            merged_branch: None,
-            merged_at: None,
-        };
+            Some(crate::model::DEFAULT_PERMISSION_MODE.into()),
+        )?;
+        agent.base_commit = Some(git::rev_parse(&project.path, target).await?);
+        agent.resolves = Some(Resolution {
+            agent_id: conflicted.id.clone(),
+            target: target.to_owned(),
+        });
+        self.start(project, &from, agent).await
+    }
+
+    /// Cut the new Agent's Worktree from `from`, put its record on disk, and
+    /// start its first Turn on its Task.
+    async fn start(&self, project: &Project, from: &str, agent: Agent) -> Result<Agent> {
+        worktree::create(&project.path, &agent.worktree_path, &agent.branch, from).await?;
         storage::save_agent(&agent)?;
+        let prompt = agent.task.prompt.clone();
         self.record_prompt(&agent, &prompt);
 
         let mut live = self.inner.write().await;
@@ -384,6 +409,46 @@ impl AgentRuntime {
     }
 }
 
+/// The record for an Agent about to be Spawned into `project`, before its
+/// Worktree exists. Callers fill in where it branches from.
+fn new_agent(
+    project: &Project,
+    prompt: String,
+    model: Option<String>,
+    effort: Option<String>,
+    permission_mode: Option<String>,
+) -> Result<Agent> {
+    let agent_id = new_id();
+    let now = OffsetDateTime::now_utc();
+    Ok(Agent {
+        worktree_path: paths::worktrees_dir()?.join(&project.id).join(&agent_id),
+        branch: format!("{}{agent_id}", crate::model::AGENT_BRANCH_PREFIX),
+        id: agent_id,
+        project_id: project.id.clone(),
+        task: Task { prompt },
+        state: AgentState::Running,
+        base_commit: None,
+        // Mint the Session ID rather than waiting to read it off the stream, so
+        // the Agent is resumable even if it dies mid-first-line.
+        session_id: Some(new_session_id()),
+        model,
+        effort,
+        permission_mode,
+        turns: 1,
+        // Named at the end of its first Turn, once there is work to name.
+        title: None,
+        spawned_at: now,
+        turn_started_at: Some(now),
+        exited_at: None,
+        exit_code: None,
+        fail_reason: None,
+        // Nothing has merged yet; a Merge records itself here when it does.
+        merged_branch: None,
+        merged_at: None,
+        resolves: None,
+    })
+}
+
 /// The supervisor for one Turn. Runs in a spawned task; owns the Child and
 /// reads its stdout to EOF, watching for cancel in the meantime.
 async fn supervise(
@@ -503,6 +568,34 @@ async fn supervise(
         }
     }
 
+    // A Resolver whose Turn ended cleanly has, if it did its job, a branch that
+    // merges without conflict: finish the Merge the user asked for when they
+    // spawned it. Only once — a Resolver Resumed after that is an ordinary
+    // Agent whose work the user Merges by hand.
+    let mut resolved = None;
+    if let Some(Resolution { target, .. }) = agent.resolves.clone() {
+        if agent.state == AgentState::Completed && agent.merged_at.is_none() {
+            let text = match merging::finish_resolution(&mut agent, &target).await {
+                Ok((merged, original)) => {
+                    resolved = original;
+                    format!(
+                        "Conflicts resolved: merged into `{target}` as {}.",
+                        &merged.sha[..merged.sha.len().min(7)]
+                    )
+                }
+                Err(e) => format!(
+                    "Not merged: {e}. Reply to finish the job, or merge from the diff once it's ready."
+                ),
+            };
+            let event = notice_event(&text);
+            let _ = storage::append_event(&agent.id, &event);
+            let _ = events_tx.send(RuntimeEvent::AgentEvent {
+                agent_id: agent.id.clone(),
+                event,
+            });
+        }
+    }
+
     let _ = storage::save_agent(&agent);
 
     // Leave the live map *before* announcing, so a UI that reacts to the exit by
@@ -514,6 +607,12 @@ async fn supervise(
         agent_id: agent.id.clone(),
         agent: Box::new(agent.clone()),
     });
+    if let Some(original) = resolved {
+        let _ = events_tx.send(RuntimeEvent::StateChanged {
+            agent_id: original.id.clone(),
+            agent: Box::new(original),
+        });
+    }
 
     if let Some(namer) = namer.filter(|_| title::wanted(agent.turns)) {
         let answer = answer.lock().unwrap().clone();
@@ -1330,6 +1429,7 @@ exit 0
             fail_reason: None,
             merged_branch: None,
             merged_at: None,
+            resolves: None,
         };
         storage::save_agent(&a).unwrap();
         let (rt, _rx) = AgentRuntime::with_bin(fake_claude_ok());
@@ -1402,6 +1502,7 @@ exit 0
             fail_reason: None,
             merged_branch: None,
             merged_at: None,
+            resolves: None,
         };
         storage::save_agent(&a).unwrap();
 
@@ -1413,5 +1514,165 @@ exit 0
         // Idempotent: running it again finds nothing.
         let again = adopt_orphans_on_launch().unwrap();
         assert!(again.is_empty());
+    }
+
+    async fn git(dir: &std::path::Path, args: &[&str]) -> String {
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .output()
+            .await
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}: {out:?}");
+        String::from_utf8_lossy(&out.stdout).trim().to_owned()
+    }
+
+    /// A registered Project whose one Agent has committed a change to
+    /// `shared.txt` that collides with one the user made on `main` since, so
+    /// merging it conflicts.
+    async fn conflicted_agent() -> (TempDir, Project, Agent) {
+        let repo = init_repo().await;
+        let project = sample_project(repo.path().to_path_buf());
+        storage::Registry {
+            projects: vec![project.clone()],
+        }
+        .save()
+        .unwrap();
+
+        std::fs::write(repo.path().join("shared.txt"), "original\n").unwrap();
+        git(repo.path(), &["add", "-A"]).await;
+        git(repo.path(), &["commit", "-qm", "add shared"]).await;
+
+        let (rt, mut rx) = AgentRuntime::with_bin(write_script(
+            r#"#!/bin/sh
+echo 'the agent' > shared.txt
+git commit -qam 'agent: edit shared'
+exit 0
+"#,
+        ));
+        rt.spawn(&project, "edit shared".into(), None, None, None)
+            .await
+            .unwrap();
+        let agent = wait_for_exit(&mut rx).await;
+        assert_eq!(agent.state, AgentState::Completed);
+
+        std::fs::write(repo.path().join("shared.txt"), "the user\n").unwrap();
+        git(repo.path(), &["commit", "-qam", "user: edit shared"]).await;
+
+        let conflict = merging::merge(&project.path, &mut agent.clone(), "main")
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(conflict, Error::MergeConflict { .. }),
+            "{conflict:?}"
+        );
+        (repo, project, agent)
+    }
+
+    /// The Agent that resolves the conflict, and the one that had it, both end
+    /// up Merged — which is what files both under Delivered.
+    #[tokio::test]
+    async fn a_resolver_that_resolves_merges_both_agents() {
+        let _env = StateEnv::new();
+        let (repo, project, conflicted) = conflicted_agent().await;
+
+        let (rt, mut rx) = AgentRuntime::with_bin(write_script(
+            r#"#!/bin/sh
+git merge main >/dev/null 2>&1
+printf 'the agent\nthe user\n' > shared.txt
+git add -A
+git commit -q --no-edit
+exit 0
+"#,
+        ));
+        let files = vec!["shared.txt".to_string()];
+        let resolver = rt
+            .spawn_resolver(&project, &conflicted, "main", &files, None, None)
+            .await
+            .unwrap();
+        assert_eq!(
+            resolver.resolves,
+            Some(Resolution {
+                agent_id: conflicted.id.clone(),
+                target: "main".into()
+            })
+        );
+        assert_eq!(
+            resolver.permission_mode.as_deref(),
+            Some(crate::model::DEFAULT_PERMISSION_MODE),
+            "a resolver must be free to write"
+        );
+        assert!(resolver.task.prompt.contains("`shared.txt`"));
+
+        let done = wait_for_exit(&mut rx).await;
+        assert_eq!(done.state, AgentState::Completed);
+        assert_eq!(done.merged_branch.as_deref(), Some("main"));
+        assert!(done.merged_at.is_some());
+
+        // The conflicted Agent is announced with its new record too.
+        let announced = loop {
+            match rx.recv().await.expect("channel open") {
+                RuntimeEvent::StateChanged { agent, .. } if agent.id == conflicted.id => {
+                    break *agent
+                }
+                _ => continue,
+            }
+        };
+        assert_eq!(announced.merged_branch.as_deref(), Some("main"));
+        let original = storage::load_agent(&conflicted.id).unwrap();
+        assert_eq!(original.merged_branch.as_deref(), Some("main"));
+
+        // Main has the resolution and both branches, and neither Agent holds
+        // anything the Project hasn't got.
+        assert_eq!(
+            std::fs::read_to_string(repo.path().join("shared.txt")).unwrap(),
+            "the agent\nthe user\n"
+        );
+        for branch in [&conflicted.branch, &resolver.branch] {
+            assert!(git::is_ancestor(repo.path(), branch, "main").await.unwrap());
+        }
+        assert!(!git::holds_unmerged_work(&original.worktree_path).await);
+        assert!(!git::holds_unmerged_work(&done.worktree_path).await);
+
+        let log = storage::read_events(&resolver.id).unwrap();
+        assert!(
+            log.iter().any(|e| e.event["type"] == NOTICE_EVENT_TYPE
+                && e.event["text"]
+                    .as_str()
+                    .unwrap()
+                    .starts_with("Conflicts resolved")),
+            "{log:?}"
+        );
+    }
+
+    /// A Resolver that finishes without having merged the target in leaves the
+    /// Project alone and says why, rather than merging a branch that would just
+    /// conflict again.
+    #[tokio::test]
+    async fn a_resolver_that_did_not_merge_leaves_the_project_alone() {
+        let _env = StateEnv::new();
+        let (repo, project, conflicted) = conflicted_agent().await;
+        let before = git(repo.path(), &["rev-parse", "main"]).await;
+
+        let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_ok());
+        let files = vec!["shared.txt".to_string()];
+        let resolver = rt
+            .spawn_resolver(&project, &conflicted, "main", &files, None, None)
+            .await
+            .unwrap();
+        let done = wait_for_exit(&mut rx).await;
+
+        assert_eq!(done.state, AgentState::Completed);
+        assert_eq!(done.merged_at, None);
+        assert_eq!(storage::load_agent(&conflicted.id).unwrap().merged_at, None);
+        assert_eq!(git(repo.path(), &["rev-parse", "main"]).await, before);
+
+        let log = storage::read_events(&resolver.id).unwrap();
+        assert!(
+            log.iter().any(|e| e.event["type"] == NOTICE_EVENT_TYPE
+                && e.event["text"].as_str().unwrap().starts_with("Not merged")),
+            "{log:?}"
+        );
     }
 }

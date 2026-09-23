@@ -94,6 +94,7 @@
   // unknowns. Anything unrecognised falls through to the raw-JSON card.
   type Kind =
     | { kind: "prompt"; text: string }
+    | { kind: "notice"; text: string }
     | { kind: "system"; subtype: string }
     | { kind: "text"; text: string }
     | { kind: "tool_use"; name: string; input: unknown; id: string }
@@ -147,6 +148,7 @@
       result?: string;
       is_error?: boolean;
       prompt?: string;
+      text?: string;
       duration_ms?: number;
       usage?: { output_tokens?: number };
     } | null;
@@ -154,6 +156,9 @@
     if (SILENT_EVENT_TYPES.has(e.type ?? "")) return [];
     // Our own event, not claude's: the prompt the user sent for this turn.
     if (e.type === "cw_prompt") return [{ kind: "prompt", text: e.prompt ?? "" }];
+    // Also ours: something the app did on the agent's behalf, like finishing
+    // the merge a resolver was spawned for.
+    if (e.type === "cw_notice") return [{ kind: "notice", text: e.text ?? "" }];
     if (e.type === "system") {
       if (SILENT_SYSTEM_SUBTYPES.has(e.subtype ?? "")) return [];
       return [{ kind: "system", subtype: e.subtype ?? "" }];
@@ -210,6 +215,7 @@
    */
   type Row =
     | { key: string; kind: "prompt"; text: string }
+    | { key: string; kind: "notice"; text: string }
     | { key: string; kind: "text"; text: string }
     | { key: string; kind: "thinking"; parts: string[] }
     | { key: string; kind: "tools"; name: string; calls: ToolCall[] }
@@ -507,6 +513,8 @@
               </details>
             {:else if row.kind === "system"}
               <div class="block system">{systemLabel(row.subtype)}</div>
+            {:else if row.kind === "notice"}
+              <div class="block system notice"><Markdown text={row.text} /></div>
             {:else if row.kind === "result"}
               <div class="block done" class:err={row.is_error}>
                 {row.is_error ? "✗ error" : "✓ done"}
@@ -885,6 +893,9 @@
   }
 
   .done.err { color: var(--danger-text); }
+
+  /* The app's own word in the transcript: a single line, like the rows around it. */
+  .notice :global(p) { margin: 0; }
 
   .fail-banner {
     background: var(--danger-soft-bg);

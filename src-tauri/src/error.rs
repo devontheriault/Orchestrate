@@ -51,8 +51,14 @@ pub enum Error {
     #[error("nothing to merge: `{branch}` is already in `{target}`")]
     NothingToMerge { branch: String, target: String },
 
-    #[error("merging into `{target}` hit conflicts in {files}; the project is unchanged")]
-    MergeConflict { target: String, files: String },
+    #[error(
+        "merging into `{target}` hit conflicts in {}; the project is unchanged",
+        files.join(", ")
+    )]
+    MergeConflict { target: String, files: Vec<String> },
+
+    #[error("the conflicts with `{target}` are not resolved yet: {why}")]
+    Unresolved { target: String, why: String },
 
     #[error("not signed in to Claude — run `claude` once, or set ANTHROPIC_API_KEY")]
     NoCredential,
