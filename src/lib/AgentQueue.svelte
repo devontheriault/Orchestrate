@@ -1,6 +1,7 @@
 <script lang="ts">
   import { store } from "./store.svelte";
   import { DEFAULT_MODE, modeLabel } from "./api";
+  import Attachments from "./Attachments.svelte";
 
   let {
     agentId,
@@ -90,7 +91,12 @@
         {#each queued as message, i (message.id)}
           <li>
             <span class="n">{i + 1}</span>
-            <p class="text">{message.prompt}</p>
+            <div class="body">
+              <p class="text">{message.prompt}</p>
+              {#if message.attachments?.length}
+                <Attachments paths={message.attachments} />
+              {/if}
+            </div>
             {#if message.model}
               <span class="badge">{store.modelName(message.model)}</span>
             {/if}
@@ -262,9 +268,15 @@
     line-height: var(--leading-normal);
   }
 
-  .text {
+  .body {
     flex: 1;
     min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .text {
     margin: 0;
     color: var(--fg);
     line-height: var(--leading-normal);

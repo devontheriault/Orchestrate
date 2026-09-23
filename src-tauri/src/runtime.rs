@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
@@ -14,7 +15,7 @@ use crate::error::{Error, Result};
 use crate::model::{
     new_id, new_session_id, Agent, AgentEvent, AgentState, Id, Project, Resolution, Task,
 };
-use crate::{git, merging, paths, storage, title, worktree};
+use crate::{attachments, git, merging, paths, storage, title, worktree};
 
 /// Grace period between SIGTERM and SIGKILL when stopping an Agent.
 const STOP_GRACE: Duration = Duration::from_secs(5);
@@ -27,14 +28,20 @@ pub const PROMPT_EVENT_TYPE: &str = "cw_prompt";
 
 /// Record a user prompt as a log event, so a Turn's question sits above its
 /// answer in the output pane and survives a reload.
-fn prompt_event(prompt: &str, turn: u32) -> AgentEvent {
+/// The prompt is the user's own text, with the attachments beside it rather
+/// than folded in, so the transcript can show them as files.
+fn prompt_event(prompt: &str, attachments: &[PathBuf], turn: u32) -> AgentEvent {
+    let mut event = serde_json::json!({
+        "type": PROMPT_EVENT_TYPE,
+        "prompt": prompt,
+        "turn": turn,
+    });
+    if !attachments.is_empty() {
+        event["attachments"] = serde_json::json!(attachments);
+    }
     AgentEvent {
         ts: OffsetDateTime::now_utc(),
-        event: serde_json::json!({
-            "type": PROMPT_EVENT_TYPE,
-            "prompt": prompt,
-            "turn": turn,
-        }),
+        event,
     }
 }
 
@@ -125,20 +132,23 @@ impl AgentRuntime {
         (Self { naming: true, ..rt }, rx)
     }
 
-    /// Spawn a new Agent for the given Project and opening prompt, on the model
-    /// and effort the user picked (`None` leaves either choice to Claude Code)
-    /// and in the Permission Mode they picked (`None` is
-    /// `DEFAULT_PERMISSION_MODE`). Returns the Agent record once the process is
-    /// running and its meta file is on disk.
+    /// Spawn a new Agent for the given Project and opening prompt, with any
+    /// files attached to it, on the model and effort the user picked (`None`
+    /// leaves either choice to Claude Code) and in the Permission Mode they
+    /// picked (`None` is `DEFAULT_PERMISSION_MODE`). Returns the Agent record
+    /// once the process is running and its meta file is on disk.
     pub async fn spawn(
         &self,
         project: &Project,
         prompt: String,
+        attachments: Vec<PathBuf>,
         model: Option<String>,
         effort: Option<String>,
         permission_mode: Option<String>,
     ) -> Result<Agent> {
+        attachments::check(&attachments)?;
         let mut agent = new_agent(project, prompt, model, effort, permission_mode)?;
+        agent.task.attachments = attachments;
         // Record the commit we branched from before the Agent can move HEAD, so
         // the diff view has a fixed base even if the Project advances later.
         agent.base_commit = git::head_commit(&project.path).await.ok();
@@ -185,14 +195,18 @@ impl AgentRuntime {
     async fn start(&self, project: &Project, from: &str, agent: Agent) -> Result<Agent> {
         worktree::create(&project.path, &agent.worktree_path, &agent.branch, from).await?;
         storage::save_agent(&agent)?;
-        let prompt = agent.task.prompt.clone();
-        self.record_prompt(&agent, &prompt);
+        let Task {
+            prompt,
+            attachments,
+        } = agent.task.clone();
+        self.record_prompt(&agent, &prompt, &attachments);
 
         let mut live = self.inner.write().await;
-        self.launch(agent, &prompt, Continuity::Fresh, &mut live)
+        self.launch(agent, &prompt, &attachments, Continuity::Fresh, &mut live)
     }
 
-    /// Continue an Agent's conversation with a follow-up prompt: start a new
+    /// Continue an Agent's conversation with a follow-up prompt and any files
+    /// attached to it: start a new
     /// `claude` in the Agent's existing Worktree, resuming its Session, and put
     /// the Agent back into `Running`.
     ///
@@ -208,10 +222,12 @@ impl AgentRuntime {
         &self,
         agent_id: &str,
         prompt: String,
+        attachments: Vec<PathBuf>,
         model: Option<String>,
         effort: Option<String>,
         permission_mode: Option<String>,
     ) -> Result<Agent> {
+        attachments::check(&attachments)?;
         // Held from the busy check through the launch: two windows resuming the
         // same Agent at once must not both get past the check and put two
         // `claude`s to work in one Worktree.
@@ -246,15 +262,15 @@ impl AgentRuntime {
         agent.exit_code = None;
         agent.fail_reason = None;
         storage::save_agent(&agent)?;
-        self.record_prompt(&agent, &prompt);
+        self.record_prompt(&agent, &prompt, &attachments);
         self.announce(&agent);
 
-        self.launch(agent, &prompt, Continuity::Resumed, &mut live)
+        self.launch(agent, &prompt, &attachments, Continuity::Resumed, &mut live)
     }
 
     /// Append the user's prompt to the Agent's log and push it to the UI.
-    fn record_prompt(&self, agent: &Agent, prompt: &str) {
-        let event = prompt_event(prompt, agent.turns);
+    fn record_prompt(&self, agent: &Agent, prompt: &str, attachments: &[PathBuf]) {
+        let event = prompt_event(prompt, attachments, agent.turns);
         let _ = storage::append_event(&agent.id, &event);
         let _ = self.events_tx.send(RuntimeEvent::AgentEvent {
             agent_id: agent.id.clone(),
@@ -277,15 +293,22 @@ impl AgentRuntime {
         &self,
         agent: Agent,
         prompt: &str,
+        attached: &[PathBuf],
         how: Continuity,
         live: &mut Live<'_>,
     ) -> Result<Agent> {
         let mut cmd = Command::new(self.claude_bin.as_str());
         cmd.arg("--print")
-            .arg(prompt)
+            .arg(attachments::for_claude(prompt, attached))
             .arg("--output-format")
             .arg("stream-json")
             .arg("--verbose");
+        // Attachments mostly live outside the Worktree, where a plan-mode Turn
+        // may not read unless the folder is added. One flag per folder: the
+        // option is variadic, and a bare list would swallow what follows it.
+        for dir in attachments::dirs(attached) {
+            cmd.arg("--add-dir").arg(dir);
+        }
         // The Mode is the Agent's, not this launcher's: `bypassPermissions`
         // lets it work freely inside its Worktree, `plan` holds it to reading
         // and proposing. Unset — a pre-Mode Agent — runs as it always has.
@@ -432,7 +455,10 @@ fn new_agent(
         branch: format!("{}{agent_id}", crate::model::AGENT_BRANCH_PREFIX),
         id: agent_id,
         project_id: project.id.clone(),
-        task: Task { prompt },
+        task: Task {
+            prompt,
+            attachments: vec![],
+        },
         state: AgentState::Running,
         base_commit: None,
         // Mint the Session ID rather than waiting to read it off the stream, so
@@ -794,7 +820,7 @@ while : ; do sleep 1; done
         let (rt, mut rx) = AgentRuntime::with_bin(bin);
 
         let agent = rt
-            .spawn(&project, "hello".into(), None, None, None)
+            .spawn(&project, "hello".into(), vec![], None, None, None)
             .await
             .unwrap();
         assert_eq!(agent.state, AgentState::Running);
@@ -841,7 +867,7 @@ exit 0
         let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_writes_code());
 
         let agent = rt
-            .spawn(&project, "write some code".into(), None, None, None)
+            .spawn(&project, "write some code".into(), vec![], None, None, None)
             .await
             .unwrap();
         let base = agent
@@ -899,7 +925,7 @@ exit 0
         let (rt, mut rx) = AgentRuntime::with_bin(bin);
 
         let agent = rt
-            .spawn(&project, "boom".into(), None, None, None)
+            .spawn(&project, "boom".into(), vec![], None, None, None)
             .await
             .unwrap();
         let final_agent = loop {
@@ -931,7 +957,7 @@ exit 0
         let (rt, mut rx) = AgentRuntime::with_bin(bin);
 
         let agent = rt
-            .spawn(&project, "hang".into(), None, None, None)
+            .spawn(&project, "hang".into(), vec![], None, None, None)
             .await
             .unwrap();
         assert!(agent.worktree_path.exists());
@@ -989,7 +1015,7 @@ exit 0
         let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_recording(&args_log));
 
         let agent = rt
-            .spawn(&project, "first".into(), None, None, None)
+            .spawn(&project, "first".into(), vec![], None, None, None)
             .await
             .unwrap();
         let session = agent.session_id.clone().expect("spawn mints a session");
@@ -998,7 +1024,7 @@ exit 0
         assert_eq!(after_first.turns, 1);
 
         let resumed = rt
-            .resume(&agent.id, "second".into(), None, None, None)
+            .resume(&agent.id, "second".into(), vec![], None, None, None)
             .await
             .unwrap();
         assert_eq!(resumed.state, AgentState::Running);
@@ -1053,7 +1079,14 @@ exit 0
         let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_recording(&args_log));
 
         let agent = rt
-            .spawn(&project, "first".into(), Some("sonnet".into()), None, None)
+            .spawn(
+                &project,
+                "first".into(),
+                vec![],
+                Some("sonnet".into()),
+                None,
+                None,
+            )
             .await
             .unwrap();
         assert_eq!(agent.model.as_deref(), Some("sonnet"));
@@ -1064,6 +1097,7 @@ exit 0
             .resume(
                 &agent.id,
                 "try harder".into(),
+                vec![],
                 Some("opus".into()),
                 None,
                 None,
@@ -1096,7 +1130,7 @@ exit 0
         let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_recording(&args_log));
 
         let agent = rt
-            .spawn(&project, "hello".into(), None, None, None)
+            .spawn(&project, "hello".into(), vec![], None, None, None)
             .await
             .unwrap();
         assert_eq!(agent.model, None);
@@ -1125,11 +1159,11 @@ exit 0
         )));
 
         let agent = rt
-            .spawn(&project, "first".into(), None, None, None)
+            .spawn(&project, "first".into(), vec![], None, None, None)
             .await
             .unwrap();
         wait_for_exit(&mut rx).await;
-        rt.resume(&agent.id, "second".into(), None, None, None)
+        rt.resume(&agent.id, "second".into(), vec![], None, None, None)
             .await
             .unwrap();
         wait_for_exit(&mut rx).await;
@@ -1149,7 +1183,14 @@ exit 0
         let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_recording(&args_log));
 
         let agent = rt
-            .spawn(&project, "first".into(), None, Some("low".into()), None)
+            .spawn(
+                &project,
+                "first".into(),
+                vec![],
+                None,
+                Some("low".into()),
+                None,
+            )
             .await
             .unwrap();
         assert_eq!(agent.effort.as_deref(), Some("low"));
@@ -1159,6 +1200,7 @@ exit 0
             .resume(
                 &agent.id,
                 "think harder".into(),
+                vec![],
                 None,
                 Some("max".into()),
                 None,
@@ -1193,7 +1235,14 @@ exit 0
         let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_recording(&args_log));
 
         let agent = rt
-            .spawn(&project, "plan it".into(), None, None, Some("plan".into()))
+            .spawn(
+                &project,
+                "plan it".into(),
+                vec![],
+                None,
+                None,
+                Some("plan".into()),
+            )
             .await
             .unwrap();
         assert_eq!(agent.permission_mode.as_deref(), Some("plan"));
@@ -1203,6 +1252,7 @@ exit 0
             .resume(
                 &agent.id,
                 "now build it".into(),
+                vec![],
                 None,
                 None,
                 Some("bypassPermissions".into()),
@@ -1245,7 +1295,7 @@ exit 0
         let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_recording(&args_log));
 
         let agent = rt
-            .spawn(&project, "hello".into(), None, None, None)
+            .spawn(&project, "hello".into(), vec![], None, None, None)
             .await
             .unwrap();
         assert_eq!(agent.permission_mode, None);
@@ -1258,6 +1308,66 @@ exit 0
         );
     }
 
+    /// Attachments reach `claude` as paths it is told about and allowed to read,
+    /// and reach the transcript beside the prompt rather than inside it.
+    #[tokio::test]
+    async fn attachments_are_named_to_claude_and_kept_out_of_the_prompt() {
+        let _env = StateEnv::new();
+        let repo = init_repo().await;
+        let project = sample_project(repo.path().to_path_buf());
+        let files = tempfile::tempdir().unwrap();
+        let shot = files.path().join("shot.png");
+        std::fs::write(&shot, b"png").unwrap();
+        let args_log = std::env::temp_dir().join(format!("cw-args-{}.txt", new_id()));
+        let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_recording(&args_log));
+
+        let agent = rt
+            .spawn(
+                &project,
+                "fix this".into(),
+                vec![shot.clone()],
+                None,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+        assert_eq!(agent.task.prompt, "fix this");
+        assert_eq!(agent.task.attachments, vec![shot.clone()]);
+        wait_for_exit(&mut rx).await;
+
+        let args = std::fs::read_to_string(&args_log).unwrap();
+        assert!(args.contains(&format!("- {}", shot.display())), "{args}");
+        assert!(
+            args.contains(&format!("--add-dir {}", files.path().display())),
+            "{args}"
+        );
+
+        let logged = storage::read_events(&agent.id).unwrap();
+        let prompt = logged
+            .iter()
+            .find(|e| e.event["type"] == PROMPT_EVENT_TYPE)
+            .unwrap();
+        assert_eq!(prompt.event["prompt"], "fix this");
+        assert_eq!(
+            prompt.event["attachments"],
+            serde_json::json!([shot.display().to_string()])
+        );
+
+        let err = rt
+            .resume(
+                &agent.id,
+                "and this".into(),
+                vec![files.path().join("gone.png")],
+                None,
+                None,
+                None,
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(err, Error::AttachmentMissing { .. }), "{err:?}");
+    }
+
     #[tokio::test]
     async fn resume_is_refused_while_the_agent_is_working() {
         let _env = StateEnv::new();
@@ -1266,11 +1376,11 @@ exit 0
         let (rt, _rx) = AgentRuntime::with_bin(fake_claude_hang());
 
         let agent = rt
-            .spawn(&project, "hang".into(), None, None, None)
+            .spawn(&project, "hang".into(), vec![], None, None, None)
             .await
             .unwrap();
         let err = rt
-            .resume(&agent.id, "hurry up".into(), None, None, None)
+            .resume(&agent.id, "hurry up".into(), vec![], None, None, None)
             .await
             .unwrap_err();
         assert!(matches!(err, Error::AgentBusy(_)), "{err:?}");
@@ -1328,7 +1438,7 @@ exit 0
         let (rt, mut rx) = AgentRuntime::with_bin_naming(fake_claude_and_namer(&counter));
 
         let agent = rt
-            .spawn(&project, "do the thing".into(), None, None, None)
+            .spawn(&project, "do the thing".into(), vec![], None, None, None)
             .await
             .unwrap();
         assert_eq!(agent.title, None, "a fresh Agent has no name to show yet");
@@ -1352,14 +1462,14 @@ exit 0
         let (rt, mut rx) = AgentRuntime::with_bin_naming(fake_claude_and_namer(&counter));
 
         let agent = rt
-            .spawn(&project, "first".into(), None, None, None)
+            .spawn(&project, "first".into(), vec![], None, None, None)
             .await
             .unwrap();
         let mut name = wait_for_name(&mut rx, None).await.title;
         assert_eq!(name.as_deref(), Some("Name 1"));
 
         for turn in 2..=3 {
-            rt.resume(&agent.id, format!("turn {turn}"), None, None, None)
+            rt.resume(&agent.id, format!("turn {turn}"), vec![], None, None, None)
                 .await
                 .unwrap();
             name = wait_for_name(&mut rx, name.as_deref()).await.title;
@@ -1367,7 +1477,7 @@ exit 0
         }
 
         // The fourth Turn runs, but nothing asks for a name.
-        rt.resume(&agent.id, "turn 4".into(), None, None, None)
+        rt.resume(&agent.id, "turn 4".into(), vec![], None, None, None)
             .await
             .unwrap();
         while !rt.running().await.is_empty() {
@@ -1396,7 +1506,14 @@ exit 0
         let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_hang());
 
         let agent = rt
-            .spawn(&project, "go off the rails".into(), None, None, None)
+            .spawn(
+                &project,
+                "go off the rails".into(),
+                vec![],
+                None,
+                None,
+                None,
+            )
             .await
             .unwrap();
         tokio::time::sleep(Duration::from_millis(200)).await;
@@ -1407,7 +1524,14 @@ exit 0
         // Redirecting a Stopped Agent is the point of keeping its worktree.
         let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_recording(&args_log));
         let resumed = rt
-            .resume(&agent.id, "do it differently".into(), None, None, None)
+            .resume(
+                &agent.id,
+                "do it differently".into(),
+                vec![],
+                None,
+                None,
+                None,
+            )
             .await
             .unwrap();
         assert_eq!(resumed.turns, 2);
@@ -1422,7 +1546,7 @@ exit 0
         let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_ok());
 
         let agent = rt
-            .spawn(&project, "hello".into(), None, None, None)
+            .spawn(&project, "hello".into(), vec![], None, None, None)
             .await
             .unwrap();
         wait_for_exit(&mut rx).await;
@@ -1431,7 +1555,7 @@ exit 0
             .unwrap();
 
         let err = rt
-            .resume(&agent.id, "more".into(), None, None, None)
+            .resume(&agent.id, "more".into(), vec![], None, None, None)
             .await
             .unwrap_err();
         assert!(
@@ -1448,6 +1572,7 @@ exit 0
             project_id: new_id(),
             task: Task {
                 prompt: "from before sessions existed".into(),
+                attachments: vec![],
             },
             state: AgentState::Completed,
             worktree_path: std::env::temp_dir(),
@@ -1472,7 +1597,7 @@ exit 0
         let (rt, _rx) = AgentRuntime::with_bin(fake_claude_ok());
 
         let err = rt
-            .resume(&a.id, "carry on".into(), None, None, None)
+            .resume(&a.id, "carry on".into(), vec![], None, None, None)
             .await
             .unwrap_err();
         assert!(
@@ -1497,7 +1622,7 @@ exit 0
         let (rt, mut rx) = AgentRuntime::with_bin(bin);
 
         let agent = rt
-            .spawn(&project, "hello".into(), None, None, None)
+            .spawn(&project, "hello".into(), vec![], None, None, None)
             .await
             .unwrap();
         let minted = agent.session_id.clone().unwrap();
@@ -1521,7 +1646,10 @@ exit 0
         let a = Agent {
             id: new_id(),
             project_id: new_id(),
-            task: Task { prompt: "x".into() },
+            task: Task {
+                prompt: "x".into(),
+                attachments: vec![],
+            },
             state: AgentState::Running,
             worktree_path: "/tmp/wt".into(),
             base_commit: None,
@@ -1588,7 +1716,7 @@ git commit -qam 'agent: edit shared'
 exit 0
 "#,
         ));
-        rt.spawn(&project, "edit shared".into(), None, None, None)
+        rt.spawn(&project, "edit shared".into(), vec![], None, None, None)
             .await
             .unwrap();
         let agent = wait_for_exit(&mut rx).await;

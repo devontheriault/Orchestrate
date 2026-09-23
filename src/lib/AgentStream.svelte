@@ -5,6 +5,7 @@
   import AgentDiff from "./AgentDiff.svelte";
   import AgentComposer from "./AgentComposer.svelte";
   import Markdown from "./Markdown.svelte";
+  import Attachments from "./Attachments.svelte";
   import ShellCommand from "./ShellCommand.svelte";
   import HighlightedCode from "./HighlightedCode.svelte";
   import NumberedCode from "./NumberedCode.svelte";
@@ -112,7 +113,7 @@
   // Helpers to decode common stream-json event shapes without breaking on
   // unknowns. Anything unrecognised falls through to the raw-JSON card.
   type Kind =
-    | { kind: "prompt"; text: string }
+    | { kind: "prompt"; text: string; attachments: string[] }
     | { kind: "notice"; text: string }
     | { kind: "system"; subtype: string }
     | { kind: "text"; text: string }
@@ -167,6 +168,7 @@
       result?: string;
       is_error?: boolean;
       prompt?: string;
+      attachments?: string[];
       text?: string;
       duration_ms?: number;
       usage?: { output_tokens?: number };
@@ -174,7 +176,9 @@
     if (!e || typeof e !== "object") return [{ kind: "raw" }];
     if (SILENT_EVENT_TYPES.has(e.type ?? "")) return [];
     // Our own event, not claude's: the prompt the user sent for this turn.
-    if (e.type === "cw_prompt") return [{ kind: "prompt", text: e.prompt ?? "" }];
+    if (e.type === "cw_prompt") {
+      return [{ kind: "prompt", text: e.prompt ?? "", attachments: e.attachments ?? [] }];
+    }
     // Also ours: something the app did on the agent's behalf, like finishing
     // the merge a resolver was spawned for.
     if (e.type === "cw_notice") return [{ kind: "notice", text: e.text ?? "" }];
@@ -233,7 +237,7 @@
    * expanded.
    */
   type Row =
-    | { key: string; kind: "prompt"; text: string }
+    | { key: string; kind: "prompt"; text: string; attachments: string[] }
     | { key: string; kind: "notice"; text: string }
     | { key: string; kind: "text"; text: string }
     | { key: string; kind: "thinking"; parts: string[] }
@@ -615,7 +619,9 @@
         {:else}
           {#each rows as row (row.key)}
             {#if row.kind === "prompt"}
-              <div class="block prompt-block">{row.text}</div>
+              <!-- One line on purpose: the block is pre-wrap, so any whitespace
+                   between these tags would show up as blank space. -->
+              <div class="block prompt-block">{#if row.attachments.length}<div class="prompt-files"><Attachments paths={row.attachments} /></div>{/if}{row.text}</div>
             {:else if row.kind === "text"}
               <div class="block text"><Markdown text={row.text} /></div>
             {:else if row.kind === "tools"}
@@ -910,6 +916,12 @@
     padding: 0.45rem 0.7rem;
     margin: 0.45rem 0 0.2rem;
     font-size: var(--text-lg);
+  }
+
+  /* Above the text, as they sat above it in the box it was typed into. */
+  .prompt-files {
+    margin-bottom: 0.4rem;
+    white-space: normal;
   }
 
   details.block {

@@ -1,3 +1,4 @@
+pub mod attachments;
 pub mod commands;
 pub mod error;
 pub mod git;
@@ -149,6 +150,7 @@ pub fn run() {
             commands::list_agents,
             commands::spawn_agent,
             commands::resume_agent,
+            commands::save_attachment,
             commands::stop_agent,
             commands::reap_agent,
             commands::agent_events,

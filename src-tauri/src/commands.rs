@@ -80,6 +80,7 @@ pub async fn spawn_agent(
     state: State<'_, AppState>,
     project_id: String,
     prompt: String,
+    attachments: Vec<PathBuf>,
     model: Option<String>,
     effort: Option<String>,
     permission_mode: Option<String>,
@@ -92,28 +93,53 @@ pub async fn spawn_agent(
         .ok_or_else(|| format!("project not found: {project_id}"))?;
     state
         .runtime
-        .spawn(project, prompt, model, effort, permission_mode)
+        .spawn(project, prompt, attachments, model, effort, permission_mode)
         .await
         .map_err(err)
 }
 
 /// Continue a conversation with an Agent that has stopped working: a follow-up
-/// prompt, answered in the Agent's existing Worktree with its Session resumed,
+/// prompt and any files attached to it, answered in the Agent's existing Worktree with its Session resumed,
 /// on the model, effort and Permission Mode the caller names for this Turn.
 #[tauri::command]
 pub async fn resume_agent(
     state: State<'_, AppState>,
     agent_id: String,
     prompt: String,
+    attachments: Vec<PathBuf>,
     model: Option<String>,
     effort: Option<String>,
     permission_mode: Option<String>,
 ) -> Result<Agent, String> {
     state
         .runtime
-        .resume(&agent_id, prompt, model, effort, permission_mode)
+        .resume(
+            &agent_id,
+            prompt,
+            attachments,
+            model,
+            effort,
+            permission_mode,
+        )
         .await
         .map_err(err)
+}
+
+/// Write a pasted file to the state directory, so it can be attached by path
+/// like any other. The bytes arrive as the raw request body rather than as
+/// JSON — a screenshot as a JSON array of numbers is several times its size —
+/// with the name it was pasted under in the `x-name` header.
+#[tauri::command]
+pub async fn save_attachment(request: tauri::ipc::Request<'_>) -> Result<PathBuf, String> {
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err("expected the file's bytes as the request body".into());
+    };
+    let name = request
+        .headers()
+        .get("x-name")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    crate::attachments::save(name, bytes).map_err(err)
 }
 
 #[tauri::command]
