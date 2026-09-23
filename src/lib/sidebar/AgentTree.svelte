@@ -323,6 +323,9 @@
             >
           {/if}
           <span class="detail" class:failed={a.state === "failed"}>{detail(a)}</span>
+          {#if a.state === "running" && a.model}
+            <span class="model">{models.name(a.model)}</span>
+          {/if}
         </div>
       {/each}
     </div>
@@ -651,6 +654,20 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  /* A working agent's line says what it is doing rather than what it runs on,
+     so the model moves here, under the clock. */
+  .detail:has(+ .model) {
+    grid-column: 1;
+  }
+
+  .model {
+    font-size: var(--text-2xs);
+    line-height: var(--leading-tight);
+    color: var(--fg-muted);
+    white-space: nowrap;
+    justify-self: end;
   }
 
   .detail.failed {
