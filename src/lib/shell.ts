@@ -275,3 +275,104 @@ export function formatShell(command: string): ShellToken[] {
   }
   return out;
 }
+
+/**
+ * What language `command` prints, when all it prints is code in one: files
+ * shown with `cat`, `head`, `tail` or `sed -n`, `git show REV:path`, or a
+ * diff from `git diff` or `git show`. Leading `cd`s, `echo`ed dividers
+ * between files, stderr sent elsewhere and a trailing `| head` are fine.
+ * Anything else — files in two languages, a pipe through `grep` — mixes
+ * other text in, so it's "" and the output stays plain. Languages come back
+ * as file extensions or fence names, as `highlightLines` takes them.
+ */
+export function outputLanguage(command: string): string {
+  const steps = splitSteps(command);
+  if (!steps) return "";
+  const kept = steps.filter((s, i) => i > 0 && s.sep === "|" ? !trims(s.words) : true);
+  if (kept.some((s) => s.sep === "|")) return "";
+  let lead = 0;
+  while (lead < kept.length - 1 && kept[lead].words[0] === "cd") lead++;
+  const langs = new Set(
+    kept
+      .slice(lead)
+      .filter((s) => s.words[0] !== "echo")
+      .map((s) => printedLanguage(s.words)),
+  );
+  return langs.size === 1 ? [...langs][0] : "";
+}
+
+/** Whether a step piped into only cuts the output short: `head -50`, `tail -n 20`. */
+function trims([cmd, ...args]: string[]): boolean {
+  return (cmd === "head" || cmd === "tail") && args.every((w) => /^-|^\d+$/.test(w));
+}
+
+/** The language one step prints, or "" if it isn't one that prints a file. */
+function printedLanguage([cmd, ...args]: string[]): string {
+  const flags = args.filter((w) => w.startsWith("-"));
+  let files = args.filter((w) => !w.startsWith("-"));
+  switch (cmd) {
+    case "cat":
+      break;
+    case "head":
+    case "tail":
+      // `-n 40` puts the count in a word of its own.
+      files = files.filter((w) => !/^\+?\d+$/.test(w));
+      break;
+    case "sed":
+      if (!flags.includes("-n") || !/^[\d,$]+p$/.test(files.shift() ?? "")) return "";
+      break;
+    case "git": {
+      const [sub, ...rest] = files;
+      if (sub === "diff") return "diff";
+      if (sub !== "show") return "";
+      files = rest.filter((w) => w.includes(":")).map((w) => w.slice(w.indexOf(":") + 1));
+      if (files.length === 0) return "diff";
+      break;
+    }
+    default:
+      return "";
+  }
+  const langs = new Set(files.map(extension));
+  return langs.size === 1 ? [...langs][0] : "";
+}
+
+function extension(path: string): string {
+  return /\.([^./\\]+)$/.exec(path)?.[1] ?? "";
+}
+
+/**
+ * The command's steps as plain words, quotes taken off, each with the
+ * separator before it (a line break counts as `;`). Sending stderr away is
+ * dropped, as it doesn't change what's printed; `null` for any other
+ * redirection, a subshell, a heredoc or `$(…)`, which this won't guess at.
+ */
+function splitSteps(command: string): { sep: string; words: string[] }[] | null {
+  const steps = [{ sep: "", words: [] as string[] }];
+  let word: string | null = null;
+  let dropNext = false;
+  const endWord = () => {
+    if (word !== null && !dropNext) steps.at(-1)!.words.push(word);
+    else if (word !== null) dropNext = false;
+    word = null;
+  };
+  for (const t of tokenize(command.trim())) {
+    if (t.kind === "op") {
+      endWord();
+      if (t.text === "2>&1") continue;
+      if (t.text !== "2>" && t.text !== "2>>") return null;
+      dropNext = true;
+    } else if (t.kind === "var" && !/^\$\w+$/.test(t.text)) {
+      return null;
+    } else if (t.kind === "ws" || t.kind === "comment") {
+      endWord();
+    } else if (t.kind === "sep" || t.kind === "nl") {
+      endWord();
+      steps.push({ sep: t.kind === "nl" ? ";" : t.text, words: [] });
+    } else {
+      const text = t.kind === "string" ? t.text.replace(/^\$?(['"])([^]*)\1$/, "$2") : t.text;
+      word = (word ?? "") + text;
+    }
+  }
+  endWord();
+  return steps.filter((s) => s.words.length > 0);
+}

@@ -9,6 +9,7 @@
   import HighlightedCode from "./HighlightedCode.svelte";
   import NumberedCode from "./NumberedCode.svelte";
   import { languageOf } from "./highlight.svelte";
+  import { outputLanguage } from "./shell";
   import type { AgentEvent } from "./api";
 
   /** The blank page for an agent that hasn't been spawned yet. */
@@ -117,7 +118,7 @@
     | { kind: "system"; subtype: string }
     | { kind: "text"; text: string }
     | { kind: "tool_use"; name: string; input: unknown; id: string }
-    | { kind: "tool_result"; tool_use_id: string; content: unknown }
+    | { kind: "tool_result"; tool_use_id: string; content: unknown; isError: boolean }
     | { kind: "thinking"; text: string }
     | {
         kind: "result";
@@ -200,7 +201,12 @@
           if (b.type === "tool_use")
             return { kind: "tool_use", name: b.name ?? "?", input: b.input, id: b.id ?? "" };
           if (b.type === "tool_result")
-            return { kind: "tool_result", tool_use_id: b.tool_use_id ?? "", content: b.content };
+            return {
+              kind: "tool_result",
+              tool_use_id: b.tool_use_id ?? "",
+              content: b.content,
+              isError: b.is_error === true,
+            };
           if (b.type === "thinking") return { kind: "thinking", text: b.thinking ?? "" };
           return { kind: "raw", type: b.type };
         })
@@ -223,6 +229,7 @@
     input: unknown;
     result: unknown;
     hasResult: boolean;
+    isError: boolean;
   };
 
   /**
@@ -298,6 +305,7 @@
           input: k.input,
           result: undefined,
           hasResult: false,
+          isError: false,
         };
         if (k.id) callsById.set(k.id, call);
         if (last?.kind === "tools" && last.name === k.name) last.calls.push(call);
@@ -309,6 +317,7 @@
         if (call) {
           call.result = k.content;
           call.hasResult = true;
+          call.isError = k.isError;
         }
       } else if (k.kind === "thinking") {
         if (last?.kind === "thinking") last.parts.push(k.text);
@@ -443,6 +452,15 @@
   }
 
   /**
+   * The language a Bash call's output is in, if all it printed was a file or
+   * a diff — not when it failed, since then it printed an error instead.
+   */
+  function bashOutputLanguage(c: ToolCall): string {
+    const command = bashCommand(c);
+    return command === undefined || c.isError ? "" : outputLanguage(command);
+  }
+
+  /**
    * What an Edit or Write call puts in a file, if that's what `c` is: an
    * Edit's text before and after, a Write's whole new contents.
    */
@@ -494,13 +512,16 @@
 <!-- A call's input as shown when expanded. A command, or code going into a
      file, reads better laid out and coloured than JSON-escaped. -->
 <!-- What came back from a call. A file that was read shows as code, beside
-     its line numbers. -->
+     its line numbers, and so does a file or diff a command printed. -->
 {#snippet callResult(c: ToolCall)}
   {@const read = readLines(c)}
+  {@const printed = bashOutputLanguage(c)}
   <div class="call-result">
     {#if read}
       <pre class="read"><NumberedCode lines={read.lines} lang={read.lang} /></pre>
       {#if read.rest}<pre>{read.rest}</pre>{/if}
+    {:else if printed}
+      <pre class="read"><HighlightedCode code={toolResultText(c.result)} lang={printed} /></pre>
     {:else}
       <pre>{toolResultText(c.result)}</pre>
     {/if}
