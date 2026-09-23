@@ -45,7 +45,9 @@
        it, so the bar reads as the top of the two panes below rather than as a
        band laid across them. -->
   <div class="lead" style="width: {panes.cssWidth}" data-tauri-drag-region>
-    <span class="wordmark" data-tauri-drag-region>DevCode</span>
+    <span class="wordmark" data-tauri-drag-region
+      ><b data-tauri-drag-region>DEV</b>code</span
+    >
   </div>
 
   <!-- The detail pane's heading, in the bar that continues it: the name Claude
@@ -140,13 +142,17 @@
        than a caption would. Sized to still clear the 2.1rem bar. */
     font-size: var(--text-2xl);
     line-height: var(--leading-none);
-    font-weight: var(--weight-semibold);
+    font-weight: var(--weight-normal);
     letter-spacing: 0.01em;
     color: var(--fg-muted);
     min-width: 0;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  .wordmark b {
+    font-weight: var(--weight-bold);
   }
 
   .title {
