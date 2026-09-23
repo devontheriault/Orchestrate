@@ -41,11 +41,13 @@
   let textarea: HTMLTextAreaElement | undefined = $state();
 
   // Grow with the text, up to a ceiling — a long follow-up shouldn't need
-  // scrolling, but it shouldn't swallow the transcript either.
+  // scrolling, but it shouldn't swallow the transcript either. scrollHeight is
+  // rounded to a whole pixel while the lines themselves are fractional, so a
+  // couple of pixels of slack keeps the last line from being clipped.
   function fit() {
     if (!textarea) return;
     textarea.style.height = "auto";
-    textarea.style.height = `${textarea.scrollHeight}px`;
+    textarea.style.height = `${textarea.scrollHeight + 2}px`;
   }
 
   $effect(() => {
