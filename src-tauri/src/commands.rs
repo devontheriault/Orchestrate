@@ -33,8 +33,24 @@ pub async fn list_projects() -> Result<Vec<Project>, String> {
     storage::Registry::load().map(|r| r.projects).map_err(err)
 }
 
+/// Whether the folder at `path` needs [`git::set_up`] before Agents can work
+/// in it. Asked when the user picks a folder, so the trust dialog can say so.
 #[tauri::command]
-pub async fn add_project(name: String, path: PathBuf) -> Result<Project, String> {
+pub async fn project_needs_setup(path: PathBuf) -> bool {
+    !git::has_commits(&path).await
+}
+
+/// Register the folder at `path` as a Project. `set_up` is the user's go-ahead
+/// to [`git::set_up`] a folder that isn't ready; without it, such a folder is
+/// refused here rather than failing later, at the first Spawn.
+#[tauri::command]
+pub async fn add_project(name: String, path: PathBuf, set_up: bool) -> Result<Project, String> {
+    if !git::has_commits(&path).await {
+        if !set_up {
+            return Err(err(Error::NotSetUp { path }));
+        }
+        git::set_up(&path).await.map_err(err)?;
+    }
     let mut reg = storage::Registry::load().map_err(err)?;
     let project = Project {
         id: new_id(),

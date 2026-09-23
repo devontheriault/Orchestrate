@@ -485,9 +485,9 @@ class AppStore {
     window.location.reload();
   }
 
-  async addProject(name: string, path: string) {
+  async addProject(name: string, path: string, setUp: boolean) {
     try {
-      const p = await api.addProject(name, path);
+      const p = await api.addProject(name, path, setUp);
       this.projects.push(p);
       this.selectProject(p.id);
     } catch (e) {

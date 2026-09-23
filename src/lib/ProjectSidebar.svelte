@@ -1,5 +1,6 @@
 <script lang="ts">
   import { open } from "@tauri-apps/plugin-dialog";
+  import { api } from "./api";
   import { store } from "./store.svelte";
   import AgentTree from "./AgentTree.svelte";
   import SettingsMenu from "./SettingsMenu.svelte";
@@ -16,21 +17,25 @@
 
   const FLYOUT_MAX = 380;
 
-  /** A folder the user picked, held until they say they trust it. */
-  let trusting = $state<string | null>(null);
+  /**
+   * A folder the user picked, held until they say they trust it — and whether
+   * it needs Git set up first, which the same confirmation agrees to.
+   */
+  let trusting = $state<{ path: string; needsSetup: boolean } | null>(null);
 
   async function pickAndAdd() {
     const picked = await open({ directory: true, multiple: false });
     if (typeof picked !== "string") return;
-    trusting = picked;
+    trusting = { path: picked, needsSetup: await api.projectNeedsSetup(picked) };
   }
 
   async function addTrusted() {
-    const path = trusting;
-    trusting = null;
-    if (!path) return;
+    if (!trusting) return;
+    const { path, needsSetup } = trusting;
     const name = path.split("/").filter(Boolean).pop() ?? path;
-    await store.addProject(name, path);
+    // Held open until done: setting up a large folder can take a moment.
+    await store.addProject(name, path, needsSetup);
+    trusting = null;
   }
 
   /** Select the project, and show its agents wherever there's room for them. */
@@ -195,7 +200,12 @@
 </aside>
 
 {#if trusting}
-  <TrustProject path={trusting} onconfirm={addTrusted} oncancel={() => (trusting = null)} />
+  <TrustProject
+    path={trusting.path}
+    needsSetup={trusting.needsSetup}
+    onconfirm={addTrusted}
+    oncancel={() => (trusting = null)}
+  />
 {/if}
 
 {#if flyout && flyoutProject}
