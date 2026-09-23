@@ -43,11 +43,11 @@
   // Grow with the text, up to a ceiling — a long follow-up shouldn't need
   // scrolling, but it shouldn't swallow the transcript either. scrollHeight is
   // rounded to a whole pixel while the lines themselves are fractional, so a
-  // couple of pixels of slack keeps the last line from being clipped.
+  // few pixels of slack keeps the last line from being clipped.
   function fit() {
     if (!textarea) return;
     textarea.style.height = "auto";
-    textarea.style.height = `${textarea.scrollHeight + 2}px`;
+    textarea.style.height = `${textarea.scrollHeight + 4}px`;
   }
 
   $effect(() => {
@@ -403,7 +403,7 @@
     overflow-y: auto;
     /* Side padding clears the attach and send buttons so text never runs
        under either. */
-    padding: 0.7rem 3rem 0.7rem 2.6rem;
+    padding: 0.95rem 3.25rem 0.95rem 2.85rem;
     border: none;
     background: none;
     color: var(--fg);
@@ -425,15 +425,15 @@
      calls for stays put as the text grows. */
   .slot {
     position: absolute;
-    right: 0.45rem;
-    bottom: 0.45rem;
+    right: 0.7rem;
+    bottom: 0.7rem;
     display: flex;
     align-items: center;
   }
 
   .slot.left {
     right: auto;
-    left: 0.45rem;
+    left: 0.7rem;
   }
 
   /* Quiet beside send: an extra, not the thing the box is for. */
