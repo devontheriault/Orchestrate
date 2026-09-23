@@ -1,6 +1,7 @@
 <script lang="ts">
   import { theme, THEMES, type ThemePref } from "$lib/theme/theme.svelte";
   import { usage } from "$lib/usage/usage.svelte";
+  import { dismissOnMove, menuStyle, opensMenu, placeMenu, stepActive, type Placement } from "$lib/menus/menu";
 
   /** Rail mode: icon only, for windows too narrow to spare the width. */
   let { collapsed = false }: { collapsed?: boolean } = $props();
@@ -35,36 +36,17 @@
   let triggerEl: HTMLButtonElement | undefined = $state();
   let menuEl: HTMLElement | undefined = $state();
 
-  /** Where the fixed menu sits — measured off the trigger, flipped if needed. */
-  type Placement = { left: number; width: number; max: number; y: string };
   let placement = $state<Placement | null>(null);
-
-  const GAP = 6;
-  const EDGE = 8;
-  const MENU_MIN_WIDTH = 222;
 
   function place() {
     if (!triggerEl) return;
-    const r = triggerEl.getBoundingClientRect();
-    const below = window.innerHeight - r.bottom - GAP - EDGE;
-    const above = r.top - GAP - EDGE;
     // This button lives at the bottom of the window, so opening upward is the
-    // rule rather than the exception — but the list is long enough that the
-    // roomier side wins outright rather than a threshold deciding.
-    const up = above >= below;
-    const width = Math.max(r.width, MENU_MIN_WIDTH);
-    placement = {
-      width,
-      // Left edges line up: the footer's rows are left-aligned, and in the rail
-      // the menu has nowhere to go but out to the right.
-      left: Math.min(Math.max(EDGE, r.left), window.innerWidth - width - EDGE),
-      // The list of themes outgrew the window long ago; it scrolls inside
-      // whatever height the window has, and the Usage row stays put below it.
-      max: Math.max(160, Math.round(up ? above : below)),
-      y: up
-        ? `bottom: ${Math.round(window.innerHeight - r.top + GAP)}px`
-        : `top: ${Math.round(r.bottom + GAP)}px`,
-    };
+    // rule rather than the exception — but the list of themes outgrew the
+    // window long ago, so it has no height of its own: it takes the roomier
+    // side and scrolls inside it, with the Usage row staying put below.
+    // Left edges line up: the footer's rows are left-aligned, and in the rail
+    // the menu has nowhere to go but out to the right.
+    placement = placeMenu(triggerEl, { minWidth: 222, align: "left" });
   }
 
   function openMenu() {
@@ -109,26 +91,7 @@
   // dismisses the menu rather than leaving it stranded mid-air.
   $effect(() => {
     if (!open) return;
-    const ours = (t: Node | null) =>
-      !!t && (!!menuEl?.contains(t) || !!triggerEl?.contains(t));
-    const onDown = (e: PointerEvent) => {
-      if (ours(e.target as Node)) return;
-      close(false);
-    };
-    const onScroll = (e: Event) => {
-      if (ours(e.target as Node)) return;
-      close(false);
-    };
-    const onResize = () => close(false);
-    window.addEventListener("pointerdown", onDown, true);
-    window.addEventListener("resize", onResize);
-    // Capture: the project list scrolls, not the window.
-    window.addEventListener("scroll", onScroll, true);
-    return () => {
-      window.removeEventListener("pointerdown", onDown, true);
-      window.removeEventListener("resize", onResize);
-      window.removeEventListener("scroll", onScroll, true);
-    };
+    return dismissOnMove(() => [menuEl, triggerEl], () => close(false));
   });
 
   // Keys land on the menu itself, per the codebase's other pickers.
@@ -146,13 +109,19 @@
   });
 
   function onTriggerKeydown(e: KeyboardEvent) {
-    if (e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "Enter" || e.key === " ") {
+    if (opensMenu(e.key)) {
       e.preventDefault();
       openMenu();
     }
   }
 
   function onMenuKeydown(e: KeyboardEvent) {
+    const next = stepActive(e.key, active, COUNT);
+    if (next !== null) {
+      e.preventDefault();
+      active = next;
+      return;
+    }
     switch (e.key) {
       case "Escape":
         e.preventDefault();
@@ -160,22 +129,6 @@
         break;
       case "Tab":
         close(false);
-        break;
-      case "ArrowDown":
-        e.preventDefault();
-        active = (active + 1) % COUNT;
-        break;
-      case "ArrowUp":
-        e.preventDefault();
-        active = (active - 1 + COUNT) % COUNT;
-        break;
-      case "Home":
-        e.preventDefault();
-        active = 0;
-        break;
-      case "End":
-        e.preventDefault();
-        active = COUNT - 1;
         break;
       case "Enter":
       case " ":
@@ -254,7 +207,7 @@
     aria-activedescendant={`${uid}-item-${active}`}
     tabindex="-1"
     onkeydown={onMenuKeydown}
-    style={`left: ${Math.round(placement.left)}px; width: ${Math.round(placement.width)}px; max-height: ${placement.max}px; ${placement.y}`}
+    style={menuStyle(placement)}
   >
     <div class="themes">
       <div class="menu-title" id={`${uid}-theme`}>Theme</div>

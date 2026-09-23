@@ -1,6 +1,7 @@
 <script lang="ts">
   import { DEFAULT_EFFORT, DEFAULT_MODEL, EFFORTS, modelLabel } from "$lib/picks";
   import { models } from "$lib/state/models.svelte";
+  import { dismissOnMove, menuStyle, opensMenu, placeMenu, stepActive, type Placement } from "./menu";
 
   let {
     value = $bindable(DEFAULT_MODEL),
@@ -64,35 +65,19 @@
   let listEl: HTMLElement | undefined = $state();
   let subEl: HTMLElement | undefined = $state();
 
-  /** Where a fixed menu sits — anchored to what opened it, flipped if needed. */
-  type Placement = { left: number; width: number; maxHeight: number; y: string };
   let placement = $state<Placement | null>(null);
   let subPlacement = $state<Placement | null>(null);
 
-  const GAP = 6;
+  /** Closest the effort submenu may come to the window's edge. */
   const EDGE = 8;
-  const MENU_MIN_WIDTH = 176;
-  const MENU_MAX_HEIGHT = 280;
   const SUB_WIDTH = 132;
 
   function place() {
     if (!triggerEl) return;
-    const r = triggerEl.getBoundingClientRect();
-    const below = window.innerHeight - r.bottom - GAP - EDGE;
-    const above = r.top - GAP - EDGE;
     // The composer's picker lives at the bottom of the window, so dropping
-    // upward is the common case rather than the exception.
-    const up = below < Math.min(MENU_MAX_HEIGHT, above);
-    const width = Math.max(r.width, MENU_MIN_WIDTH);
-    placement = {
-      width,
-      // Right edges line up: that's the edge the trigger is aligned on.
-      left: Math.min(Math.max(EDGE, r.right - width), window.innerWidth - width - EDGE),
-      maxHeight: Math.max(120, Math.min(MENU_MAX_HEIGHT, up ? above : below)),
-      y: up
-        ? `bottom: ${Math.round(window.innerHeight - r.top + GAP)}px`
-        : `top: ${Math.round(r.bottom + GAP)}px`,
-    };
+    // upward is the common case rather than the exception. Right edges line
+    // up: that's the edge the trigger is aligned on.
+    placement = placeMenu(triggerEl, { minWidth: 176, maxHeight: 280, align: "right" });
   }
 
   /** Hang the effort list off a model row, on whichever side has the room. */
@@ -157,27 +142,7 @@
   // dismisses them rather than leaving them stranded mid-air.
   $effect(() => {
     if (!open) return;
-    const ours = (t: Node | null) =>
-      !!t && (!!listEl?.contains(t) || !!subEl?.contains(t) || !!triggerEl?.contains(t));
-    const onDown = (e: PointerEvent) => {
-      if (ours(e.target as Node)) return;
-      close(false);
-    };
-    const onScroll = (e: Event) => {
-      // A menu scrolling inside itself isn't the page moving under it.
-      if (ours(e.target as Node)) return;
-      close(false);
-    };
-    const onResize = () => close(false);
-    window.addEventListener("pointerdown", onDown, true);
-    window.addEventListener("resize", onResize);
-    // Capture: the transcript and project list scroll, not the window.
-    window.addEventListener("scroll", onScroll, true);
-    return () => {
-      window.removeEventListener("pointerdown", onDown, true);
-      window.removeEventListener("resize", onResize);
-      window.removeEventListener("scroll", onScroll, true);
-    };
+    return dismissOnMove(() => [listEl, subEl, triggerEl], () => close(false));
   });
 
   // Keys land on the model list, including while it is driving the submenu.
@@ -195,7 +160,7 @@
   });
 
   function onTriggerKeydown(e: KeyboardEvent) {
-    if (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Enter" || e.key === " ") {
+    if (opensMenu(e.key)) {
       e.preventDefault();
       openMenu();
     }
@@ -207,6 +172,20 @@
 
   function onListKeydown(e: KeyboardEvent) {
     keyNav = true;
+    // The arrows, Home and End walk whichever list the keys are in; leaving a
+    // model row closes the submenu hanging off it.
+    const next = inSub
+      ? stepActive(e.key, subActive, efforts.length)
+      : stepActive(e.key, active, options.length);
+    if (next !== null) {
+      e.preventDefault();
+      if (inSub) subActive = next;
+      else {
+        active = next;
+        closeSub();
+      }
+      return;
+    }
     switch (e.key) {
       case "Escape":
         e.preventDefault();
@@ -215,22 +194,6 @@
         break;
       case "Tab":
         close(false);
-        break;
-      case "ArrowDown":
-        e.preventDefault();
-        if (inSub) subActive = (subActive + 1) % efforts.length;
-        else {
-          active = (active + 1) % options.length;
-          closeSub();
-        }
-        break;
-      case "ArrowUp":
-        e.preventDefault();
-        if (inSub) subActive = (subActive - 1 + efforts.length) % efforts.length;
-        else {
-          active = (active - 1 + options.length) % options.length;
-          closeSub();
-        }
         break;
       case "ArrowRight": {
         e.preventDefault();
@@ -244,22 +207,6 @@
       case "ArrowLeft":
         e.preventDefault();
         closeSub();
-        break;
-      case "Home":
-        e.preventDefault();
-        if (inSub) subActive = 0;
-        else {
-          active = 0;
-          closeSub();
-        }
-        break;
-      case "End":
-        e.preventDefault();
-        if (inSub) subActive = efforts.length - 1;
-        else {
-          active = options.length - 1;
-          closeSub();
-        }
         break;
       case "Enter":
       case " ":
@@ -307,8 +254,7 @@
 <!--
   A native <select> hands its open list to the OS, which draws square corners in
   the desktop theme's colours, ignores everything this stylesheet says, and has
-  no submenu to hang the effort off. The lists below are ours. Fixed position
-  keeps the panes' `overflow: hidden` from clipping them.
+  no submenu to hang the effort off. The lists below are ours, fixed: see menu.ts.
 -->
 {#if open && placement}
   <ul
@@ -321,7 +267,7 @@
       : `${uid}-opt-${active}`}
     tabindex="-1"
     onkeydown={onListKeydown}
-    style={`left: ${Math.round(placement.left)}px; width: ${Math.round(placement.width)}px; max-height: ${Math.round(placement.maxHeight)}px; ${placement.y}`}
+    style={menuStyle(placement)}
   >
     {#each options as option, i (option.id)}
       <!-- The listbox owns the keyboard, per the ARIA pattern: the rows aren't

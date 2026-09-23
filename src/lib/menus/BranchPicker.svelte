@@ -4,6 +4,8 @@
    * model picker — trigger, menu, keys — with no submenu hanging off the rows:
    * a branch has nothing to qualify.
    */
+  import { dismissOnMove, menuStyle, opensMenu, placeMenu, stepActive, type Placement } from "./menu";
+
   let {
     value = $bindable(""),
     options = [],
@@ -33,33 +35,14 @@
   let triggerEl: HTMLButtonElement | undefined = $state();
   let listEl: HTMLElement | undefined = $state();
 
-  /** Where a fixed menu sits — anchored to what opened it, flipped if needed. */
-  type Placement = { left: number; width: number; maxHeight: number; y: string };
   let placement = $state<Placement | null>(null);
-
-  const GAP = 6;
-  const EDGE = 8;
-  const MENU_MIN_WIDTH = 176;
-  const MENU_MAX_HEIGHT = 280;
 
   function place() {
     if (!triggerEl) return;
-    const r = triggerEl.getBoundingClientRect();
-    const below = window.innerHeight - r.bottom - GAP - EDGE;
-    const above = r.top - GAP - EDGE;
     // The merge box sits low in a scrolling pane, so dropping upward is as
-    // likely as down.
-    const up = below < Math.min(MENU_MAX_HEIGHT, above);
-    const width = Math.max(r.width, MENU_MIN_WIDTH);
-    placement = {
-      width,
-      // Right edges line up: that's the edge the trigger is aligned on.
-      left: Math.min(Math.max(EDGE, r.right - width), window.innerWidth - width - EDGE),
-      maxHeight: Math.max(120, Math.min(MENU_MAX_HEIGHT, up ? above : below)),
-      y: up
-        ? `bottom: ${Math.round(window.innerHeight - r.top + GAP)}px`
-        : `top: ${Math.round(r.bottom + GAP)}px`,
-    };
+    // likely as down. Right edges line up: that's the edge the trigger is
+    // aligned on.
+    placement = placeMenu(triggerEl, { minWidth: 176, maxHeight: 280, align: "right" });
   }
 
   function openMenu() {
@@ -85,27 +68,7 @@
   // dismisses it rather than leaving it stranded mid-air.
   $effect(() => {
     if (!open) return;
-    const ours = (t: Node | null) =>
-      !!t && (!!listEl?.contains(t) || !!triggerEl?.contains(t));
-    const onDown = (e: PointerEvent) => {
-      if (ours(e.target as Node)) return;
-      close(false);
-    };
-    const onScroll = (e: Event) => {
-      // The menu scrolling inside itself isn't the page moving under it.
-      if (ours(e.target as Node)) return;
-      close(false);
-    };
-    const onResize = () => close(false);
-    window.addEventListener("pointerdown", onDown, true);
-    window.addEventListener("resize", onResize);
-    // Capture: the diff pane scrolls, not the window.
-    window.addEventListener("scroll", onScroll, true);
-    return () => {
-      window.removeEventListener("pointerdown", onDown, true);
-      window.removeEventListener("resize", onResize);
-      window.removeEventListener("scroll", onScroll, true);
-    };
+    return dismissOnMove(() => [listEl, triggerEl], () => close(false));
   });
 
   // Keys land on the list, per the ARIA listbox pattern.
@@ -123,7 +86,7 @@
   });
 
   function onTriggerKeydown(e: KeyboardEvent) {
-    if (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Enter" || e.key === " ") {
+    if (opensMenu(e.key)) {
       e.preventDefault();
       openMenu();
     }
@@ -131,6 +94,12 @@
 
   function onListKeydown(e: KeyboardEvent) {
     keyNav = true;
+    const next = stepActive(e.key, active, options.length);
+    if (next !== null) {
+      e.preventDefault();
+      active = next;
+      return;
+    }
     switch (e.key) {
       case "Escape":
         e.preventDefault();
@@ -138,22 +107,6 @@
         break;
       case "Tab":
         close(false);
-        break;
-      case "ArrowDown":
-        e.preventDefault();
-        active = (active + 1) % options.length;
-        break;
-      case "ArrowUp":
-        e.preventDefault();
-        active = (active - 1 + options.length) % options.length;
-        break;
-      case "Home":
-        e.preventDefault();
-        active = 0;
-        break;
-      case "End":
-        e.preventDefault();
-        active = options.length - 1;
         break;
       case "Enter":
       case " ":
@@ -193,12 +146,7 @@
   </button>
 </span>
 
-<!--
-  Ours rather than a native <select>, for the reason the model picker gives:
-  the OS draws its list in the desktop theme's colours and ignores everything
-  this stylesheet says. Fixed position keeps the panes' `overflow` from
-  clipping it.
--->
+<!-- Ours rather than a native <select>, and fixed: see menu.ts. -->
 {#if open && placement}
   <ul
     bind:this={listEl}
@@ -208,7 +156,7 @@
     aria-activedescendant={`${uid}-opt-${active}`}
     tabindex="-1"
     onkeydown={onListKeydown}
-    style={`left: ${Math.round(placement.left)}px; width: ${Math.round(placement.width)}px; max-height: ${Math.round(placement.maxHeight)}px; ${placement.y}`}
+    style={menuStyle(placement)}
   >
     {#each options as name, i (name)}
       <!-- The listbox owns the keyboard: the rows aren't focusable, so a key
