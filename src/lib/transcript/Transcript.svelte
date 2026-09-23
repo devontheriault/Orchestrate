@@ -231,7 +231,7 @@
                 <span class="targets">{groupTargets(row.calls)}</span>
               {/if}
               {#if row.calls.some((c) => !c.hasResult)}
-                <span class="running-dot" title="still running"></span>
+                <span class="status-dot status-running running-dot" title="still running"></span>
               {/if}
               {#if groupElapsed(row.calls)}
                 <span class="elapsed">{groupElapsed(row.calls)}</span>
@@ -250,7 +250,7 @@
                 >
                   <summary>
                     {truncate(callTarget(c.name, c.input), 80) || c.name}
-                    {#if !c.hasResult}<span class="running-dot"></span>{/if}
+                    {#if !c.hasResult}<span class="status-dot status-running running-dot"></span>{/if}
                     {#if elapsedLabel(c)}<span class="elapsed">{elapsedLabel(c)}</span>{/if}
                   </summary>
                   {@render callBody(c)}
@@ -499,25 +499,8 @@
   /* A call whose result hasn't come back yet — the row is still being
      written to. */
   .running-dot {
-    display: inline-block;
     vertical-align: middle;
     margin-left: var(--space-3);
-    width: 6px;
-    height: 6px;
-    border-radius: var(--radius-circle);
-    background: var(--accent);
-    animation: running-pulse 1.2s ease-in-out infinite;
-  }
-
-  @keyframes running-pulse {
-    0%, 100% { opacity: 0.25; }
-    50% { opacity: 1; }
-  }
-
-  /* Kept, unlike the app's other pulses: this one's last keyframe is its
-     dim one, so stopping it needs a resting opacity of its own. */
-  @media (prefers-reduced-motion: reduce) {
-    .running-dot { animation: none; opacity: 0.7; }
   }
 
   details.call {

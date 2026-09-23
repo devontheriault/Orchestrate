@@ -799,25 +799,45 @@ samp {
   background: var(--danger-soft-bg);
 }
 
-/* Only a running agent pulses: it is the one state that is still changing,
-   and a page of pulsing dots would say nothing. The global
-   `prefers-reduced-motion` rule above stops it. */
+/* Only a running agent moves: it is the one state that is still changing,
+   and a page of moving dots would say nothing. A short arc circles the dot
+   rather than the dot blinking, so it reads as work going on, not a
+   heartbeat. The arc takes the dot's `color`. */
 .status-running {
+  position: relative;
+  color: var(--running);
   box-shadow: 0 0 0 3px var(--running-bg);
-  animation: status-pulse 2s infinite;
 }
 
 .badge-running .badge-dot {
-  animation: status-pulse 2s infinite;
+  position: relative;
 }
 
-@keyframes status-pulse {
-  0%,
-  100% {
-    opacity: 1;
+.status-running::after,
+.badge-running .badge-dot::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: inherit;
+  /* A tail that fades in behind its head, cut down to a thin ring. */
+  background: conic-gradient(transparent 45%, currentColor);
+  -webkit-mask: radial-gradient(closest-side, transparent calc(100% - 1.5px), #000 calc(100% - 1.5px));
+  mask: radial-gradient(closest-side, transparent calc(100% - 1.5px), #000 calc(100% - 1.5px));
+  animation: status-orbit 1.4s linear infinite;
+}
+
+@keyframes status-orbit {
+  to {
+    transform: rotate(1turn);
   }
-  50% {
-    opacity: 0.5;
+}
+
+/* Stopped, the arc would sit at twelve o'clock looking like a glitch; the
+   solid dot says "running" on its own. */
+@media (prefers-reduced-motion: reduce) {
+  .status-running::after,
+  .badge-running .badge-dot::after {
+    display: none;
   }
 }
 
