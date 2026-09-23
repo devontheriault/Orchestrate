@@ -110,7 +110,9 @@
   }
 
   function pick(id: string) {
-    store.selectAgent(id);
+    // Not selectAgent: an agent under another project should bring that
+    // project with it, or the header and composer keep pointing at the old one.
+    store.showAgent(id);
     onpick?.();
   }
 
