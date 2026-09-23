@@ -1,6 +1,7 @@
 <script lang="ts">
   import MarkdownBlocks from "./MarkdownBlocks.svelte";
   import MarkdownInline from "./MarkdownInline.svelte";
+  import HighlightedCode from "./HighlightedCode.svelte";
   import type { Token } from "./markdown";
 
   /** Block-level tokens. `Markdown.svelte` owns the lexing and the styling. */
@@ -28,7 +29,10 @@
   {:else if t.type === "code"}
     {@const lang = language(t.lang)}
     <div class="codeblock" class:labelled={!!lang}>
-      {#if lang}<span class="lang">{lang}</span>{/if}<pre><code>{t.text ?? ""}</code></pre>
+      {#if lang}<span class="lang">{lang}</span>{/if}<pre><HighlightedCode
+          code={t.text ?? ""}
+          {lang}
+        /></pre>
     </div>
   {:else if t.type === "list"}
     <svelte:element
