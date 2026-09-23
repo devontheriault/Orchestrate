@@ -12,9 +12,10 @@
  * are global: any component can put `class="btn btn-primary"` on a button and
  * get the app's button without restating it.
  *
- * Dark mode is the same token names with different values — see the
- * `[data-theme="dark"]` block. Components should never need their own
- * dark-mode override; if one does, the colour it needs is missing a token.
+ * A theme is the same token names with different values — see the Light and
+ * Dark blocks below, and `src/lib/themes.css` for the named palettes beside
+ * them. Components should never need their own per-theme override; if one
+ * does, the colour it needs is missing a token.
  *
  * `data-theme` is written by `src/lib/theme.svelte.ts` (and, before the first
  * paint, by an inline script in `src/app.html`). Resolving the OS preference
@@ -23,10 +24,18 @@
  * query plus an override of that media query.
  */
 
-:root {
+:root,
+[data-theme="light"] {
   /* ---------------------------------------------------------------- COLOUR
      Semantic, not literal: name the job, not the hue. `--accent`, never
-     `--blue`, so one edit here retints the app instead of lying about it. */
+     `--blue`, so one edit here retints the app instead of lying about it.
+
+     This block is both the default and the Light theme, under one selector
+     rather than two copies: `:root` so an unthemed document has colours,
+     `[data-theme="light"]` so Light can be worn by an element that is not
+     the document — which is how the settings menu paints its swatches. */
+
+  color-scheme: light;
 
   /* Surfaces, text, and lines */
   --fg: #111;
@@ -95,7 +104,11 @@
      control users identify by colour before they read the glyph. */
   --window-close-bg: #e81123;
   --window-close-fg: #ffffff;
+}
 
+/* The rest of the scale is the same in every theme: a palette changes what
+   the app is coloured, never how big or how fast it is. */
+:root {
   /* ------------------------------------------------------------ TYPOGRAPHY */
 
   --font-sans:
@@ -219,7 +232,9 @@
   --measure: 96ch;
 }
 
-:root[data-theme="dark"] {
+[data-theme="dark"] {
+  color-scheme: dark;
+
   --fg: #e5e7eb;
   --fg-muted: #9ca3af;
   --surface: #16181d;
