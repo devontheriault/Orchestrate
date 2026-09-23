@@ -6,12 +6,11 @@
    * Grab strips around an undecorated window.
    *
    * Taking the decoration away takes the OS resize frame with it on Windows,
-   * and on X11 desktops that don't add one back. Hyprland would manage without
-   * these, but the app can't tell which compositor it's under, so it brings its
-   * own — thin enough that the scrollbar underneath the right edge stays usable,
-   * and gone while the window reports itself maximized, when there's nothing to
-   * resize. That last test also stands them down under a tiling compositor,
-   * which reports a tiled window as maximized and does the resizing itself.
+   * and on X11 desktops that don't add one back, so the app brings its own —
+   * thin enough that the scrollbar underneath the right edge stays usable, and
+   * gone while the window reports itself maximized, when there's nothing to
+   * resize. Under a tiling compositor, which does the resizing itself,
+   * `ownsWindowFrame` keeps them off entirely.
    */
   const win = getCurrentWindow();
 

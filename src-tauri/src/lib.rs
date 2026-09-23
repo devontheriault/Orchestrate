@@ -35,6 +35,14 @@ struct AgentEventPayload {
 /// decorations so the traffic lights stay native, and only hides the bar's
 /// chrome so the app's own header can draw behind them; everywhere else the
 /// decoration goes entirely and the header supplies the controls itself.
+///
+/// Except under a tiling compositor, which places, sizes and closes every
+/// window itself and gives none of them buttons, so drawn controls there are
+/// just noise. Keeping the decoration on Linux doesn't get us that for free:
+/// GTK3 only asks for server-side decorations over KDE's protocol, Hyprland
+/// doesn't speak it, and GTK falls back to drawing its own titlebar. So the
+/// window stays undecorated and the UI is told, before its first frame, to
+/// leave the controls and resize edges off (see `platform.ts`).
 fn build_main_window(app: &tauri::AppHandle) -> tauri::Result<()> {
     let win = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
         .title("Claude Wrapper")
@@ -49,8 +57,29 @@ fn build_main_window(app: &tauri::AppHandle) -> tauri::Result<()> {
     #[cfg(not(target_os = "macos"))]
     let win = win.decorations(false);
 
+    #[cfg(target_os = "linux")]
+    let win = if is_tiling_compositor(|k| std::env::var(k).ok()) {
+        win.initialization_script("window.__COMPOSITOR_OWNS_FRAME__ = true;")
+    } else {
+        win
+    };
+
     win.build()?;
     Ok(())
+}
+
+/// Whether the session is a tiling Wayland compositor or X11 window manager,
+/// read off the variables each one exports into the programs it launches.
+#[cfg(any(target_os = "linux", test))]
+fn is_tiling_compositor(var: impl Fn(&str) -> Option<String>) -> bool {
+    const SOCKETS: [&str; 4] = ["HYPRLAND_INSTANCE_SIGNATURE", "SWAYSOCK", "NIRI_SOCKET", "I3SOCK"];
+    const DESKTOPS: [&str; 5] = ["hyprland", "sway", "niri", "river", "i3"];
+
+    SOCKETS.iter().any(|k| var(k).is_some_and(|v| !v.is_empty()))
+        || var("XDG_CURRENT_DESKTOP").is_some_and(|v| {
+            v.split(':')
+                .any(|d| DESKTOPS.contains(&d.to_ascii_lowercase().as_str()))
+        })
 }
 
 /// WebKitGTK's DMA-BUF renderer crashes under Wayland on some drivers (notably
@@ -132,4 +161,27 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_tiling_compositor;
+
+    fn env<'a>(pairs: &'a [(&str, &str)]) -> impl Fn(&str) -> Option<String> + 'a {
+        move |k| pairs.iter().find(|(n, _)| *n == k).map(|(_, v)| v.to_string())
+    }
+
+    #[test]
+    fn tiling_compositors_are_recognised() {
+        assert!(is_tiling_compositor(env(&[("HYPRLAND_INSTANCE_SIGNATURE", "abc")])));
+        assert!(is_tiling_compositor(env(&[("XDG_CURRENT_DESKTOP", "sway")])));
+        assert!(is_tiling_compositor(env(&[("XDG_CURRENT_DESKTOP", "Hyprland")])));
+    }
+
+    #[test]
+    fn stacking_desktops_are_not() {
+        assert!(!is_tiling_compositor(env(&[])));
+        assert!(!is_tiling_compositor(env(&[("XDG_CURRENT_DESKTOP", "ubuntu:GNOME")])));
+        assert!(!is_tiling_compositor(env(&[("XDG_CURRENT_DESKTOP", "KDE"), ("SWAYSOCK", "")])));
+    }
 }
