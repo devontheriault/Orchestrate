@@ -85,12 +85,12 @@
 
   /* Agent lifecycle. Aliases, so a status and the semantic colour behind it
      can diverge later without either one drifting by accident. */
-  --running: var(--success);
-  --running-bg: rgba(34, 197, 94, 0.14);
+  --running: var(--accent);
+  --running-bg: color-mix(in srgb, var(--accent) 14%, transparent);
   --attention: var(--warning-text);
   --attention-bg: rgba(245, 158, 11, 0.16);
-  --completed: #2563eb;
-  --completed-bg: rgba(59, 130, 246, 0.14);
+  --completed: var(--success);
+  --completed-bg: rgba(34, 197, 94, 0.14);
   --failed: var(--danger);
   --stopped: var(--fg-muted);
   /* Delivered is the one lifecycle colour that isn't an alias of a semantic
@@ -267,10 +267,9 @@
   --diff-add-fg: #86efac;
   --diff-del-fg: #fca5a5;
 
-  --running-bg: rgba(34, 197, 94, 0.18);
+  --running-bg: color-mix(in srgb, var(--accent) 18%, transparent);
   --attention-bg: rgba(245, 158, 11, 0.2);
-  --completed: #60a5fa;
-  --completed-bg: rgba(59, 130, 246, 0.2);
+  --completed-bg: rgba(34, 197, 94, 0.2);
   --delivered: #a78bfa;
 
   --scrim: rgba(0, 0, 0, 0.6);
