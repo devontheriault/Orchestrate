@@ -306,7 +306,6 @@
           onkeydown={(e) => e.key === "Enter" && pick(a.id)}
           title={`${a.task.prompt}\n\n${a.id}${a.model ? ` · ${models.name(a.model)}` : ""}`}
         >
-          <span class={`status-dot status-${bucket}`}></span>
           <span class="name">{store.agentName(a)}</span>
           {#if a.state === "running"}
             <span class="age live" title="Working for {runTime(a)}">{runTime(a)}</span>
@@ -335,8 +334,8 @@
     padding: var(--space-3);
   }
 
-  /* Laid out like an agent row, with the plus where the dot goes, so it reads
-     as the list's first entry rather than a control bolted on top. */
+  /* Laid out like an agent row, so it reads as the list's first entry rather
+     than a control bolted on top. */
   .new {
     display: flex;
     align-items: center;
@@ -510,11 +509,10 @@
     transition: width var(--duration-slow) var(--ease);
   }
 
-  /* Dot, name and age across the top; what it's doing underneath, lined up
-     with the name. */
+  /* Name and age across the top; what it's doing underneath. */
   .agent {
     display: grid;
-    grid-template-columns: 0.5rem minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) auto;
     column-gap: var(--space-3);
     row-gap: 0.2rem;
     align-items: baseline;
@@ -529,8 +527,8 @@
   }
 
   /* A running agent's row has a band of its accent sweeping through it, so the
-     work shows across the whole row rather than in one small dot. It sits
-     under the text and over the hover/selected tint, so both still show. */
+     work shows across the whole row. It sits under the text and over the
+     hover/selected tint, so both still show. */
   .agent.running {
     position: relative;
     isolation: isolate;
@@ -586,23 +584,12 @@
     font-weight: var(--weight-medium);
   }
 
-  /* Sits on the name's first line, not the middle of the row. */
-  .agent .status-dot {
-    align-self: start;
-    justify-self: center;
-    margin-top: calc((var(--text-sm) * var(--leading-tight) - 6px) / 2);
-  }
-
   /* The rows a reap-all would take, marked while it is being confirmed and
      while it runs, so it is plain which ones go. */
   .agent.doomed .name,
   .agent.doomed .age,
   .agent.doomed .detail {
     color: var(--fg-muted);
-  }
-
-  .agent.doomed .status-dot {
-    background: var(--danger-soft-border);
   }
 
   .name {
@@ -622,13 +609,13 @@
     font-variant-numeric: tabular-nums;
   }
 
-  /* A clock that's ticking should look like it belongs to the running dot. */
+  /* A clock that's ticking should look like it belongs to the running band. */
   .age.live {
     color: var(--running);
   }
 
   .detail {
-    grid-column: 2 / -1;
+    grid-column: 1 / -1;
     font-size: var(--text-2xs);
     line-height: var(--leading-tight);
     color: var(--fg-muted);
