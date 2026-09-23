@@ -597,10 +597,6 @@
     background: color-mix(in srgb, var(--accent) 15%, transparent);
   }
 
-  .agent.selected .name {
-    font-weight: var(--weight-medium);
-  }
-
   /* The rows a reap-all would take, marked while it is being confirmed and
      while it runs, so it is plain which ones go. */
   .agent.doomed .name,
@@ -611,6 +607,7 @@
 
   .name {
     font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
     line-height: var(--leading-tight);
     display: -webkit-box;
     -webkit-box-orient: vertical;
