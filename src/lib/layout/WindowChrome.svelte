@@ -1,6 +1,6 @@
 <script lang="ts">
   import { getCurrentWindow } from "@tauri-apps/api/window";
-  import { isMac, ownsWindowFrame } from "./platform";
+  import { isMac, ownsWindowFrame, watchMaximized } from "./platform";
   import { panes } from "./panes.svelte";
   import { store } from "$lib/state/store.svelte";
 
@@ -19,22 +19,7 @@
 
   $effect(() => {
     if (!ownsWindowFrame) return;
-    let live = true;
-    let unlisten: (() => void) | undefined;
-    const sync = () => {
-      win.isMaximized().then((m) => {
-        if (live) maximized = m;
-      });
-    };
-    sync();
-    win.onResized(sync).then((f) => {
-      if (live) unlisten = f;
-      else f();
-    });
-    return () => {
-      live = false;
-      unlisten?.();
-    };
+    return watchMaximized(win, (m) => (maximized = m));
   });
 </script>
 

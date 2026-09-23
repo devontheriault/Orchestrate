@@ -1,6 +1,6 @@
 <script lang="ts">
   import { getCurrentWindow } from "@tauri-apps/api/window";
-  import { ownsWindowFrame } from "./platform";
+  import { ownsWindowFrame, watchMaximized } from "./platform";
 
   /**
    * Grab strips around an undecorated window.
@@ -22,22 +22,7 @@
 
   $effect(() => {
     if (!ownsWindowFrame) return;
-    let live = true;
-    let unlisten: (() => void) | undefined;
-    const sync = () => {
-      win.isMaximized().then((m) => {
-        if (live) maximized = m;
-      });
-    };
-    sync();
-    win.onResized(sync).then((f) => {
-      if (live) unlisten = f;
-      else f();
-    });
-    return () => {
-      live = false;
-      unlisten?.();
-    };
+    return watchMaximized(win, (m) => (maximized = m));
   });
 
   const EDGES: readonly (readonly [string, ResizeDirection])[] = [

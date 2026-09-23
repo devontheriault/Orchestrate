@@ -1,3 +1,5 @@
+import type { Window } from "@tauri-apps/api/window";
+
 /**
  * Which window frame this build is wearing.
  *
@@ -22,3 +24,28 @@ const compositorOwnsFrame =
 
 /** True where the app, not the OS or the compositor, owns the window frame. */
 export const ownsWindowFrame = !isMac && !compositorOwnsFrame;
+
+/**
+ * Keep `set` told whether `win` is maximized: now, and after every resize.
+ * Only asked where the app draws the frame — the maximize glyph and the resize
+ * edges both depend on it. Returns the cleanup, for the `$effect` that calls it
+ * to hand back.
+ */
+export function watchMaximized(win: Window, set: (maximized: boolean) => void): () => void {
+  let live = true;
+  let unlisten: (() => void) | undefined;
+  const sync = () => {
+    win.isMaximized().then((m) => {
+      if (live) set(m);
+    });
+  };
+  sync();
+  win.onResized(sync).then((f) => {
+    if (live) unlisten = f;
+    else f();
+  });
+  return () => {
+    live = false;
+    unlisten?.();
+  };
+}
