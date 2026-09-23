@@ -239,6 +239,23 @@
     overflow: hidden;
   }
 
+  /* Everything in the sidebar reads one step up the type scale — the agent
+     tree, settings menu and rail flyout included. `--control-font-size` is
+     restated because it resolves at :root, not here. */
+  aside,
+  .flyout {
+    --text-3xs: 0.7rem;
+    --text-2xs: 0.74rem;
+    --text-xs: 0.8rem;
+    --text-sm: 0.84rem;
+    --text-md: 0.89rem;
+    --text-lg: 0.95rem;
+    --text-xl: 1.05rem;
+    --text-2xl: 1.15rem;
+    --text-3xl: 1.25rem;
+    --control-font-size: var(--text-md);
+  }
+
   aside.collapsed {
     width: var(--rail);
     flex-basis: var(--rail);
