@@ -128,7 +128,9 @@
     display: flex;
     align-items: center;
     padding: 0 var(--pad-x);
-    background: var(--panel-bg);
+    /* The accent washes down into the project pane's colour, so the bottom
+       edge meets the pane below without a seam. */
+    background: linear-gradient(to bottom, var(--accent), var(--panel-bg));
     overflow: hidden;
   }
 
