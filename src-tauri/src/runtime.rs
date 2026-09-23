@@ -310,6 +310,13 @@ impl AgentRuntime {
                 Continuity::Resumed => cmd.arg("--resume").arg(session),
             };
         }
+        // A Turn is its process, and `--print` exits once the answer is out:
+        // it kills any background shell a few seconds later, still exiting 0.
+        // An Agent that backgrounded its build and said "I'll report back"
+        // would read as Completed while the work it promised died unseen.
+        // With background tasks off, long commands run in the foreground and
+        // the Turn really ends when its work does.
+        cmd.env("CLAUDE_CODE_DISABLE_BACKGROUND_TASKS", "1");
         let child = cmd
             .current_dir(&agent.worktree_path)
             .stdin(Stdio::null())
@@ -1099,6 +1106,36 @@ exit 0
         let args = std::fs::read_to_string(&args_log).unwrap();
         assert!(!args.contains("--model"), "{args}");
         assert!(!args.contains("--effort"), "{args}");
+    }
+
+    /// `--print` kills background shells once it has answered, so a Turn that
+    /// could background its work would be marked Completed with it unfinished.
+    #[tokio::test]
+    async fn every_turn_runs_with_background_tasks_off() {
+        let _env = StateEnv::new();
+        let repo = init_repo().await;
+        let project = sample_project(repo.path().to_path_buf());
+        let env_log = std::env::temp_dir().join(format!("cw-env-{}.txt", new_id()));
+        let (rt, mut rx) = AgentRuntime::with_bin(write_script(&format!(
+            r#"#!/bin/sh
+echo "bg=$CLAUDE_CODE_DISABLE_BACKGROUND_TASKS" >> {log}
+exit 0
+"#,
+            log = env_log.display()
+        )));
+
+        let agent = rt
+            .spawn(&project, "first".into(), None, None, None)
+            .await
+            .unwrap();
+        wait_for_exit(&mut rx).await;
+        rt.resume(&agent.id, "second".into(), None, None, None)
+            .await
+            .unwrap();
+        wait_for_exit(&mut rx).await;
+
+        let seen = std::fs::read_to_string(&env_log).unwrap();
+        assert_eq!(seen, "bg=1\nbg=1\n");
     }
 
     /// Effort rides along with the model: picked per Turn, recorded on the
