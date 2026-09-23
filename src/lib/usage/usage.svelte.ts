@@ -8,7 +8,7 @@
  * climbs in front of the user.
  */
 
-import { api, type UsageSummary } from "./api";
+import { api, type UsageSummary } from "$lib/api";
 
 /** How often an open window re-reads the logs. */
 export const REFRESH_MS = 8000;

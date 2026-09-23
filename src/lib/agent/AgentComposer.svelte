@@ -2,11 +2,11 @@
   import { untrack } from "svelte";
   import { getCurrentWebview } from "@tauri-apps/api/webview";
   import { open } from "@tauri-apps/plugin-dialog";
-  import { store } from "./store.svelte";
-  import { api, DEFAULT_EFFORT, DEFAULT_MODE, DEFAULT_MODEL } from "./api";
+  import { store } from "$lib/state/store.svelte";
+  import { api, DEFAULT_EFFORT, DEFAULT_MODE, DEFAULT_MODEL } from "$lib/api";
   import Attachments from "./Attachments.svelte";
-  import ModelPicker from "./ModelPicker.svelte";
-  import ModePicker from "./ModePicker.svelte";
+  import ModelPicker from "$lib/menus/ModelPicker.svelte";
+  import ModePicker from "$lib/menus/ModePicker.svelte";
   import AgentQueue from "./AgentQueue.svelte";
   import TurnStats from "./TurnStats.svelte";
 

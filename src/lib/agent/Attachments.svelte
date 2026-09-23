@@ -7,7 +7,7 @@
    * of itself, or with an icon if the webview can't draw it or it's gone.
    */
   import { SvelteSet } from "svelte/reactivity";
-  import { api } from "./api";
+  import { api } from "$lib/api";
 
   let {
     paths,

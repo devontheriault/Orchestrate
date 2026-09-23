@@ -1,7 +1,7 @@
 <script lang="ts">
   import { open } from "@tauri-apps/plugin-dialog";
-  import { api } from "./api";
-  import { store } from "./store.svelte";
+  import { api } from "$lib/api";
+  import { store } from "$lib/state/store.svelte";
   import AgentTree from "./AgentTree.svelte";
   import SettingsMenu from "./SettingsMenu.svelte";
   import TrustProject from "./TrustProject.svelte";

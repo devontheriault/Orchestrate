@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { store } from "./store.svelte";
-  import BranchPicker from "./BranchPicker.svelte";
-  import CodeSpans from "./CodeSpans.svelte";
-  import { highlightLines, languageOf, type Span } from "./highlight.svelte";
+  import { store } from "$lib/state/store.svelte";
+  import BranchPicker from "$lib/menus/BranchPicker.svelte";
+  import CodeSpans from "$lib/code/CodeSpans.svelte";
+  import { highlightLines, languageOf, type Span } from "$lib/code/highlight.svelte";
 
   // Suggested commit message: the agent's own prompt, as a subject line.
   const suggested = $derived.by(() => {

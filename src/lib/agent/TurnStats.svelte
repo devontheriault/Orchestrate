@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { store } from "./store.svelte";
-  import { formatDuration, formatTokens } from "./format";
+  import { store } from "$lib/state/store.svelte";
+  import { formatDuration, formatTokens } from "$lib/format";
 
   // Ticks once a second while the agent runs, so the elapsed timer advances
   // without waiting for the next stream event.

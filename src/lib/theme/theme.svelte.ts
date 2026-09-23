@@ -3,8 +3,8 @@
  *
  * The user picks System or one of the named themes, and the app resolves that
  * to the one value the stylesheet cares about, which it writes to
- * `<html data-theme>`. `src/lib/theme.css` then has one block per theme —
- * Light and Dark there, the rest in `src/lib/themes.css` — rather than a
+ * `<html data-theme>`. `src/lib/theme/theme.css` then has one block per theme —
+ * Light and Dark there, the rest in `src/lib/theme/themes.css` — rather than a
  * media query plus an override of it.
  *
  * The same resolution runs as an inline script in `src/app.html`, before the

@@ -1,7 +1,7 @@
 <script lang="ts">
   import MarkdownBlocks from "./MarkdownBlocks.svelte";
   import MarkdownInline from "./MarkdownInline.svelte";
-  import HighlightedCode from "./HighlightedCode.svelte";
+  import HighlightedCode from "$lib/code/HighlightedCode.svelte";
   import type { Token } from "./markdown";
 
   /** Block-level tokens. `Markdown.svelte` owns the lexing and the styling. */

@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { store } from "./store.svelte";
+  import { store } from "$lib/state/store.svelte";
   import { usage, REFRESH_MS } from "./usage.svelte";
-  import type { ModelUsage } from "./api";
+  import type { ModelUsage } from "$lib/api";
 
   /** Claude Code's window names, in the words the user sees them in. */
   const WINDOW_NAMES: Record<string, { title: string; sub: string }> = {

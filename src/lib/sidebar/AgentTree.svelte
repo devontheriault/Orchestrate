@@ -4,8 +4,8 @@
    * project. Used inline in the sidebar, and inside the rail's flyout when the
    * sidebar is too narrow to nest anything.
    */
-  import { store } from "./store.svelte";
-  import type { Agent } from "./api";
+  import { store } from "$lib/state/store.svelte";
+  import type { Agent } from "$lib/api";
 
   let {
     projectId,

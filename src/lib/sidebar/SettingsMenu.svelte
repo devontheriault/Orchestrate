@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { theme, THEMES, type ThemePref } from "./theme.svelte";
-  import { usage } from "./usage.svelte";
+  import { theme, THEMES, type ThemePref } from "$lib/theme/theme.svelte";
+  import { usage } from "$lib/usage/usage.svelte";
 
   /** Rail mode: icon only, for windows too narrow to spare the width. */
   let { collapsed = false }: { collapsed?: boolean } = $props();

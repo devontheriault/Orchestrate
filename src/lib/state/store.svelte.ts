@@ -11,7 +11,7 @@ import {
   type ModelInfo,
   type Project,
   type WorktreeDiff,
-} from "./api";
+} from "$lib/api";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 
 /** What a project's agents are doing right now, summarised for the sidebar. */

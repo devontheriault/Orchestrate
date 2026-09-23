@@ -1,17 +1,17 @@
 <script lang="ts">
   import { SvelteSet } from "svelte/reactivity";
-  import { store } from "./store.svelte";
-  import { formatDuration, formatTokens } from "./format";
+  import { store } from "$lib/state/store.svelte";
+  import { formatDuration, formatTokens } from "$lib/format";
   import AgentDiff from "./AgentDiff.svelte";
   import AgentComposer from "./AgentComposer.svelte";
-  import Markdown from "./Markdown.svelte";
+  import Markdown from "$lib/markdown/Markdown.svelte";
   import Attachments from "./Attachments.svelte";
-  import ShellCommand from "./ShellCommand.svelte";
-  import HighlightedCode from "./HighlightedCode.svelte";
-  import NumberedCode from "./NumberedCode.svelte";
-  import { languageOf } from "./highlight.svelte";
-  import { outputLanguage, terminalText } from "./shell";
-  import type { AgentEvent } from "./api";
+  import ShellCommand from "$lib/transcript/ShellCommand.svelte";
+  import HighlightedCode from "$lib/code/HighlightedCode.svelte";
+  import NumberedCode from "$lib/code/NumberedCode.svelte";
+  import { languageOf } from "$lib/code/highlight.svelte";
+  import { outputLanguage, terminalText } from "$lib/transcript/shell";
+  import type { AgentEvent } from "$lib/api";
 
   /** The blank page for an agent that hasn't been spawned yet. */
   const drafting = $derived(store.drafting && !store.selectedAgent);

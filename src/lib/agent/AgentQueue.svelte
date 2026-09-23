@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { store } from "./store.svelte";
-  import { DEFAULT_MODE, modeLabel } from "./api";
+  import { store } from "$lib/state/store.svelte";
+  import { DEFAULT_MODE, modeLabel } from "$lib/api";
   import Attachments from "./Attachments.svelte";
 
   let {

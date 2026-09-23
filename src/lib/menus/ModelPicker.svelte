@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { DEFAULT_EFFORT, DEFAULT_MODEL, EFFORTS, modelLabel } from "./api";
-  import { store } from "./store.svelte";
+  import { DEFAULT_EFFORT, DEFAULT_MODEL, EFFORTS, modelLabel } from "$lib/api";
+  import { store } from "$lib/state/store.svelte";
 
   let {
     value = $bindable(DEFAULT_MODEL),

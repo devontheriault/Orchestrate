@@ -2,7 +2,7 @@
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { isMac, ownsWindowFrame } from "./platform";
   import { panes } from "./panes.svelte";
-  import { store } from "./store.svelte";
+  import { store } from "$lib/state/store.svelte";
 
   const win = getCurrentWindow();
 

@@ -13,11 +13,11 @@
  * get the app's button without restating it.
  *
  * A theme is the same token names with different values — see the Light and
- * Dark blocks below, and `src/lib/themes.css` for the named palettes beside
+ * Dark blocks below, and `src/lib/theme/themes.css` for the named palettes beside
  * them. Components should never need their own per-theme override; if one
  * does, the colour it needs is missing a token.
  *
- * `data-theme` is written by `src/lib/theme.svelte.ts` (and, before the first
+ * `data-theme` is written by `src/lib/theme/theme.svelte.ts` (and, before the first
  * paint, by an inline script in `src/app.html`). Resolving the OS preference
  * in script rather than with `prefers-color-scheme` here is what lets a user
  * override it, and keeps this file to one block per theme instead of a media
