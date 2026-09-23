@@ -229,7 +229,7 @@
           title={`${open ? "Hide" : "Show"} ${bucketLabel[bucket].toLowerCase()} agents`}
         >
           {bucketLabel[bucket]}
-          <span class="count">{group.length}</span>
+          <span class="count">({group.length})</span>
           <span class="rule" aria-hidden="true"></span>
           <span class="chevron" class:open aria-hidden="true">›</span>
         </button>
