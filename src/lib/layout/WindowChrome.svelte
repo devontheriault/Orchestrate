@@ -150,7 +150,7 @@
   }
 
   .name {
-    font-size: var(--text-md);
+    font-size: var(--text-xl);
     font-weight: var(--weight-semibold);
     min-width: 0;
     white-space: nowrap;
@@ -170,7 +170,7 @@
   }
 
   .idle {
-    font-size: var(--text-md);
+    font-size: var(--text-xl);
     color: var(--fg-muted);
     font-style: italic;
   }
