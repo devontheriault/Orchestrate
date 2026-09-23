@@ -60,8 +60,7 @@
    */
   function bucketOf(a: Agent): Bucket {
     if (a.state === "running") return "running";
-    if (!a.merged_at) return a.state;
-    return store.isHoldingWork(a.id) ? a.state : "delivered";
+    return store.isDelivered(a) ? "delivered" : a.state;
   }
 
   const agents = $derived(store.agentsForProject(projectId));
@@ -120,6 +119,32 @@
     store.startDraft(projectId);
     onpick?.();
   }
+
+  /**
+   * Clearing out the Delivered pile in one go. Their work is already in the
+   * project, but a reap still deletes branches and conversations, so like the
+   * header's Reap it takes two clicks.
+   */
+  let reapAllArmed = $state(false);
+  let reapingAll = $state(false);
+  let disarm: ReturnType<typeof setTimeout> | undefined;
+
+  function armReapAll() {
+    reapAllArmed = true;
+    clearTimeout(disarm);
+    disarm = setTimeout(() => (reapAllArmed = false), 4000);
+  }
+
+  async function reapAll() {
+    clearTimeout(disarm);
+    reapAllArmed = false;
+    reapingAll = true;
+    try {
+      await store.reapDelivered(projectId);
+    } finally {
+      reapingAll = false;
+    }
+  }
 </script>
 
 <div class="tree" class:flat>
@@ -138,6 +163,24 @@
         <span class={`status-dot status-${bucket}`}></span>
         {bucketLabel[bucket]}
         <span class="count">{group.length}</span>
+        {#if bucket === "delivered"}
+          <button
+            class="reap-all"
+            class:armed={reapAllArmed}
+            disabled={reapingAll}
+            onclick={() => (reapAllArmed ? reapAll() : armReapAll())}
+            onblur={() => (reapAllArmed = false)}
+            title="Delete every delivered agent's worktree and branch — their work is already merged, but their conversations go with them"
+          >
+            {#if reapingAll}
+              Reaping…
+            {:else if reapAllArmed}
+              Reap {group.length} for good?
+            {:else}
+              Reap all
+            {/if}
+          </button>
+        {/if}
       </div>
       {#each group as a (a.id)}
         <div
@@ -246,6 +289,38 @@
   .count {
     font-variant-numeric: tabular-nums;
     opacity: 0.8;
+  }
+
+  /* Pulled back in by its own padding and border so the Delivered heading sits
+     at the same height as the others. */
+  .reap-all {
+    margin: calc(-0.1rem - 1px) 0 calc(-0.1rem - 1px) auto;
+    padding: 0.1rem 0.35rem;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--fg-muted);
+    font: inherit;
+    letter-spacing: inherit;
+    text-transform: inherit;
+    cursor: pointer;
+  }
+
+  .reap-all:hover:not(:disabled) {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .reap-all:disabled {
+    cursor: default;
+    opacity: 0.7;
+  }
+
+  .reap-all.armed,
+  .reap-all.armed:hover {
+    border-color: var(--danger);
+    background: var(--danger);
+    color: var(--on-danger);
   }
 
   .agent {

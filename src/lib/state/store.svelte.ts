@@ -159,6 +159,14 @@ export class AppStore {
     return this.holdingWork.includes(agentId);
   }
 
+  /**
+   * Whether an agent sits in the sidebar's Delivered bucket: merged, not
+   * working, and holding nothing the project hasn't got.
+   */
+  isDelivered(a: Agent): boolean {
+    return a.state !== "running" && !!a.merged_at && !this.isHoldingWork(a.id);
+  }
+
   activityByProject = $derived.by(() => {
     const map = new Map<string, ProjectActivity>();
     for (const a of this.agents) {
@@ -573,6 +581,24 @@ export class AppStore {
     } catch (e) {
       this.error = String(e);
     }
+  }
+
+  /**
+   * Reap every Delivered agent in a project. Git is asked afresh first rather
+   * than trusting `holdingWork`, which is only re-read when a turn ends or a
+   * commit lands and reads empty before its first answer — a stale "nothing
+   * held" here would destroy work. One at a time, since each reap removes a
+   * worktree and deletes a branch in the same repository.
+   */
+  async reapDelivered(projectId: string) {
+    try {
+      this.holdingWork = await api.agentsHoldingWork();
+    } catch (e) {
+      this.error = String(e);
+      return;
+    }
+    const delivered = this.agentsForProject(projectId).filter((a) => this.isDelivered(a));
+    for (const a of delivered) await this.reapAgent(a.id);
   }
 }
 
