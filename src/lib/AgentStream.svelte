@@ -381,6 +381,27 @@
     return rest > 0 ? `${shown.join(", ")}, +${rest}` : shown.join(", ");
   }
 
+  /**
+   * A Bash call that's still going opens itself, so the command being run is
+   * in view without a click, and folds back up once its result lands. Only
+   * while the agent is live — a call cut off by a stop never gets a result,
+   * and shouldn't sit open forever when the transcript is read back.
+   */
+  function liveBash(name: string, calls: ToolCall[]): boolean {
+    return (
+      name === "Bash" &&
+      store.selectedAgent?.state === "running" &&
+      calls.some((c) => !c.hasResult)
+    );
+  }
+
+  /** A call's input as shown when expanded. A command reads better bare than JSON-escaped. */
+  function callInput(c: ToolCall): string {
+    const o = c.input as Record<string, unknown> | null;
+    if (c.name === "Bash" && typeof o?.command === "string") return `$ ${o.command}`;
+    return JSON.stringify(c.input, null, 2);
+  }
+
   function toolResultText(content: unknown): string {
     if (typeof content === "string") return content;
     if (Array.isArray(content)) {
@@ -475,7 +496,7 @@
             {:else if row.kind === "text"}
               <div class="block text"><Markdown text={row.text} /></div>
             {:else if row.kind === "tools"}
-              <details class="block tool">
+              <details class="block tool" open={liveBash(row.name, row.calls)}>
                 <summary>
                   <span class="tool-name">→ {row.name}</span>
                   {#if row.calls.length > 1}<span class="count">×{row.calls.length}</span>{/if}
@@ -488,7 +509,7 @@
                 </summary>
                 {#if row.calls.length === 1}
                   {@const c = row.calls[0]}
-                  <pre>{JSON.stringify(c.input, null, 2)}</pre>
+                  <pre>{callInput(c)}</pre>
                   {#if c.hasResult}
                     <div class="call-result"><pre>{toolResultText(c.result)}</pre></div>
                   {/if}
@@ -496,12 +517,12 @@
                   <!-- A run of same-tool calls: the group is one row, each
                        call inside it still opens on its own. -->
                   {#each row.calls as c (c.key)}
-                    <details class="call">
+                    <details class="call" open={liveBash(c.name, [c])}>
                       <summary>
                         {truncate(callTarget(c.name, c.input), 80) || c.name}
                         {#if !c.hasResult}<span class="running-dot"></span>{/if}
                       </summary>
-                      <pre>{JSON.stringify(c.input, null, 2)}</pre>
+                      <pre>{callInput(c)}</pre>
                       {#if c.hasResult}
                         <div class="call-result"><pre>{toolResultText(c.result)}</pre></div>
                       {/if}
