@@ -32,20 +32,34 @@ function systemIsDark(): boolean {
   return typeof matchMedia !== "undefined" && matchMedia(DARK_QUERY).matches;
 }
 
+function resolve(pref: ThemePref, system: Resolved): Resolved {
+  return pref === "system" ? system : pref;
+}
+
 class Theme {
   /** What the user chose. `system` means "whatever the OS is doing". */
   pref = $state<ThemePref>(stored());
 
+  /**
+   * A theme being tried on rather than chosen. The settings menu points this
+   * at whichever row the pointer is over, so the window behind the menu shows
+   * what picking that row would look like. Never stored, and it leaves `pref`
+   * alone — dropping it back to `null` restores what the user actually chose.
+   */
+  preview = $state<ThemePref | null>(null);
+
   /** What the OS is doing, kept live so `system` follows it without a reload. */
   #systemDark = $state(systemIsDark());
 
-  /** The value the stylesheet actually reads. */
-  resolved = $derived<Resolved>(
-    this.pref === "system" ? (this.#systemDark ? "dark" : "light") : this.pref,
-  );
+  /** What `system` resolves to right now. */
+  system = $derived<Resolved>(this.#systemDark ? "dark" : "light");
 
+  /** The value the stylesheet actually reads — a preview wins while one is up. */
+  resolved = $derived<Resolved>(resolve(this.preview ?? this.pref, this.system));
+
+  /** Names the choice, not the preview: it labels the button that opens the menu. */
   label = $derived(
-    this.pref === "system" ? `System (${this.resolved})` : this.pref === "dark" ? "Dark" : "Light",
+    this.pref === "system" ? `System (${this.system})` : this.pref === "dark" ? "Dark" : "Light",
   );
 
   /**
@@ -70,6 +84,8 @@ class Theme {
 
   set(pref: ThemePref) {
     this.pref = pref;
+    // The choice supersedes whatever was being tried on.
+    this.preview = null;
     // `system` is the default, so it is stored as the absence of a choice —
     // a later change to what the default means then reaches existing users.
     if (pref === "system") localStorage.removeItem(STORAGE_KEY);
