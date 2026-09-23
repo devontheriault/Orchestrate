@@ -54,7 +54,7 @@
 <!-- Sits directly on top of the input box: while the agent works, how long
      it's been and how much it's produced is what the eye looks for next. -->
 <div class="turn-stats" aria-live="off">
-  <span class="pulse" aria-hidden="true"></span>
+  <span class="status-dot status-running" aria-hidden="true"></span>
   <span title="Time since the agent started working">{formatDuration(elapsedMs)}</span>
   <span class="sep" aria-hidden="true">·</span>
   <span title="Tokens generated since the agent started working (estimate)">
@@ -73,27 +73,7 @@
     color: var(--fg-muted);
   }
 
-  /* The same green the header uses for "running" — the row is only ever on
-     while the agent works, so it doubles as the live indicator. */
-  .pulse {
-    width: 0.4rem;
-    height: 0.4rem;
-    border-radius: var(--radius-pill);
-    background: var(--success);
-    animation: pulse 1.6s ease-in-out infinite;
-  }
-
   .sep {
     opacity: 0.6;
-  }
-
-  @keyframes pulse {
-    0%,
-    100% {
-      opacity: 1;
-    }
-    50% {
-      opacity: 0.3;
-    }
   }
 </style>
