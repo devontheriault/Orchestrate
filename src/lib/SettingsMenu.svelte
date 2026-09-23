@@ -190,7 +190,6 @@
   bind:this={triggerEl}
   type="button"
   class="btn btn-ghost settings"
-  class:collapsed
   class:on={open}
   aria-haspopup="menu"
   aria-expanded={open}
@@ -301,7 +300,7 @@
 {/if}
 
 <style>
-  /* The footer's one row: quiet, full width, and square in the rail. Sized as
+  /* The footer's one row: quiet, full width, and left-aligned in the rail too. Sized as
      a footer tile rather than a `.btn` in a row of buttons. */
   .settings {
     width: 100%;
@@ -310,11 +309,6 @@
     padding: 0.35rem 0.45rem;
     font-size: var(--text-sm);
     font-weight: var(--weight-normal);
-  }
-
-  .settings.collapsed {
-    justify-content: center;
-    padding: 0.35rem 0;
   }
 
   /* Held lit while the menu it opened is up. */

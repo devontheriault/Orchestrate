@@ -243,9 +243,10 @@
     min-height: 2.8rem;
   }
 
+  /* Left-aligned with the rail's rows and the settings button below. */
   aside.collapsed header {
-    justify-content: center;
-    padding-inline: 0.25rem;
+    justify-content: flex-start;
+    padding-inline: 0.4rem;
   }
 
   .title {
