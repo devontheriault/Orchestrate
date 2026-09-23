@@ -75,16 +75,24 @@
   });
 
   /**
-   * Delivered folds away: it is the pile you are done with, so it shouldn't
-   * push live work off the screen. It opens by itself while one of its agents
-   * is the one showing, so the selection is never hidden.
+   * Every bucket folds. Delivered starts folded: it is the pile you are done
+   * with, so it shouldn't push live work off the screen. The rest start open.
    */
-  let deliveredOpen = $state(false);
-  const showingDelivered = $derived(
-    grouped.some(
-      (g) => g.bucket === "delivered" && g.agents.some((a) => a.id === store.selectedAgentId),
-    ),
-  );
+  function isOpen(bucket: Bucket): boolean {
+    return store.openBuckets[projectId]?.[bucket] ?? bucket !== "delivered";
+  }
+
+  function toggle(bucket: Bucket) {
+    (store.openBuckets[projectId] ??= {})[bucket] = !isOpen(bucket);
+  }
+
+  /**
+   * The rows a bucket shows. A folded one still shows the agent that is on
+   * screen, so the selection is never hidden and folding is never refused.
+   */
+  function shown(bucket: Bucket, group: Agent[]): Agent[] {
+    return isOpen(bucket) ? group : group.filter((a) => a.id === store.selectedAgentId);
+  }
 
   function detail(a: Agent): string {
     return rowDetail(a, store.eventsByAgent[a.id] ?? [], {
@@ -178,21 +186,20 @@
   </button>
 
   {#each grouped as { bucket, agents: group } (bucket)}
-    {@const folded = bucket === "delivered" && !deliveredOpen && !showingDelivered}
+    {@const open = isOpen(bucket)}
     <div class="group">
       <div class="group-label">
+        <button
+          class="fold"
+          aria-expanded={open}
+          onclick={() => toggle(bucket)}
+          title={`${open ? "Hide" : "Show"} ${bucketLabel[bucket].toLowerCase()} agents`}
+        >
+          <span class="chevron" class:open aria-hidden="true">›</span>
+          {bucketLabel[bucket]}
+          <span class="count">{group.length}</span>
+        </button>
         {#if bucket === "delivered"}
-          <button
-            class="fold"
-            aria-expanded={!folded}
-            disabled={showingDelivered}
-            onclick={() => (deliveredOpen = !deliveredOpen)}
-            title={folded ? "Show delivered agents" : "Hide delivered agents"}
-          >
-            <span class="chevron" class:open={!folded} aria-hidden="true">›</span>
-            {bucketLabel[bucket]}
-            <span class="count">{group.length}</span>
-          </button>
           {#if !bulkReap}
             <button
               class="reap-all"
@@ -214,9 +221,6 @@
               </svg>
             </button>
           {/if}
-        {:else}
-          {bucketLabel[bucket]}
-          <span class="count">{group.length}</span>
         {/if}
       </div>
       {#if bucket === "delivered" && bulkReap}
@@ -259,31 +263,29 @@
           </div>
         </div>
       {/if}
-      {#if !folded}
-        {#each group as a (a.id)}
-          <div
-            class="agent"
-            class:selected={store.selectedAgentId === a.id}
-            class:doomed={bucket === "delivered" && (confirmingReap || !!bulkReap)}
-            onclick={() => pick(a.id)}
-            role="button"
-            tabindex="0"
-            onkeydown={(e) => e.key === "Enter" && pick(a.id)}
-            title={`${a.task.prompt}\n\n${a.id}${a.model ? ` · ${models.name(a.model)}` : ""}`}
-          >
-            <span class={`status-dot status-${bucket}`}></span>
-            <span class="name">{store.agentName(a)}</span>
-            {#if a.state === "running"}
-              <span class="age live" title="Working for {runTime(a)}">{runTime(a)}</span>
-            {:else}
-              <span class="age" title="Spawned {relTime(a.spawned_at)} ago"
-                >{relTime(a.spawned_at)}</span
-              >
-            {/if}
-            <span class="detail" class:failed={a.state === "failed"}>{detail(a)}</span>
-          </div>
-        {/each}
-      {/if}
+      {#each shown(bucket, group) as a (a.id)}
+        <div
+          class="agent"
+          class:selected={store.selectedAgentId === a.id}
+          class:doomed={bucket === "delivered" && (confirmingReap || !!bulkReap)}
+          onclick={() => pick(a.id)}
+          role="button"
+          tabindex="0"
+          onkeydown={(e) => e.key === "Enter" && pick(a.id)}
+          title={`${a.task.prompt}\n\n${a.id}${a.model ? ` · ${models.name(a.model)}` : ""}`}
+        >
+          <span class={`status-dot status-${bucket}`}></span>
+          <span class="name">{store.agentName(a)}</span>
+          {#if a.state === "running"}
+            <span class="age live" title="Working for {runTime(a)}">{runTime(a)}</span>
+          {:else}
+            <span class="age" title="Spawned {relTime(a.spawned_at)} ago"
+              >{relTime(a.spawned_at)}</span
+            >
+          {/if}
+          <span class="detail" class:failed={a.state === "failed"}>{detail(a)}</span>
+        </div>
+      {/each}
     </div>
   {/each}
 </div>
@@ -357,7 +359,7 @@
     opacity: 0.7;
   }
 
-  /* The Delivered heading is its own toggle; it keeps the label's look. */
+  /* Each heading is its own toggle; it keeps the label's look. */
   .fold {
     display: flex;
     align-items: center;
@@ -373,12 +375,8 @@
     cursor: pointer;
   }
 
-  .fold:hover:not(:disabled) {
+  .fold:hover {
     color: var(--fg);
-  }
-
-  .fold:disabled {
-    cursor: default;
   }
 
   .chevron {
