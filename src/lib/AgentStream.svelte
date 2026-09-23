@@ -5,6 +5,8 @@
   import AgentComposer from "./AgentComposer.svelte";
   import Markdown from "./Markdown.svelte";
   import ShellCommand from "./ShellCommand.svelte";
+  import HighlightedCode from "./HighlightedCode.svelte";
+  import { languageOf } from "./highlight.svelte";
   import type { AgentEvent } from "./api";
 
   /** The blank page for an agent that hasn't been spawned yet. */
@@ -426,6 +428,22 @@
     return c.name === "Bash" && typeof o?.command === "string" ? o.command : undefined;
   }
 
+  /**
+   * What an Edit or Write call puts in a file, if that's what `c` is: an
+   * Edit's text before and after, a Write's whole new contents.
+   */
+  function fileChange(
+    c: ToolCall,
+  ): { lang: string; before?: string; after: string; everywhere: boolean } | undefined {
+    const o = c.input as Record<string, unknown> | null;
+    const lang = languageOf(typeof o?.file_path === "string" ? o.file_path : "");
+    if (c.name === "Edit" && typeof o?.old_string === "string" && typeof o?.new_string === "string")
+      return { lang, before: o.old_string, after: o.new_string, everywhere: o.replace_all === true };
+    if (c.name === "Write" && typeof o?.content === "string")
+      return { lang, after: o.content, everywhere: false };
+    return undefined;
+  }
+
   function toolResultText(content: unknown): string {
     if (typeof content === "string") return content;
     if (Array.isArray(content)) {
@@ -437,12 +455,21 @@
   }
 </script>
 
-<!-- A call's input as shown when expanded. A command reads better laid out
-     and coloured than JSON-escaped. -->
+<!-- A call's input as shown when expanded. A command, or code going into a
+     file, reads better laid out and coloured than JSON-escaped. -->
 {#snippet callInput(c: ToolCall)}
   {@const command = bashCommand(c)}
+  {@const file = fileChange(c)}
   {#if command !== undefined}
     <ShellCommand {command} />
+  {:else if file}
+    {#if file.before !== undefined}
+      {#if file.everywhere}<div class="edit-note">every occurrence</div>{/if}
+      <pre class="edit-before"><HighlightedCode code={file.before} lang={file.lang} /></pre>
+      <pre class="edit-after"><HighlightedCode code={file.after} lang={file.lang} /></pre>
+    {:else}
+      <pre><HighlightedCode code={file.after} lang={file.lang} /></pre>
+    {/if}
   {:else}
     <pre>{JSON.stringify(c.input, null, 2)}</pre>
   {/if}
@@ -935,6 +962,31 @@
     color: var(--fg);
     max-height: min(50vh, 28rem);
     overflow: auto;
+  }
+
+  /* An Edit, as the text it replaces over the text replacing it. Placed
+     after the `details … pre` rules above, which it overrides. */
+  details pre.edit-before,
+  details pre.edit-after {
+    padding: 0.3rem 0.5rem;
+    border-left: 2px solid;
+  }
+
+  details pre.edit-before {
+    background: var(--diff-del-bg);
+    border-color: var(--diff-del-fg);
+  }
+
+  details pre.edit-after {
+    margin-top: 2px;
+    background: var(--diff-add-bg);
+    border-color: var(--diff-add-fg);
+  }
+
+  .edit-note {
+    font-size: var(--text-xs);
+    color: var(--fg-muted);
+    margin-bottom: var(--space-2);
   }
 
   /* The result sits under the call that asked for it, divided from the input
