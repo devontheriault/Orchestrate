@@ -84,7 +84,7 @@
     {#if expanded}
       {#if !running}
         <p class="note">
-          Held — the last turn didn't finish on its own. Send the next one when
+          Held — the last reply didn't finish on its own. Send the next one when
           you're ready.
         </p>
       {/if}
