@@ -298,28 +298,6 @@
                told where the files will land. -->
           <div class="drop" aria-hidden="true">Drop to attach</div>
         {/if}
-        <!-- Bottom-left, mirroring send: what goes out with the message on
-             one side, the button that sends it on the other. -->
-        <div class="slot left">
-          <button
-            class="clip"
-            onclick={pick}
-            disabled={inFlight}
-            aria-label="Attach files"
-            title="Attach files — or drop them on the window, or paste an image"
-          >
-            <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
-              <path
-                d="M13.2 7.6l-5 5a3.2 3.2 0 01-4.5-4.5l5.3-5.3a2.1 2.1 0 013 3L6.8 11a1 1 0 01-1.5-1.5l4.6-4.6"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.5"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              />
-            </svg>
-          </button>
-        </div>
         <div class="slot">
           {#if working}
             <!-- Stop takes the send button's place rather than sitting beside
@@ -356,6 +334,29 @@
               </svg>
             </button>
           {/if}
+        </div>
+        <!-- Bottom-left, mirroring send: what goes out with the message on
+             one side, the button that sends it on the other. After send in
+             the markup, so Tab from the box reaches send first. -->
+        <div class="slot left">
+          <button
+            class="clip"
+            onclick={pick}
+            disabled={inFlight}
+            aria-label="Attach files"
+            title="Attach files — or drop them on the window, or paste an image"
+          >
+            <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+              <path
+                d="M13.2 7.6l-5 5a3.2 3.2 0 01-4.5-4.5l5.3-5.3a2.1 2.1 0 013 3L6.8 11a1 1 0 01-1.5-1.5l4.6-4.6"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </button>
         </div>
       </div>
       <div class="below">
