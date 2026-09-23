@@ -4,6 +4,7 @@
   import AgentDiff from "./AgentDiff.svelte";
   import AgentComposer from "./AgentComposer.svelte";
   import Markdown from "./Markdown.svelte";
+  import ShellCommand from "./ShellCommand.svelte";
   import type { AgentEvent } from "./api";
 
   /** The blank page for an agent that hasn't been spawned yet. */
@@ -419,11 +420,10 @@
     };
   }
 
-  /** A call's input as shown when expanded. A command reads better bare than JSON-escaped. */
-  function callInput(c: ToolCall): string {
+  /** A Bash call's command, if that's what `c` is. */
+  function bashCommand(c: ToolCall): string | undefined {
     const o = c.input as Record<string, unknown> | null;
-    if (c.name === "Bash" && typeof o?.command === "string") return `$ ${o.command}`;
-    return JSON.stringify(c.input, null, 2);
+    return c.name === "Bash" && typeof o?.command === "string" ? o.command : undefined;
   }
 
   function toolResultText(content: unknown): string {
@@ -436,6 +436,17 @@
     return JSON.stringify(content);
   }
 </script>
+
+<!-- A call's input as shown when expanded. A command reads better laid out
+     and coloured than JSON-escaped. -->
+{#snippet callInput(c: ToolCall)}
+  {@const command = bashCommand(c)}
+  {#if command !== undefined}
+    <ShellCommand {command} />
+  {:else}
+    <pre>{JSON.stringify(c.input, null, 2)}</pre>
+  {/if}
+{/snippet}
 
 <section>
   <!-- The heading moved to the window bar above, which is painted like this
@@ -536,7 +547,7 @@
                 </summary>
                 {#if row.calls.length === 1}
                   {@const c = row.calls[0]}
-                  <pre>{callInput(c)}</pre>
+                  {@render callInput(c)}
                   {#if c.hasResult}
                     <div class="call-result"><pre>{toolResultText(c.result)}</pre></div>
                   {/if}
@@ -549,7 +560,7 @@
                         {truncate(callTarget(c.name, c.input), 80) || c.name}
                         {#if !c.hasResult}<span class="running-dot"></span>{/if}
                       </summary>
-                      <pre>{callInput(c)}</pre>
+                      {@render callInput(c)}
                       {#if c.hasResult}
                         <div class="call-result"><pre>{toolResultText(c.result)}</pre></div>
                       {/if}
