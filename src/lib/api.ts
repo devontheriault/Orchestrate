@@ -298,6 +298,7 @@ export const api = {
   usageSummary: () => invoke<UsageSummary>("usage_summary"),
 
   startupOrphans: () => invoke<Agent[]>("startup_orphans"),
+  dismissOrphans: () => invoke<void>("dismiss_orphans"),
 };
 
 export const events = {
