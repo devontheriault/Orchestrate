@@ -3,19 +3,40 @@
    * Asked once, when a Project is added. Agents run `claude --print`, which
    * skips Claude Code's own workspace trust prompt, so registering a Project
    * is the only point at which anyone decides to trust its contents.
+   *
+   * A folder that isn't a Git repository with a commit yet (`needsSetup`) is
+   * set up on confirm, so the same answer covers that too.
    */
   let {
     path,
+    needsSetup,
     onconfirm,
     oncancel,
-  }: { path: string; onconfirm: () => void; oncancel: () => void } = $props();
+  }: {
+    path: string;
+    needsSetup: boolean;
+    onconfirm: () => Promise<void>;
+    oncancel: () => void;
+  } = $props();
 
   let confirmEl: HTMLButtonElement | undefined = $state();
   $effect(() => confirmEl?.focus());
 
+  /** Confirmed and still adding; nothing to cancel by then. */
+  let busy = $state(false);
+
+  async function confirm() {
+    busy = true;
+    await onconfirm();
+  }
+
+  function cancel() {
+    if (!busy) oncancel();
+  }
+
   $effect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") oncancel();
+      if (e.key === "Escape") cancel();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -27,7 +48,7 @@
   class="backdrop"
   role="presentation"
   onclick={(e) => {
-    if (e.target === e.currentTarget) oncancel();
+    if (e.target === e.currentTarget) cancel();
   }}
 >
   <div
@@ -53,10 +74,36 @@
       <p class="advice">Only add code you wrote or trust.</p>
     </div>
 
+    {#if needsSetup}
+      <div class="setup">
+        <p>
+          This folder isn't tracked yet. It will be set up so agents can work on their own
+          copies without touching your files.
+        </p>
+        <details>
+          <summary>Details</summary>
+          <p>
+            Initializes Git, adds a <code>.gitignore</code> (for <code>.env</code>,
+            <code>node_modules</code>, build folders…) if there isn't one, and saves a first
+            snapshot of your files.
+          </p>
+        </details>
+      </div>
+    {/if}
+
     <footer>
-      <button class="btn" onclick={oncancel}>Cancel</button>
-      <button bind:this={confirmEl} class="btn btn-primary" onclick={onconfirm}>
-        Trust and add
+      <button class="btn" onclick={cancel} disabled={busy}>Cancel</button>
+      <button
+        bind:this={confirmEl}
+        class="btn btn-primary"
+        onclick={confirm}
+        disabled={busy}
+      >
+        {#if busy}
+          {needsSetup ? "Setting up…" : "Adding…"}
+        {:else}
+          {needsSetup ? "Set up and add" : "Trust and add"}
+        {/if}
       </button>
     </footer>
   </div>
@@ -131,6 +178,38 @@
 
   .advice {
     color: var(--fg-muted);
+  }
+
+  .setup {
+    font-size: var(--text-md);
+    line-height: var(--leading-normal);
+    background: var(--panel-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: var(--space-4) var(--space-5);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .setup p {
+    margin: 0;
+  }
+
+  .setup summary {
+    cursor: pointer;
+    color: var(--fg-muted);
+    width: fit-content;
+  }
+
+  .setup details p {
+    margin-top: var(--space-2);
+    color: var(--fg-muted);
+  }
+
+  .setup code {
+    font-family: var(--font-mono);
+    font-size: 0.92em;
   }
 
   footer {

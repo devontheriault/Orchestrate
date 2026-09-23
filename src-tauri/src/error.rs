@@ -19,6 +19,9 @@ pub enum Error {
     #[error("git `{command}` failed: {stderr}")]
     Git { command: String, stderr: String },
 
+    #[error("{path} is not a Git repository with a commit yet; set it up before adding it")]
+    NotSetUp { path: PathBuf },
+
     #[error("agent not found: {0}")]
     AgentNotFound(String),
 

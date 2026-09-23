@@ -1,6 +1,7 @@
-//! Inspection of an Agent's Worktree, plus the two writes the user can make
-//! from the app: committing the Agent's work, and merging it into a branch of
-//! the Project. Neither ever happens on an Agent's own initiative.
+//! Inspection of an Agent's Worktree, plus the writes the user can make from
+//! the app: committing the Agent's work, merging it into a branch of the
+//! Project, and setting a folder up as a Project in the first place. None ever
+//! happens on an Agent's own initiative.
 //!
 //! Everything here is expressed relative to the Agent's *base* — the commit its
 //! branch was cut from at Spawn. That makes one diff answer the question the
@@ -334,6 +335,81 @@ pub async fn commit(worktree_path: &Path, message: &str) -> Result<Commit> {
         command: "log -1".to_owned(),
         stderr: "commit succeeded but could not be read back".to_owned(),
     })
+}
+
+/// Whether Agents can branch from the folder at `path`: it is a repository
+/// with a commit at `HEAD`. A folder that isn't a repository, and one that has
+/// been `git init`ed but never committed to, both need [`set_up`] first.
+pub async fn has_commits(path: &Path) -> bool {
+    head_commit(path).await.is_ok()
+}
+
+/// What [`set_up`] ignores in a folder with no `.gitignore` of its own:
+/// secrets, dependencies and build output — nothing anyone wants in a first
+/// commit they never looked at.
+const DEFAULT_GITIGNORE: &str = "\
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Dependencies
+node_modules/
+.venv/
+venv/
+vendor/
+
+# Build output and caches
+target/
+dist/
+build/
+out/
+__pycache__/
+*.pyc
+.cache/
+
+# Editors and OS
+.DS_Store
+Thumbs.db
+.idea/
+*.swp
+*.log
+";
+
+/// Make the folder at `path` something Agents can branch from: `git init` it
+/// if it isn't a repository, add a `.gitignore` if it has none, and commit what
+/// is there, so every Agent's Worktree starts with the user's files. A folder
+/// whose files are all ignored still gets a (possibly empty) first commit.
+pub async fn set_up(path: &Path) -> Result<()> {
+    if stdout(path, &["rev-parse", "--is-inside-work-tree"])
+        .await
+        .is_err()
+    {
+        stdout(path, &["init"]).await?;
+    }
+
+    let ignore = path.join(".gitignore");
+    if !ignore.exists() {
+        std::fs::write(&ignore, DEFAULT_GITIGNORE).map_err(|source| Error::Io {
+            path: ignore.clone(),
+            source,
+        })?;
+    }
+
+    stdout(path, &["add", "-A"]).await?;
+
+    // git refuses to commit without an identity, which someone new to git may
+    // never have set. Theirs is used whenever they have one.
+    let mut args: Vec<&str> = Vec::new();
+    if stdout(path, &["config", "user.name"]).await.is_err() {
+        args.extend(["-c", "user.name=Claude Wrapper"]);
+    }
+    if stdout(path, &["config", "user.email"]).await.is_err() {
+        args.extend(["-c", "user.email=claude-wrapper@localhost"]);
+    }
+    args.extend(["commit", "--allow-empty", "-m", "Initial commit"]);
+    stdout(path, &args).await?;
+    Ok(())
 }
 
 /// Parse `git diff --numstat -z`: NUL-separated `insertions\tdeletions\tpath`
@@ -1099,5 +1175,81 @@ mod tests {
             .unwrap()
             .trim()
             .is_empty());
+    }
+
+    /// The files `git ls-files` reports tracked in `repo`.
+    async fn tracked(repo: &Path) -> Vec<String> {
+        stdout(repo, &["ls-files"])
+            .await
+            .unwrap()
+            .lines()
+            .map(str::to_owned)
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn set_up_commits_a_plain_folder_so_an_agent_can_branch_from_it() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("main.py"), "print('hi')\n").unwrap();
+        std::fs::write(dir.path().join(".env"), "SECRET=1\n").unwrap();
+        std::fs::create_dir(dir.path().join("node_modules")).unwrap();
+        std::fs::write(dir.path().join("node_modules/dep.js"), "\n").unwrap();
+        assert!(!has_commits(dir.path()).await);
+
+        set_up(dir.path()).await.unwrap();
+
+        assert!(has_commits(dir.path()).await);
+        assert_eq!(tracked(dir.path()).await, [".gitignore", "main.py"]);
+
+        // The point of it all: an Agent's Worktree starts with the user's files.
+        let wt = TempDir::new().unwrap();
+        let wt_path = wt.path().join("agent");
+        crate::worktree::create(dir.path(), &wt_path, "cw/agent-abcd1234", "HEAD")
+            .await
+            .unwrap();
+        assert!(wt_path.join("main.py").exists());
+    }
+
+    #[tokio::test]
+    async fn set_up_keeps_an_existing_gitignore() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join(".gitignore"), "secret.txt\n").unwrap();
+        std::fs::write(dir.path().join("secret.txt"), "shh\n").unwrap();
+        std::fs::write(dir.path().join(".env"), "mine to commit\n").unwrap();
+
+        set_up(dir.path()).await.unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join(".gitignore")).unwrap(),
+            "secret.txt\n"
+        );
+        assert_eq!(tracked(dir.path()).await, [".env", ".gitignore"]);
+    }
+
+    #[tokio::test]
+    async fn set_up_finishes_a_repository_with_no_commits() {
+        let dir = TempDir::new().unwrap();
+        stdout(dir.path(), &["init", "--initial-branch=trunk"])
+            .await
+            .unwrap();
+        std::fs::write(dir.path().join("a.txt"), "a\n").unwrap();
+        assert!(!has_commits(dir.path()).await);
+
+        set_up(dir.path()).await.unwrap();
+
+        assert!(has_commits(dir.path()).await);
+        assert_eq!(tracked(dir.path()).await, [".gitignore", "a.txt"]);
+        // The repository the user made is kept, not re-created.
+        let head = stdout(dir.path(), &["symbolic-ref", "--short", "HEAD"])
+            .await
+            .unwrap();
+        assert_eq!(head.trim(), "trunk");
+    }
+
+    #[tokio::test]
+    async fn set_up_handles_an_empty_folder() {
+        let dir = TempDir::new().unwrap();
+        set_up(dir.path()).await.unwrap();
+        assert!(has_commits(dir.path()).await);
     }
 }

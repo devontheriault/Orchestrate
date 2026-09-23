@@ -245,8 +245,10 @@ export type AgentEventPayload = {
 
 export const api = {
   listProjects: () => invoke<Project[]>("list_projects"),
-  addProject: (name: string, path: string) =>
-    invoke<Project>("add_project", { name, path }),
+  /** True when the folder isn't a Git repository with a commit yet. */
+  projectNeedsSetup: (path: string) => invoke<boolean>("project_needs_setup", { path }),
+  addProject: (name: string, path: string, setUp: boolean) =>
+    invoke<Project>("add_project", { name, path, setUp }),
   removeProject: (id: string) => invoke<void>("remove_project", { id }),
 
   listAgents: () => invoke<Agent[]>("list_agents"),
