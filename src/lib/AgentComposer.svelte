@@ -123,13 +123,7 @@
           onkeydown={onKeydown}
           rows="1"
           disabled={inFlight}
-          placeholder={drafting
-            ? "What should the agent do?"
-            : queueing
-              ? "Working… press Enter to queue a message"
-              : working
-                ? "Working… stop it to change course"
-                : "Reply to this agent…"}
+          placeholder={drafting ? "What should the agent do?" : "Reply to this agent…"}
         ></textarea>
         <div class="slot">
           {#if working}
