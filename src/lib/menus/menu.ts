@@ -55,6 +55,34 @@ export function placeMenu(
   };
 }
 
+/** How far a submenu's first row sits below its top edge: the menu's padding and border. */
+const SUB_INSET = 5;
+
+/**
+ * Hang a submenu off `row`, one of the rows of `menu`: beside the menu on
+ * whichever side has the room, and level with the row — growing down from its
+ * top, or up from its bottom when the row is in the lower half of the window.
+ * It takes all the height that side has and scrolls inside it.
+ */
+export function placeSubmenu(row: HTMLElement, menu: HTMLElement, width: number): Placement {
+  const r = row.getBoundingClientRect();
+  const m = menu.getBoundingClientRect();
+  // No gap: the pointer has to cross from the row into the submenu, and a gap
+  // there is a dead zone that closes it mid-travel.
+  const left = m.right + width <= window.innerWidth - EDGE ? m.right : m.left - width;
+  const up = r.top + r.bottom > window.innerHeight;
+  const top = Math.max(EDGE, r.top - SUB_INSET);
+  const bottom = Math.min(window.innerHeight - EDGE, r.bottom + SUB_INSET);
+  return {
+    width,
+    left: Math.max(EDGE, left),
+    maxHeight: up ? bottom - EDGE : window.innerHeight - EDGE - top,
+    y: up
+      ? `bottom: ${Math.round(window.innerHeight - bottom)}px`
+      : `top: ${Math.round(top)}px`,
+  };
+}
+
 /** A placement as the menu's inline style. */
 export function menuStyle(p: Placement): string {
   return `left: ${Math.round(p.left)}px; width: ${Math.round(p.width)}px; max-height: ${Math.round(p.maxHeight)}px; ${p.y}`;
