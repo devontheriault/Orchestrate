@@ -341,8 +341,9 @@
     padding-bottom: 0.1rem;
   }
 
+  /* Only a faint wash: the selected agent below carries the real highlight. */
   li.selected .head {
-    background: var(--selected);
+    background: color-mix(in srgb, var(--selected) 35%, transparent);
   }
 
   .head {
@@ -351,7 +352,8 @@
     position: relative;
   }
 
-  .head:hover {
+  .head:hover,
+  li.selected .head:hover {
     background: var(--hover);
   }
 
