@@ -29,6 +29,12 @@ const LIMIT_MARKER: &str = "\"rate_limit_event\"";
 /// thinks about them. Anything Claude Code adds later sorts after these.
 const WINDOW_ORDER: [&str; 3] = ["five_hour", "seven_day", "seven_day_opus"];
 
+/// How finely spend is bucketed in time. Days are the user's, not UTC's, and
+/// only the window knows its time zone, so the backend hands over slots small
+/// enough to land on the right side of any zone's midnight — the odd ones sit
+/// on a quarter hour — and the window groups them into days.
+const SLOT_SECS: i64 = 15 * 60;
+
 /// What one Model cost across the Turns that used it.
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct ModelUsage {
@@ -44,12 +50,28 @@ pub struct ModelUsage {
     pub context_window: Option<u64>,
 }
 
+/// What one Agent spent inside one time slot, all Models together.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+pub struct SlotUsage {
+    /// Unix seconds at which the slot opens.
+    pub start: i64,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub cache_read_tokens: u64,
+    pub cache_creation_tokens: u64,
+    pub cost_usd: f64,
+    /// Turns whose answer landed in the slot.
+    pub turns: u32,
+}
+
 /// One Agent's share of the total.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct AgentUsage {
     pub agent_id: String,
     /// Per Model, biggest spender first.
     pub models: Vec<ModelUsage>,
+    /// When the spend happened, oldest slot first. Only slots with spend.
+    pub slots: Vec<SlotUsage>,
     /// `result` events counted — one per Turn that reached an answer.
     pub turns: u32,
     /// When the last of those landed.
@@ -151,6 +173,7 @@ fn total_cost(a: &AgentUsage) -> f64 {
 /// it happens to carry.
 fn scan_log(agent_id: &str, contents: &str) -> (AgentUsage, Option<Limits>) {
     let mut models: HashMap<String, ModelUsage> = HashMap::new();
+    let mut slots: HashMap<i64, SlotUsage> = HashMap::new();
     let mut turns = 0u32;
     let mut last_at: Option<OffsetDateTime> = None;
     let mut limits: Option<Limits> = None;
@@ -169,6 +192,12 @@ fn scan_log(agent_id: &str, contents: &str) -> (AgentUsage, Option<Limits>) {
         if is_result {
             if let Some(usage) = event.event.get("modelUsage") {
                 fold_models(&mut models, usage);
+                let start = event.ts.unix_timestamp().div_euclid(SLOT_SECS) * SLOT_SECS;
+                let slot = slots.entry(start).or_insert_with(|| SlotUsage {
+                    start,
+                    ..SlotUsage::default()
+                });
+                fold_slot(slot, usage);
                 turns += 1;
                 last_at = Some(event.ts);
             }
@@ -193,10 +222,14 @@ fn scan_log(agent_id: &str, contents: &str) -> (AgentUsage, Option<Limits>) {
             .then_with(|| a.model.cmp(&b.model))
     });
 
+    let mut slots: Vec<SlotUsage> = slots.into_values().collect();
+    slots.sort_by_key(|s| s.start);
+
     (
         AgentUsage {
             agent_id: agent_id.to_owned(),
             models,
+            slots,
             turns,
             last_at,
         },
@@ -221,6 +254,19 @@ fn fold_models(totals: &mut HashMap<String, ModelUsage>, usage: &Value) {
             entry.context_window = Some(w);
         }
     }
+}
+
+/// Add one `result` event's `modelUsage` map to its time slot, Models summed.
+fn fold_slot(slot: &mut SlotUsage, usage: &Value) {
+    let Some(map) = usage.as_object() else { return };
+    for v in map.values() {
+        slot.input_tokens += u64_at(v, "inputTokens");
+        slot.output_tokens += u64_at(v, "outputTokens");
+        slot.cache_read_tokens += u64_at(v, "cacheReadInputTokens");
+        slot.cache_creation_tokens += u64_at(v, "cacheCreationInputTokens");
+        slot.cost_usd += v.get("costUSD").and_then(Value::as_f64).unwrap_or(0.0);
+    }
+    slot.turns += 1;
 }
 
 fn u64_at(v: &Value, key: &str) -> u64 {
@@ -343,6 +389,40 @@ mod tests {
         assert_eq!(opus.context_window, Some(200000));
         assert!((opus.cost_usd - 1.5).abs() < 1e-9);
         assert_eq!(usage.models[1].model, "claude-haiku-4-5");
+    }
+
+    #[test]
+    fn buckets_spend_into_time_slots() {
+        let log = log(&[
+            ("2026-09-20T10:01:00Z", turn("claude-opus-5", 100, 20, 1.0)),
+            (
+                "2026-09-20T10:14:59Z",
+                turn("claude-haiku-4-5", 10, 1, 0.01),
+            ),
+            ("2026-09-20T10:15:00Z", turn("claude-opus-5", 50, 5, 0.5)),
+            ("2026-09-19T23:59:00Z", turn("claude-opus-5", 1, 1, 0.1)),
+        ]);
+
+        let (usage, _) = scan_log("a1", &log);
+        let starts: Vec<i64> = usage.slots.iter().map(|s| s.start).collect();
+        assert_eq!(
+            starts,
+            vec![
+                datetime!(2026-09-19 23:45:00 UTC).unix_timestamp(),
+                datetime!(2026-09-20 10:00:00 UTC).unix_timestamp(),
+                datetime!(2026-09-20 10:15:00 UTC).unix_timestamp(),
+            ]
+        );
+
+        // Both models in the 10:00 slot, summed.
+        let ten = &usage.slots[1];
+        assert_eq!(ten.turns, 2);
+        assert_eq!(ten.input_tokens, 110);
+        assert_eq!(ten.output_tokens, 21);
+        assert_eq!(ten.cache_read_tokens, 20);
+        assert_eq!(ten.cache_creation_tokens, 10);
+        assert!((ten.cost_usd - 1.01).abs() < 1e-9);
+        assert_eq!(usage.slots[2].turns, 1);
     }
 
     #[test]

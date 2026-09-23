@@ -160,10 +160,25 @@ export type ModelUsage = {
   context_window: number | null;
 };
 
+/** What one Agent spent inside one quarter-hour slot, all Models together. */
+export type SlotUsage = {
+  /** Unix seconds at which the slot opens. */
+  start: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_creation_tokens: number;
+  cost_usd: number;
+  /** Turns whose answer landed in the slot. */
+  turns: number;
+};
+
 /** One Agent's share of the total, biggest spender first. */
 export type AgentUsage = {
   agent_id: string;
   models: ModelUsage[];
+  /** When the spend happened, oldest slot first; only slots with spend. */
+  slots: SlotUsage[];
   /** Turns that reached an answer. */
   turns: number;
   last_at: string | null;
