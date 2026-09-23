@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { DEFAULT_EFFORT, DEFAULT_MODEL, EFFORTS, modelLabel } from "$lib/api";
-  import { store } from "$lib/state/store.svelte";
+  import { DEFAULT_EFFORT, DEFAULT_MODEL, EFFORTS, modelLabel } from "$lib/picks";
+  import { models } from "$lib/state/models.svelte";
 
   let {
     value = $bindable(DEFAULT_MODEL),
@@ -23,7 +23,7 @@
   // ran on a retired model shows what it ran on instead of silently reading as
   // something else.
   const options = $derived.by(() => {
-    const listed = store.models.map((m) => ({
+    const listed = models.list.map((m) => ({
       id: m.id,
       name: modelLabel(m.display_name),
     }));

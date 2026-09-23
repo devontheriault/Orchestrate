@@ -626,7 +626,7 @@
             onclick={() => store.showTab("diff")}
           >
             Diff
-            {#if store.diff?.uncommitted}
+            {#if store.review.diff?.uncommitted}
               <span class="dirty-dot" title="uncommitted work"></span>
             {/if}
           </button>

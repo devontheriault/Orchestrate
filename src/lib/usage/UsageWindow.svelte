@@ -1,5 +1,6 @@
 <script lang="ts">
   import { store } from "$lib/state/store.svelte";
+  import { models as modelList } from "$lib/state/models.svelte";
   import { usage, REFRESH_MS } from "./usage.svelte";
   import type { ModelUsage } from "$lib/api";
 
@@ -301,7 +302,7 @@
               <tbody>
                 {#each models as m (m.model)}
                   <tr>
-                    <td class="model" title={m.model}>{store.modelName(m.model)}</td>
+                    <td class="model" title={m.model}>{modelList.name(m.model)}</td>
                     <td>{formatTokens(m.input_tokens)}</td>
                     <td>{formatTokens(m.output_tokens)}</td>
                     <td class="muted">

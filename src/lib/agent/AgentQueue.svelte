@@ -1,6 +1,7 @@
 <script lang="ts">
   import { store } from "$lib/state/store.svelte";
-  import { DEFAULT_MODE, modeLabel } from "$lib/api";
+  import { models } from "$lib/state/models.svelte";
+  import { DEFAULT_MODE, modeLabel } from "$lib/picks";
   import Attachments from "./Attachments.svelte";
 
   let {
@@ -9,7 +10,7 @@
     running,
   }: { agentId: string; running: boolean } = $props();
 
-  const queued = $derived(store.queueFor(agentId));
+  const queued = $derived(store.queue.for(agentId));
 
   /**
    * Collapsed by default: the strip's job is to say *that* something is
@@ -66,14 +67,14 @@
                Stopped or Failed agent's queue waits for the user to say go. -->
           <button
             class="act"
-            onclick={() => store.drainQueue(agentId)}
+            onclick={() => store.queue.drain(agentId)}
             disabled={store.sending}
           >
             Send next
           </button>
         {/if}
         {#if expanded}
-          <button class="act danger" onclick={() => store.clearQueue(agentId)}>
+          <button class="act danger" onclick={() => store.queue.clear(agentId)}>
             Clear all
           </button>
         {/if}
@@ -98,7 +99,7 @@
               {/if}
             </div>
             {#if message.model}
-              <span class="badge">{store.modelName(message.model)}</span>
+              <span class="badge">{models.name(message.model)}</span>
             {/if}
             <!-- Only when it isn't the usual one: a queued message that will
                  plan rather than act should say so before it goes out. -->
@@ -107,7 +108,7 @@
             {/if}
             <button
               class="del"
-              onclick={() => store.unqueue(agentId, message.id)}
+              onclick={() => store.queue.remove(agentId, message.id)}
               aria-label="Remove this queued message"
               title="Remove this queued message"
             >

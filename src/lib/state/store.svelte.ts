@@ -1,18 +1,24 @@
-import {
-  api,
-  DEFAULT_EFFORT,
-  DEFAULT_MODE,
-  DEFAULT_MODEL,
-  events,
-  modelLabel,
-  type Agent,
-  type AgentEvent,
-  type Branches,
-  type ModelInfo,
-  type Project,
-  type WorktreeDiff,
-} from "$lib/api";
+/**
+ * The app's state: its Projects and Agents, what's selected, and the
+ * lifecycle verbs — Spawn, Resume, Stop, Reap — the UI calls on them.
+ *
+ * Three slices hang off it, each in its own file because each is its own
+ * concern that happens to need the Agents and the selection:
+ *
+ * - `review` — the selected Agent's diff, and the Commit / Merge / Resolve
+ *   taken from the Diff tab (`review.svelte.ts`).
+ * - `queue` — messages lined up behind a working Agent (`queue.svelte.ts`).
+ * - `prefs` — the Model, Effort and Mode a new Agent opens on (`prefs.svelte.ts`).
+ *
+ * The model list is its own store (`models.svelte.ts`): it needs nothing here.
+ */
+
+import { api, events, type Agent, type AgentEvent, type Project } from "$lib/api";
 import type { UnlistenFn } from "@tauri-apps/api/event";
+import { models } from "./models.svelte";
+import { TurnPrefs } from "./prefs.svelte";
+import { Queue } from "./queue.svelte";
+import { Review } from "./review.svelte";
 
 /** What a project's agents are doing right now, summarised for the sidebar. */
 export type ProjectActivity = {
@@ -54,78 +60,6 @@ function mergeEvents(logged: AgentEvent[], live: AgentEvent[]): AgentEvent[] {
  */
 const RESUME_KEY = "cw:resume-selection";
 
-/**
- * The model the user picked last, for any Turn — a Spawn or a Resume — so a new
- * agent's page opens on their habitual choice instead of resetting every time.
- * localStorage, not sessionStorage: a preference should outlive the window.
- *
- * The stored value is the picker's own, so the empty string is a real answer —
- * the user asking for Claude Code's default. Only a missing key means they have
- * never picked, which is the one case the fallback below gets to speak.
- */
-const MODEL_KEY = "cw:preferred-model";
-
-/** The effort the user picked last, stored on the same terms as the model. */
-const EFFORT_KEY = "cw:preferred-effort";
-
-/** The mode the user picked last, stored on the same terms as the model. */
-const MODE_KEY = "cw:preferred-mode";
-
-/**
- * Messages the user has lined up behind a working Agent, by Agent id. Written
- * to localStorage on every change so a window reload — or a relaunch after the
- * app was closed mid-Turn — doesn't quietly throw away text the user typed.
- */
-const QUEUE_KEY = "cw:queues";
-
-/**
- * One prompt waiting for an Agent to be free, with the Model, effort and mode
- * the user picked for it. The pick travels with the message rather than being
- * read at send time: it's part of what the user decided when they queued it.
- */
-export type QueuedMessage = {
-  /** Local id, so the UI can delete one message out of the middle. */
-  id: string;
-  prompt: string;
-  /** Files attached to it, by path. Absent on messages queued before attachments. */
-  attachments?: string[];
-  model: string;
-  effort: string;
-  /** Absent on messages queued before modes existed — those run the default. */
-  mode?: string;
-};
-
-/**
- * A local handle for one queued message — it only has to be unique among the
- * messages this window is holding. A counter beside the clock rather than
- * `crypto.randomUUID`, which isn't guaranteed on every webview this app runs in.
- */
-let queueSeq = 0;
-function queuedId(): string {
-  return `q${Date.now().toString(36)}-${queueSeq++}`;
-}
-
-function readQueues(): Record<string, QueuedMessage[]> {
-  try {
-    const raw = localStorage.getItem(QUEUE_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw) as Record<string, QueuedMessage[]>;
-    // Anything malformed is worth less than a working queue: drop it.
-    if (!parsed || typeof parsed !== "object") return {};
-    return parsed;
-  } catch {
-    return {};
-  }
-}
-
-function readStored(key: string): string | null {
-  try {
-    return localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-}
-
 type Selection = { project: string | null; agent: string | null };
 
 function takeResumeSelection(): Selection | null {
@@ -139,7 +73,7 @@ function takeResumeSelection(): Selection | null {
   }
 }
 
-class AppStore {
+export class AppStore {
   projects = $state<Project[]>([]);
   agents = $state<Agent[]>([]);
   orphans = $state<Agent[]>([]);
@@ -158,31 +92,6 @@ class AppStore {
   /** Which body the detail pane shows for the selected agent. */
   detailTab = $state<"output" | "diff">("output");
 
-  /** Diff of the selected agent's worktree. Cleared when the selection moves. */
-  diff = $state<WorktreeDiff | null>(null);
-  diffLoading = $state<boolean>(false);
-  diffError = $state<string | null>(null);
-  committing = $state<boolean>(false);
-  merging = $state<boolean>(false);
-
-  /**
-   * Merges that hit conflicts, by agent: where the merge was headed and which
-   * files collided. Held until the user merges again or hands it to a
-   * resolver — the project was left untouched, so this is the only record of
-   * what went wrong.
-   */
-  conflicts = $state<Record<string, { target: string; files: string[] }>>({});
-
-  /** A resolver is being spawned for the selected agent's conflict. */
-  resolving = $state<boolean>(false);
-
-  /**
-   * The selected agent's project's mergeable branches. Null until asked for, and
-   * again when the branch list can't be read — the picker then offers nothing
-   * rather than guessing.
-   */
-  branches = $state<Branches | null>(null);
-
   /**
    * Merged agents whose worktree still holds work the project doesn't have.
    * Read from git rather than from the agent record, because a merge record
@@ -196,14 +105,6 @@ class AppStore {
   sending = $state<boolean>(false);
 
   /**
-   * Messages waiting behind each Agent, oldest first — what the user said while
-   * a Turn was still running. Only one `claude` may run in a Worktree at a time,
-   * so a queued message is held here and sent as its own Turn when the Agent is
-   * free, rather than racing the Turn already in flight.
-   */
-  queues = $state<Record<string, QueuedMessage[]>>(readQueues());
-
-  /**
    * A new agent being composed. The detail pane shows a blank output page with
    * an empty transcript and the composer waiting for the opening prompt —
    * the same surface the agent's own output will fill, rather than a dialog
@@ -214,27 +115,17 @@ class AppStore {
   /** The opening prompt is in flight; the draft page is waiting on a spawn. */
   spawning = $state<boolean>(false);
 
-  /** The model the user picked for the most recent Turn. Null = never picked. */
-  preferredModel = $state<string | null>(readStored(MODEL_KEY));
-
-  /** The effort the user picked for the most recent Turn. Null = never picked. */
-  preferredEffort = $state<string | null>(readStored(EFFORT_KEY));
-
-  /** The mode the user picked for the most recent Turn. Null = never picked. */
-  preferredMode = $state<string | null>(readStored(MODE_KEY));
-
-  /** The models this account can run, newest first. Empty until loaded. */
-  models = $state<ModelInfo[]>([]);
-  modelsLoading = $state<boolean>(false);
-  /**
-   * Why the model list couldn't be loaded, if it couldn't. Kept out of the
-   * global error banner: the pickers stay usable on their Default option, so
-   * this is a note beside them rather than something to interrupt over.
-   */
-  modelsError = $state<string | null>(null);
-
   orphanBannerDismissed = $state<boolean>(false);
   error = $state<string | null>(null);
+
+  /** The selected agent's diff, and what the Diff tab does with it. */
+  readonly review = new Review(this);
+
+  /** Messages waiting behind each agent. */
+  readonly queue = new Queue(this);
+
+  /** The picks a new agent opens on. */
+  readonly prefs = new TurnPrefs(this);
 
   /** Agents whose on-disk log has been replayed into `eventsByAgent`. */
   private hydrated = new Set<string>();
@@ -303,37 +194,6 @@ class AppStore {
   );
 
   /**
-   * The most recently spawned Agent, for the picks it ran on. Stands
-   * in for a stored preference on a profile that has none yet — the Agents on
-   * disk are a record of the user's picks too, and reading them means the picker
-   * is right on the first spawn after an update rather than the second.
-   */
-  private lastSpawned = $derived.by(() => {
-    let latest: Agent | null = null;
-    for (const a of this.agents) {
-      if (!latest || Date.parse(a.spawned_at) >= Date.parse(latest.spawned_at)) {
-        latest = a;
-      }
-    }
-    return latest;
-  });
-
-  /** What a new agent's picker opens on: the last model the user ran on. */
-  defaultSpawnModel = $derived(
-    this.preferredModel ?? this.lastSpawned?.model ?? DEFAULT_MODEL,
-  );
-
-  /** The same, for the effort level beside it. */
-  defaultSpawnEffort = $derived(
-    this.preferredEffort ?? this.lastSpawned?.effort ?? DEFAULT_EFFORT,
-  );
-
-  /** And for the mode: what the last Turn ran as, else the YOLO default. */
-  defaultSpawnMode = $derived(
-    this.preferredMode ?? this.lastSpawned?.permission_mode ?? DEFAULT_MODE,
-  );
-
-  /**
    * Whether the selected agent's conversation can be picked back up. Needs a
    * session to resume and a worktree to run in — the backend has the last word
    * on the worktree, since only it can see the disk.
@@ -361,11 +221,11 @@ class AppStore {
         else this.agents.push(agent);
         // An agent that just exited has a final diff worth showing.
         if (agent.id === this.selectedAgentId && this.detailTab === "diff") {
-          this.loadDiff();
+          this.review.load();
         }
         // A Turn that ended cleanly is the moment anything queued behind it
         // becomes sendable.
-        if (agent.state === "completed") this.drainQueue(agent.id);
+        if (agent.state === "completed") this.queue.drain(agent.id);
         // A merged agent's worktree only changes because the agent ran, so a
         // turn ending is the one moment its bucket can have moved. That is why
         // nothing here polls git on a timer.
@@ -375,22 +235,8 @@ class AppStore {
 
     // Not awaited: the model list only fills a picker, and blocking the first
     // paint on a network round-trip would be a poor trade.
-    this.loadModels();
+    models.load();
     await this.refresh();
-  }
-
-  /** Ask the backend which models this account can run. */
-  async loadModels() {
-    this.modelsLoading = true;
-    this.modelsError = null;
-    try {
-      this.models = await api.listModels();
-    } catch (e) {
-      this.models = [];
-      this.modelsError = String(e);
-    } finally {
-      this.modelsLoading = false;
-    }
   }
 
   /**
@@ -402,17 +248,6 @@ class AppStore {
     const title = a.title?.trim();
     if (title) return title;
     return a.task.prompt.split("\n")[0] ?? "";
-  }
-
-  /**
-   * Anthropic's name for a model id. Falls back to the id itself, which is what
-   * an agent picked before the model left the account shows — better than
-   * pretending it ran on something else.
-   */
-  modelName(id: string | null | undefined): string {
-    if (!id) return "Default";
-    const found = this.models.find((m) => m.id === id);
-    return found ? modelLabel(found.display_name) : id;
   }
 
   async stop() {
@@ -431,7 +266,7 @@ class AppStore {
           api.startupOrphans(),
           api.agentsHoldingWork(),
         ]);
-      this.pruneQueues();
+      this.queue.prune();
       this.applyInitialSelection();
     } catch (e) {
       this.error = String(e);
@@ -442,7 +277,7 @@ class AppStore {
    * Re-ask git which merged agents are holding work. Swallows failures: the
    * previous answer is a better sidebar than an error banner over a reading.
    */
-  private async loadHoldingWork() {
+  async loadHoldingWork() {
     try {
       this.holdingWork = await api.agentsHoldingWork();
     } catch {
@@ -540,7 +375,7 @@ class AppStore {
     this.drafting = false;
     if (id === this.selectedAgentId && !wasDrafting) return;
     this.selectedAgentId = id;
-    this.clearDiff();
+    this.review.clear();
     // Opening an Agent starts on its output; the diff is something you go look
     // for, so it shouldn't carry over from whichever Agent was open before.
     this.detailTab = "output";
@@ -558,7 +393,7 @@ class AppStore {
     this.selectedProjectId = project;
     this.expandedProjects[project] = true;
     this.selectedAgentId = null;
-    this.clearDiff();
+    this.review.clear();
     this.detailTab = "output";
     this.drafting = true;
   }
@@ -588,155 +423,7 @@ class AppStore {
   showTab(tab: "output" | "diff") {
     this.detailTab = tab;
     // Always re-read on entry: the worktree may have moved since last time.
-    if (tab === "diff" && !this.diffLoading) this.loadDiff();
-  }
-
-  private clearDiff() {
-    this.diff = null;
-    this.diffError = null;
-    this.diffLoading = false;
-  }
-
-  /**
-   * Load the selected agent's diff. Guards against a slow response landing
-   * after the user has moved to a different agent.
-   */
-  async loadDiff() {
-    const id = this.selectedAgentId;
-    if (!id) return;
-    this.diffLoading = true;
-    this.diffError = null;
-    try {
-      const diff = await api.agentDiff(id);
-      if (this.selectedAgentId !== id) return;
-      this.diff = diff;
-    } catch (e) {
-      if (this.selectedAgentId !== id) return;
-      this.diffError = String(e);
-      this.diff = null;
-    } finally {
-      if (this.selectedAgentId === id) this.diffLoading = false;
-    }
-  }
-
-  /** Commit everything in the selected agent's worktree, then refresh the diff. */
-  async commit(message: string) {
-    const id = this.selectedAgentId;
-    if (!id) return false;
-    this.committing = true;
-    this.diffError = null;
-    try {
-      await api.agentCommit(id, message);
-      // Committing is the other way a merged agent starts holding work the
-      // project hasn't got — git status goes quiet but the tip moves.
-      await this.loadHoldingWork();
-      if (this.selectedAgentId === id) await this.loadDiff();
-      return true;
-    } catch (e) {
-      if (this.selectedAgentId === id) this.diffError = String(e);
-      return false;
-    } finally {
-      if (this.selectedAgentId === id) this.committing = false;
-    }
-  }
-
-  /** The branches the selected agent's work could merge into. */
-  async loadBranches() {
-    const projectId = this.selectedAgent?.project_id;
-    if (!projectId) {
-      this.branches = null;
-      return;
-    }
-    try {
-      const branches = await api.projectBranches(projectId);
-      if (this.selectedAgent?.project_id !== projectId) return;
-      this.branches = branches;
-    } catch {
-      // Not worth an error banner: without a list the merge control just says
-      // it has nothing to offer.
-      if (this.selectedAgent?.project_id === projectId) this.branches = null;
-    }
-  }
-
-  /**
-   * Merge the selected agent's branch onto `target`. The agent survives — only
-   * a reap destroys anything — so this refreshes rather than clears.
-   */
-  async merge(target: string) {
-    const id = this.selectedAgentId;
-    if (!id) return false;
-    this.merging = true;
-    this.diffError = null;
-    try {
-      const outcome = await api.agentMerge(id, target);
-      if (outcome.outcome === "conflict") {
-        this.conflicts[id] = { target: outcome.target, files: outcome.files };
-        return false;
-      }
-      delete this.conflicts[id];
-      // The agent now carries where it merged, and the branch list has moved on.
-      await this.refresh();
-      if (this.selectedAgentId === id) {
-        await Promise.all([this.loadDiff(), this.loadBranches()]);
-      }
-      return true;
-    } catch (e) {
-      if (this.selectedAgentId === id) this.diffError = String(e);
-      return false;
-    } finally {
-      if (this.selectedAgentId === id) this.merging = false;
-    }
-  }
-
-  /** Put a conflict away without resolving it. The project is untouched either way. */
-  dismissConflict(agentId: string) {
-    delete this.conflicts[agentId];
-  }
-
-  /**
-   * Hand the selected agent's conflicted merge to a resolver: a new agent, cut
-   * from this one's branch, that merges the target in and settles the
-   * conflicts. When its turn completes the backend finishes the merge, and
-   * both agents move to Delivered. Opens the resolver, so the user watches the
-   * work that's now happening rather than the agent that's waiting on it.
-   */
-  async resolveConflict() {
-    const id = this.selectedAgentId;
-    const conflict = id ? this.conflicts[id] : undefined;
-    if (!id || !conflict || this.resolving) return false;
-    this.resolving = true;
-    this.error = null;
-    try {
-      const resolver = await api.resolveConflict(
-        id,
-        conflict.target,
-        conflict.files,
-        this.defaultSpawnModel || null,
-        this.defaultSpawnEffort || null,
-      );
-      delete this.conflicts[id];
-      this.agents.push(resolver);
-      this.selectAgent(resolver.id);
-      return true;
-    } catch (e) {
-      this.error = String(e);
-      return false;
-    } finally {
-      this.resolving = false;
-    }
-  }
-
-  /**
-   * The resolver still working on this agent's conflict, if there is one —
-   * the most recent that hasn't merged yet.
-   */
-  resolverFor(agentId: string): Agent | null {
-    let found: Agent | null = null;
-    for (const a of this.agents) {
-      if (a.resolves?.agent_id !== agentId || a.merged_at) continue;
-      if (!found || Date.parse(a.spawned_at) > Date.parse(found.spawned_at)) found = a;
-    }
-    return found;
+    if (tab === "diff" && !this.review.loading) this.review.load();
   }
 
   /**
@@ -767,24 +454,6 @@ class AppStore {
   }
 
   /**
-   * Remember a model pick as the default for the next Spawn. Called for every
-   * Turn the user starts, so "the model I ran last" is what the next one opens
-   * on, whether that Turn was a Spawn or a reply to a running conversation.
-   */
-  rememberTurn(model: string, effort: string, mode: string) {
-    this.preferredModel = model;
-    this.preferredEffort = effort;
-    this.preferredMode = mode;
-    try {
-      localStorage.setItem(MODEL_KEY, model);
-      localStorage.setItem(EFFORT_KEY, effort);
-      localStorage.setItem(MODE_KEY, mode);
-    } catch {
-      // A preference isn't worth failing a turn over.
-    }
-  }
-
-  /**
    * Start a new agent on the selected project, with any files attached to its
    * prompt. `model` is the picker's value; empty means no `--model` at all.
    * Returns whether it started — the draft page keeps the prompt on failure so
@@ -809,7 +478,7 @@ class AppStore {
         effort || null,
         mode || null,
       );
-      this.rememberTurn(model, effort, mode);
+      this.prefs.remember(model, effort, mode);
       this.agents.push(agent);
       this.selectAgent(agent.id);
       return true;
@@ -843,7 +512,7 @@ class AppStore {
    * because a queue drains whether or not its Agent is the one on screen, and
    * `sending` — a flag the composer reads — only speaks for the Agent it shows.
    */
-  private async sendTurn(
+  async sendTurn(
     id: string,
     prompt: string,
     attachments: string[],
@@ -865,7 +534,7 @@ class AppStore {
         effort || null,
         mode || null,
       );
-      this.rememberTurn(model, effort, mode);
+      this.prefs.remember(model, effort, mode);
       const i = this.agents.findIndex((a) => a.id === agent.id);
       if (i >= 0) this.agents[i] = agent;
       // It's working again, so it's nobody's leftover any more.
@@ -882,105 +551,6 @@ class AppStore {
     }
   }
 
-  /** The queue behind one Agent, oldest first. */
-  queueFor(id: string | null): QueuedMessage[] {
-    return id ? this.queues[id] ?? [] : [];
-  }
-
-  /**
-   * Hold a prompt for the selected Agent until its current Turn ends. Returns
-   * whether it was taken, on the same terms as a send: false leaves the text in
-   * the composer rather than losing it.
-   */
-  enqueue(
-    prompt: string,
-    attachments: string[],
-    model: string,
-    effort: string,
-    mode: string,
-  ): boolean {
-    const id = this.selectedAgentId;
-    const agent = this.selectedAgent;
-    if (!id || !agent?.session_id || !prompt.trim()) return false;
-    this.queues[id] = [
-      ...this.queueFor(id),
-      { id: queuedId(), prompt: prompt.trim(), attachments, model, effort, mode },
-    ];
-    this.saveQueues();
-    // The Turn may have ended between the user typing and pressing Enter; in
-    // that case the message shouldn't sit there waiting for a Turn that is
-    // already over. drainQueue only fires on an Agent that is free.
-    if (agent.state !== "running") this.drainQueue(id);
-    return true;
-  }
-
-  /** Drop one queued message — the ✕ beside it in the strip. */
-  unqueue(agentId: string, messageId: string) {
-    const left = this.queueFor(agentId).filter((m) => m.id !== messageId);
-    if (left.length === 0) delete this.queues[agentId];
-    else this.queues[agentId] = left;
-    this.saveQueues();
-  }
-
-  /** Drop everything waiting behind an Agent. */
-  clearQueue(agentId: string) {
-    if (!this.queues[agentId]) return;
-    delete this.queues[agentId];
-    this.saveQueues();
-  }
-
-  /**
-   * Send the next queued message to an Agent that is free, and take it off the
-   * queue once it's away. Left on the queue if the send fails, so a rejected
-   * follow-up stays visible beside the error rather than vanishing.
-   *
-   * Only called for an Agent that ended a Turn *cleanly*, or when the user asks
-   * for it by hand. A Stop or a Fail wants a human look — firing the rest of the
-   * queue into a Stopped Agent would undo the interrupt the user just made.
-   */
-  async drainQueue(agentId: string) {
-    const [next] = this.queueFor(agentId);
-    if (!next) return;
-    const agent = this.agents.find((a) => a.id === agentId);
-    if (!agent || agent.state === "running" || !agent.session_id) return;
-    const sent = await this.sendTurn(
-      agentId,
-      next.prompt,
-      next.attachments ?? [],
-      next.model,
-      next.effort,
-      // Queued before modes existed: run it as every Turn ran back then.
-      next.mode ?? DEFAULT_MODE,
-    );
-    if (sent) {
-      this.unqueue(agentId, next.id);
-    }
-  }
-
-  private saveQueues() {
-    try {
-      localStorage.setItem(QUEUE_KEY, JSON.stringify(this.queues));
-    } catch {
-      // The queue still works in memory; persistence isn't worth an error over.
-    }
-  }
-
-  /**
-   * Forget queues belonging to Agents that no longer exist — Reaped in another
-   * window, or gone since the last launch. A stored queue outliving its Agent
-   * would otherwise never be sent and never be seen.
-   */
-  private pruneQueues() {
-    let dropped = false;
-    for (const id of Object.keys(this.queues)) {
-      if (!this.agents.some((a) => a.id === id)) {
-        delete this.queues[id];
-        dropped = true;
-      }
-    }
-    if (dropped) this.saveQueues();
-  }
-
   async stopAgent(id: string) {
     try {
       await api.stopAgent(id);
@@ -995,10 +565,10 @@ class AppStore {
       this.agents = this.agents.filter((a) => a.id !== id);
       delete this.eventsByAgent[id];
       this.hydrated.delete(id);
-      this.clearQueue(id);
+      this.queue.clear(id);
       if (this.selectedAgentId === id) {
         this.selectedAgentId = null;
-        this.clearDiff();
+        this.review.clear();
       }
     } catch (e) {
       this.error = String(e);

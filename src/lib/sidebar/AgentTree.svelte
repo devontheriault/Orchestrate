@@ -5,6 +5,7 @@
    * sidebar is too narrow to nest anything.
    */
   import { store } from "$lib/state/store.svelte";
+  import { models } from "$lib/state/models.svelte";
   import type { Agent } from "$lib/api";
 
   let {
@@ -144,7 +145,7 @@
           role="button"
           tabindex="0"
           onkeydown={(e) => e.key === "Enter" && pick(a.id)}
-          title={`${a.task.prompt}\n\n${a.id}${a.model ? ` · ${store.modelName(a.model)}` : ""}`}
+          title={`${a.task.prompt}\n\n${a.id}${a.model ? ` · ${models.name(a.model)}` : ""}`}
         >
           <span class="prompt">{store.agentName(a)}</span>
           {#if a.state === "running"}

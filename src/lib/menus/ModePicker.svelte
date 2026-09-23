@@ -6,7 +6,7 @@
    * a menu rather than a toggle because "YOLO / Plan" says what each one is
    * and a switch only ever says "on".
    */
-  import { DEFAULT_MODE, MODES } from "$lib/api";
+  import { DEFAULT_MODE, MODES } from "$lib/picks";
 
   let {
     value = $bindable(DEFAULT_MODE),

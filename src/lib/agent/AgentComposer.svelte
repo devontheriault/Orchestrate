@@ -3,7 +3,8 @@
   import { getCurrentWebview } from "@tauri-apps/api/webview";
   import { open } from "@tauri-apps/plugin-dialog";
   import { store } from "$lib/state/store.svelte";
-  import { api, DEFAULT_EFFORT, DEFAULT_MODE, DEFAULT_MODEL } from "$lib/api";
+  import { api } from "$lib/api";
+  import { DEFAULT_EFFORT, DEFAULT_MODE, DEFAULT_MODEL } from "$lib/picks";
   import Attachments from "./Attachments.svelte";
   import ModelPicker from "$lib/menus/ModelPicker.svelte";
   import ModePicker from "$lib/menus/ModePicker.svelte";
@@ -73,13 +74,13 @@
     untrack(() => {
       const fresh = store.drafting && !store.selectedAgent;
       model = fresh
-        ? store.defaultSpawnModel
+        ? store.prefs.spawnModel
         : store.selectedAgent?.model ?? DEFAULT_MODEL;
       effort = fresh
-        ? store.defaultSpawnEffort
+        ? store.prefs.spawnEffort
         : store.selectedAgent?.effort ?? DEFAULT_EFFORT;
       mode = fresh
-        ? store.defaultSpawnMode
+        ? store.prefs.spawnMode
         : store.selectedAgent?.permission_mode ?? DEFAULT_MODE;
     });
   });
@@ -94,7 +95,7 @@
     // Mid-Turn, the same gesture lines the message up instead: one `claude` per
     // worktree, so it goes out as its own Turn once this one ends.
     if (working) {
-      if (queueing && store.enqueue(prompt, attachments, model, effort, mode)) clear();
+      if (queueing && store.queue.enqueue(prompt, attachments, model, effort, mode)) clear();
       return;
     }
     // Keep the text and files on failure either way, so the user can retry

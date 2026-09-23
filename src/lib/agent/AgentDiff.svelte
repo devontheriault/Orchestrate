@@ -4,6 +4,9 @@
   import CodeSpans from "$lib/code/CodeSpans.svelte";
   import { highlightLines, languageOf, type Span } from "$lib/code/highlight.svelte";
 
+  /** The selected agent's diff, and the Commit / Merge / Resolve taken from it. */
+  const review = store.review;
+
   // Suggested commit message: the agent's own prompt, as a subject line.
   const suggested = $derived.by(() => {
     const prompt = store.selectedAgent?.task.prompt ?? "";
@@ -35,7 +38,7 @@
   const planning = $derived(store.selectedAgent?.permission_mode === "plan");
 
   const totals = $derived.by(() => {
-    const files = store.diff?.files ?? [];
+    const files = review.diff?.files ?? [];
     return files.reduce(
       (acc, f) => ({
         insertions: acc.insertions + (f.insertions ?? 0),
@@ -54,7 +57,7 @@
   // Split the raw patch into per-file sections, dropping the git metadata
   // lines (index/---/+++/mode) that the file header already conveys.
   const patchFiles = $derived.by((): { files: PatchFile[]; clipped: boolean } => {
-    const patch = store.diff?.patch ?? "";
+    const patch = review.diff?.patch ?? "";
     if (!patch) return { files: [], clipped: false };
 
     const files: PatchFile[] = [];
@@ -127,7 +130,7 @@
   );
 
   async function doCommit() {
-    if (await store.commit(message)) messageEdited = false;
+    if (await review.commit(message)) messageEdited = false;
   }
 
   /** Which branch the merge picker is pointing at. */
@@ -144,15 +147,15 @@
     const project = store.selectedAgent?.project_id ?? null;
     if (project === branchesFor) return;
     branchesFor = project;
-    store.loadBranches();
+    review.loadBranches();
   });
 
   /** Branches that already have this work: merging into them would do nothing. */
-  const mergedInto = $derived(store.diff?.merged_into ?? []);
+  const mergedInto = $derived(review.diff?.merged_into ?? []);
 
   /** What is left to merge into, which is what the picker offers. */
   const targets = $derived(
-    (store.branches?.names ?? []).filter((n) => !mergedInto.includes(n)),
+    (review.branches?.names ?? []).filter((n) => !mergedInto.includes(n)),
   );
 
   // Point at main — where work usually lands — whatever the project happens to
@@ -162,7 +165,7 @@
     if (targets.length === 0) {
       target = "";
     } else if (!targets.includes(target)) {
-      const current = store.branches?.current ?? null;
+      const current = review.branches?.current ?? null;
       target =
         ["main", "master", current].find((b) => b && targets.includes(b)) ?? targets[0];
     }
@@ -170,7 +173,7 @@
 
   // Only committed work merges, and not out from under a working agent.
   const canMerge = $derived(
-    !running && !store.merging && !(store.diff?.uncommitted ?? false) && targets.length > 0,
+    !running && !review.merging && !(review.diff?.uncommitted ?? false) && targets.length > 0,
   );
 
   /**
@@ -181,17 +184,17 @@
    * came here for. See `merged_into` in api.ts.
    */
   const settled = $derived(
-    mergedInto.length > 0 && !(store.diff?.uncommitted ?? false),
+    mergedInto.length > 0 && !(review.diff?.uncommitted ?? false),
   );
 
   /** The last merge of this agent hit conflicts, and nobody has taken them on yet. */
   const conflict = $derived(
-    store.selectedAgentId ? store.conflicts[store.selectedAgentId] : undefined,
+    store.selectedAgentId ? review.conflicts[store.selectedAgentId] : undefined,
   );
 
   /** A resolver already working on this agent's conflicts. */
   const resolver = $derived(
-    store.selectedAgentId ? store.resolverFor(store.selectedAgentId) : null,
+    store.selectedAgentId ? review.resolverFor(store.selectedAgentId) : null,
   );
 
   /**
@@ -207,12 +210,12 @@
 </script>
 
 <div class="diff-pane">
-  {#if store.diffLoading && !store.diff}
+  {#if review.loading && !review.diff}
     <div class="hint">Reading the worktree…</div>
-  {:else if store.diffError && !store.diff}
-    <div class="diff-error">{store.diffError}</div>
-  {:else if store.diff}
-    {@const diff = store.diff}
+  {:else if review.error && !review.diff}
+    <div class="diff-error">{review.error}</div>
+  {:else if review.diff}
+    {@const diff = review.diff}
 
     <div class="summary">
       <div class="counts">
@@ -223,15 +226,15 @@
       </div>
       <div class="summary-right">
         <span class="mono base">base {diff.base.slice(0, 7)}</span>
-        <button onclick={() => store.loadDiff()} disabled={store.diffLoading}>
-          {store.diffLoading ? "Refreshing…" : "Refresh"}
+        <button onclick={() => review.load()} disabled={review.loading}>
+          {review.loading ? "Refreshing…" : "Refresh"}
         </button>
       </div>
     </div>
 
     <div class="diff-body">
-      {#if store.diffError}
-        <div class="diff-error">{store.diffError}</div>
+      {#if review.error}
+        <div class="diff-error">{review.error}</div>
       {/if}
 
       {#if diff.files.length === 0 && diff.commits.length === 0}
@@ -276,7 +279,7 @@
             oninput={() => (messageEdited = true)}
             rows="2"
             placeholder="Commit message"
-            disabled={running || store.committing}
+            disabled={running || review.committing}
           ></textarea>
           <div class="commit-box-foot">
             {#if running}
@@ -286,10 +289,10 @@
             {/if}
             <button
               class="btn btn-warning btn-lg"
-              disabled={running || store.committing || message.trim().length === 0}
+              disabled={running || review.committing || message.trim().length === 0}
               onclick={doCommit}
             >
-              {store.committing ? "Committing…" : "Commit all changes"}
+              {review.committing ? "Committing…" : "Commit all changes"}
             </button>
           </div>
         </div>
@@ -318,17 +321,17 @@
               </span>
               <div class="merge-controls">
                 <button
-                  disabled={store.resolving}
-                  onclick={() => store.dismissConflict(store.selectedAgentId!)}
+                  disabled={review.resolving}
+                  onclick={() => review.dismissConflict(store.selectedAgentId!)}
                 >
                   Dismiss
                 </button>
                 <button
                   class="primary"
-                  disabled={running || store.resolving}
-                  onclick={() => store.resolveConflict()}
+                  disabled={running || review.resolving}
+                  onclick={() => review.resolveConflict()}
                 >
-                  {store.resolving ? "Starting…" : "Resolve with an agent"}
+                  {review.resolving ? "Starting…" : "Resolve with an agent"}
                 </button>
               </div>
             </div>
@@ -396,16 +399,16 @@
                 <BranchPicker
                   bind:value={target}
                   options={targets}
-                  current={store.branches?.current ?? null}
+                  current={review.branches?.current ?? null}
                   disabled={!canMerge}
                   label="Branch to merge into"
                 />
                 <button
                   class="primary"
                   disabled={!canMerge || target.length === 0}
-                  onclick={() => store.merge(target)}
+                  onclick={() => review.merge(target)}
                 >
-                  {store.merging ? "Merging…" : "Merge"}
+                  {review.merging ? "Merging…" : "Merge"}
                 </button>
               </div>
             </div>
