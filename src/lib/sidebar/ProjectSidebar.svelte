@@ -444,6 +444,11 @@
     font-weight: var(--weight-semibold);
   }
 
+  /* Status sits at the row's far edge, so badges line up down the list. */
+  .name-row .badge {
+    margin-left: auto;
+  }
+
   aside.collapsed .badge {
     padding: var(--space-1);
   }
