@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
   import ProjectSidebar from "$lib/sidebar/ProjectSidebar.svelte";
-  import AgentStream from "$lib/agent/AgentStream.svelte";
+  import AgentPane from "$lib/agent/AgentPane.svelte";
   import UsageWindow from "$lib/usage/UsageWindow.svelte";
   import PaneDivider from "$lib/layout/PaneDivider.svelte";
   import { store } from "$lib/state/store.svelte";
@@ -126,7 +126,7 @@
     onresize={(w) => panes.setProjects(w)}
     onreset={() => panes.setProjects(null)}
   />
-  <AgentStream />
+  <AgentPane />
 </main>
 
 {#if usage.open}
