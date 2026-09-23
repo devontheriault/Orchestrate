@@ -632,7 +632,11 @@
     text-overflow: ellipsis;
   }
 
+  /* Held to the row's right edge: on a running row the column is as wide as
+     the model name under it, and the time would otherwise sit in from the
+     edge the other rows' times end on. */
   .age {
+    justify-self: end;
     font-size: var(--text-2xs);
     color: var(--fg-muted);
     font-variant-numeric: tabular-nums;
