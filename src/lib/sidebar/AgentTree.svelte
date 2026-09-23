@@ -212,7 +212,7 @@
             Reap {plural(group.length, "agent")}?
           </p>
           <p class="reap-sub">
-            Their work is merged. Worktrees, branches and conversations are deleted.
+            Merged work will be deleted.
           </p>
           <div class="reap-actions">
             <button
@@ -220,9 +220,7 @@
               class="btn btn-ghost btn-sm"
               onclick={() => (confirmingReap = false)}>Cancel</button
             >
-            <button class="btn btn-danger btn-sm" onclick={reapAll}>
-              Reap {group.length}
-            </button>
+            <button class="btn btn-danger btn-sm" onclick={reapAll}>Reap</button>
           </div>
         </div>
       {/if}
