@@ -351,14 +351,16 @@
     cursor: pointer;
   }
 
-  .new:hover {
-    background: var(--hover);
+  /* While the blank page is open, this row reads as the thing that's showing —
+     but only as a faint wash, like the selected project above it. */
+  .new.active {
+    background: color-mix(in srgb, var(--selected) 35%, transparent);
     color: var(--accent);
   }
 
-  /* While the blank page is open, this row reads as the thing that's showing. */
-  .new.active {
-    background: var(--selected);
+  .new:hover,
+  .new.active:hover {
+    background: var(--hover);
     color: var(--accent);
   }
 
