@@ -52,10 +52,6 @@ export function latestActivity(events: AgentEvent[]): string {
   return "";
 }
 
-function plural(n: number, word: string): string {
-  return `${n} ${word}${n === 1 ? "" : "s"}`;
-}
-
 /**
  * The row's second line. `delivered` and `holdingWork` come from the store,
  * which reads them from git rather than the record; `modelName` is the
@@ -76,7 +72,7 @@ export function rowDetail(
     return a.fail_reason?.trim() || (a.exit_code != null ? `Exited with code ${a.exit_code}` : "Failed");
   if (a.state === "orphaned") return "Interrupted when the app closed";
   if (a.merged_at && holdingWork) return `New work since merging into ${a.merged_branch}`;
-  const parts = [plural(a.turns, "turn")];
+  const parts = [`${a.turns} repl${a.turns === 1 ? "y" : "ies"}`];
   if (modelName) parts.push(modelName);
   return parts.join(" · ");
 }
