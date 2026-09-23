@@ -221,7 +221,11 @@
   {#each grouped as { bucket, agents: group } (bucket)}
     {@const open = isOpen(bucket)}
     <div class="group">
-      <div class="group-label" data-flip={`bucket:${bucket}`}>
+      <div
+        class="group-label"
+        class:reapable={bucket === "delivered" && open && !bulkReap}
+        data-flip={`bucket:${bucket}`}
+      >
         <button
           class="fold"
           aria-expanded={open}
@@ -379,10 +383,11 @@
     margin-top: var(--space-2);
   }
 
+  /* One cell: the fold spans the row, and the reap button is laid over it
+     just left of the chevron. */
   .group-label {
-    display: flex;
+    display: grid;
     align-items: center;
-    gap: var(--space-2);
     padding: 0.35rem 0.5rem 0.2rem;
     font-size: var(--text-3xs);
     font-weight: var(--weight-semibold);
@@ -423,6 +428,15 @@
     cursor: pointer;
   }
 
+  .group-label > * {
+    grid-area: 1 / 1;
+  }
+
+  /* Stops short of the reap button, a gap clear of it. */
+  .reapable .rule {
+    margin-right: calc(1.3rem + var(--space-2));
+  }
+
   .fold:hover {
     color: var(--fg);
   }
@@ -440,13 +454,14 @@
   }
 
   /* Pulled back in by its own size so the Delivered heading sits at the same
-     height as the others. */
+     height as the others, and in from the right by the chevron and a gap. */
   .reap-all {
     display: grid;
     place-items: center;
+    justify-self: end;
     width: 1.3rem;
     height: 1.3rem;
-    margin: -0.3rem 0 -0.3rem auto;
+    margin: -0.3rem calc(0.7rem + var(--space-2)) -0.3rem 0;
     padding: 0;
     border: none;
     border-radius: var(--radius-sm);
