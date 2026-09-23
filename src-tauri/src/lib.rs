@@ -107,7 +107,11 @@ pub fn run() {
     #[cfg(target_os = "linux")]
     apply_linux_webkit_workarounds();
 
-    let startup_orphans = runtime::adopt_orphans_on_launch().unwrap_or_default();
+    let startup_orphans = runtime::adopt_orphans_on_launch()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|a| a.id)
+        .collect();
     let (rt, rx) = AgentRuntime::new();
 
     tauri::Builder::default()
@@ -135,7 +139,7 @@ pub fn run() {
         })
         .manage(AppState {
             runtime: rt,
-            startup_orphans,
+            startup_orphans: std::sync::Mutex::new(startup_orphans),
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
@@ -169,6 +173,7 @@ pub fn run() {
             commands::agents_holding_work,
             commands::project_branches,
             commands::startup_orphans,
+            commands::dismiss_orphans,
             commands::list_models,
             commands::usage_summary,
         ])

@@ -112,7 +112,7 @@
       <button class="primary" onclick={() => store.jumpToFirstOrphan()}>
         Show
       </button>
-      <button onclick={() => (store.orphanBannerDismissed = true)}>Dismiss</button>
+      <button onclick={() => store.dismissOrphans()}>Dismiss</button>
     </div>
   </div>
 {/if}

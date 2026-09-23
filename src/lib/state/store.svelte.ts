@@ -474,7 +474,13 @@ export class AppStore {
       this.expandedProjects[first.project_id] = true;
     }
     this.selectAgent(first.id);
+    this.dismissOrphans();
+  }
+
+  /** Hide the Orphan banner, and tell the backend so a reload keeps it hidden. */
+  dismissOrphans() {
     this.orphanBannerDismissed = true;
+    api.dismissOrphans().catch(() => {});
   }
 
   /**

@@ -3,6 +3,7 @@
 //! a plain `Error` object with a readable message.
 
 use std::path::PathBuf;
+use std::sync::Mutex;
 
 use serde::Serialize;
 use tauri::State;
@@ -19,9 +20,10 @@ use crate::{merging, paths, storage, worktree};
 /// App-level shared state, managed by Tauri.
 pub struct AppState {
     pub runtime: AgentRuntime,
-    /// Orphans adopted at launch time. Cached so the UI can surface them
-    /// without re-scanning the filesystem.
-    pub startup_orphans: Vec<Agent>,
+    /// Ids of the Orphans adopted at launch time, so the UI can surface them
+    /// without re-scanning the filesystem. Emptied once the user dismisses the
+    /// banner, so a reload of the window doesn't raise it again.
+    pub startup_orphans: Mutex<Vec<String>>,
 }
 
 fn err<E: std::fmt::Display>(e: E) -> String {
@@ -340,7 +342,22 @@ pub async fn usage_summary() -> Result<UsageSummary, String> {
     crate::usage::summary().map_err(err)
 }
 
+/// The launch-time Orphans that are still Orphaned. Read fresh from disk, so
+/// one the user has since Resumed or Reaped drops out: a reload of the window
+/// asks again, but this process kept its launch-time list.
 #[tauri::command]
 pub async fn startup_orphans(state: State<'_, AppState>) -> Result<Vec<Agent>, String> {
-    Ok(state.startup_orphans.clone())
+    let ids = state.startup_orphans.lock().map_err(err)?.clone();
+    Ok(ids
+        .iter()
+        .filter_map(|id| storage::load_agent(id).ok())
+        .filter(|a| a.state == AgentState::Orphaned)
+        .collect())
+}
+
+/// The user has seen the launch-time Orphans; stop reporting them.
+#[tauri::command]
+pub async fn dismiss_orphans(state: State<'_, AppState>) -> Result<(), String> {
+    state.startup_orphans.lock().map_err(err)?.clear();
+    Ok(())
 }
