@@ -31,10 +31,24 @@ struct AgentEventPayload {
 /// Build the one window the app has.
 ///
 /// It lives here rather than in `tauri.conf.json` because its frame differs by
-/// platform and the config is a single static description. macOS keeps its
-/// decorations so the traffic lights stay native, and only hides the bar's
-/// chrome so the app's own header can draw behind them; everywhere else the
-/// decoration goes entirely and the header supplies the controls itself.
+/// platform and the config is a single static description.
+///
+/// The rule is to wear whatever frame the desktop hands out, and only draw our
+/// own where it hands out none. macOS keeps its decorations so the traffic
+/// lights stay native, and only hides the bar's chrome so the app's own header
+/// can draw behind them. Linux keeps them too: tao's window is a plain
+/// `GtkWindow`, so GTK negotiates for us over KDE's `server-decoration`
+/// protocol and stands its own titlebar down wherever the compositor answers
+/// `Server` — Hyprland, sway and KWin all do, and under a tiling layout that
+/// resolves to no titlebar at all, just the compositor's border. GNOME, which
+/// offers no server-side mode, gets GTK's own bar instead. Either way the
+/// window is dressed like every other window on that desktop, and minimize and
+/// maximize mean whatever the desktop means by them rather than being buttons
+/// we draw over a compositor that has no such states.
+///
+/// Windows is the one platform with nothing to negotiate, so it runs
+/// undecorated and the app's header supplies the controls itself. `platform.ts`
+/// mirrors this split on the UI side.
 fn build_main_window(app: &tauri::AppHandle) -> tauri::Result<()> {
     let win = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
         .title("Claude Wrapper")
@@ -46,7 +60,7 @@ fn build_main_window(app: &tauri::AppHandle) -> tauri::Result<()> {
         .title_bar_style(tauri::TitleBarStyle::Overlay)
         .hidden_title(true);
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
     let win = win.decorations(false);
 
     win.build()?;

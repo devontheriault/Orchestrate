@@ -7,7 +7,8 @@
   const win = getCurrentWindow();
 
   // Drives the maximize/restore glyph. Only tracked where this app draws the
-  // button — macOS has its own and never asks.
+  // button — every other platform wears a frame the OS or the compositor drew
+  // and never asks.
   let maximized = $state(false);
 
   /** What the detail pane is showing, which is what the bar names. */
