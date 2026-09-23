@@ -79,7 +79,8 @@ pub fn append_event(agent_id: &str, event: &AgentEvent) -> Result<()> {
 
 /// Replay an Agent's event log, oldest first. A missing log means the Agent
 /// has not produced output yet, which is not an error. Lines that fail to parse
-/// are skipped: the last line of a live log can be half-written.
+/// are skipped: the last line of a live log can be half-written. Logs written
+/// before [`slim`] existed are slimmed on the way out.
 pub fn read_events(agent_id: &str) -> Result<Vec<AgentEvent>> {
     let path = paths::agent_log_path(agent_id)?;
     let contents = match fs::read_to_string(&path) {
@@ -89,8 +90,34 @@ pub fn read_events(agent_id: &str) -> Result<Vec<AgentEvent>> {
     };
     Ok(contents
         .lines()
-        .filter_map(|line| serde_json::from_str(line).ok())
+        .filter_map(|line| serde_json::from_str::<AgentEvent>(line).ok())
+        .map(|mut e| {
+            slim(&mut e.event);
+            e
+        })
         .collect())
+}
+
+/// Drop the parts of a `claude` event the transcript never shows, which are
+/// also by far its heaviest. Every tool result arrives twice — in the message,
+/// and again as `tool_use_result` — and an image or PDF the Agent read comes
+/// inline as base64, often most of a megabyte a screenshot. The block itself
+/// stays, less its bytes, so the transcript can still say one was there.
+pub fn slim(event: &mut serde_json::Value) {
+    use serde_json::Value;
+    match event {
+        Value::Object(map) => {
+            map.remove("tool_use_result");
+            if let Some(Value::Object(source)) = map.get_mut("source") {
+                if source.get("type").and_then(Value::as_str) == Some("base64") {
+                    source.remove("data");
+                }
+            }
+            map.values_mut().for_each(slim);
+        }
+        Value::Array(items) => items.iter_mut().for_each(slim),
+        _ => {}
+    }
 }
 
 /// List all Agents on disk by scanning meta files. Order is unspecified.
@@ -256,6 +283,70 @@ mod tests {
         let mut f = fs::OpenOptions::new().append(true).open(&path).unwrap();
         f.write_all(b"{\"ts\":\"2026-09-20T14:00:00").unwrap();
         assert_eq!(read_events(&a.id).unwrap().len(), 1);
+    }
+
+    /// A Read of a screenshot, as `claude` streams it: the image inline in the
+    /// tool result, and the whole result repeated as `tool_use_result`.
+    fn screenshot_result() -> serde_json::Value {
+        let image = serde_json::json!({
+            "type": "image",
+            "source": {"type": "base64", "media_type": "image/png", "data": "iVBORw0KGgo="},
+        });
+        serde_json::json!({
+            "type": "user",
+            "message": {"content": [{
+                "type": "tool_result",
+                "tool_use_id": "t1",
+                "content": [image.clone(), {"type": "text", "text": "a caption"}],
+            }]},
+            "tool_use_result": [image],
+        })
+    }
+
+    #[test]
+    fn slim_drops_duplicate_results_and_inline_bytes() {
+        let mut e = screenshot_result();
+        slim(&mut e);
+        assert_eq!(
+            e,
+            serde_json::json!({
+                "type": "user",
+                "message": {"content": [{
+                    "type": "tool_result",
+                    "tool_use_id": "t1",
+                    "content": [
+                        {"type": "image", "source": {"type": "base64", "media_type": "image/png"}},
+                        {"type": "text", "text": "a caption"},
+                    ],
+                }]},
+            })
+        );
+    }
+
+    #[test]
+    fn slim_leaves_text_alone() {
+        let mut e = serde_json::json!({
+            "type": "assistant",
+            "message": {"content": [{"type": "text", "text": "data: base64"}]},
+            "source": "cli",
+        });
+        let before = e.clone();
+        slim(&mut e);
+        assert_eq!(e, before);
+    }
+
+    #[test]
+    fn read_events_slims_a_log_written_before_slimming() {
+        let _env = StateEnv::new();
+        let a = sample_agent();
+        let e = AgentEvent {
+            ts: OffsetDateTime::now_utc(),
+            event: screenshot_result(),
+        };
+        append_event(&a.id, &e).unwrap();
+        let back = read_events(&a.id).unwrap();
+        assert!(back[0].event.get("tool_use_result").is_none());
+        assert!(!back[0].event.to_string().contains("iVBORw0KGgo="));
     }
 
     #[test]
