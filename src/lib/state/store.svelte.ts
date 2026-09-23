@@ -89,6 +89,14 @@ export class AppStore {
    */
   expandedProjects = $state<Record<string, boolean>>({});
 
+  /**
+   * Buckets the user has opened or folded in the sidebar, by project and then
+   * by bucket. Unset means the bucket's default. Kept here rather than in the
+   * list, so collapsing the project or opening the rail's flyout shows the
+   * tree as the user left it.
+   */
+  openBuckets = $state<Record<string, Record<string, boolean>>>({});
+
   /** Which body the detail pane shows for the selected agent. */
   detailTab = $state<"output" | "diff">("output");
 
@@ -352,6 +360,7 @@ export class AppStore {
       await api.removeProject(id);
       this.projects = this.projects.filter((p) => p.id !== id);
       delete this.expandedProjects[id];
+      delete this.openBuckets[id];
       if (this.selectedProjectId === id) {
         this.selectedProjectId = null;
         this.selectAgent(null);
