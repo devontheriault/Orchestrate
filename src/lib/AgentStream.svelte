@@ -40,54 +40,68 @@
   });
 
   /**
-   * How far from the bottom still counts as following the stream. The same
-   * slack decides whether new output scrolls itself into view and whether the
-   * jump-to-bottom button appears, so the button shows exactly when the
-   * transcript has stopped following along.
+   * How far from the bottom still counts as being at the bottom: scrolling
+   * back down to within this slack picks the stream up again.
    */
   const FOLLOW_SLACK = 120;
 
-  let atBottom = $state(true);
+  /**
+   * Whether the transcript is following the newest output. Only the user
+   * scrolling up lets go of it — new output never does. Measuring the distance
+   * from the bottom once output arrives can't tell the two apart: by then the
+   * DOM already holds it, so one large chunk reads as the user having scrolled
+   * away. The jump-to-bottom button shows exactly while this is off.
+   */
+  let following = $state(true);
+  let lastScrollTop = 0;
 
-  function syncAtBottom() {
+  function onScroll() {
     const el = streamEl;
     if (!el) return;
-    atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < FOLLOW_SLACK;
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < FOLLOW_SLACK) following = true;
+    // Our own scrolls only ever go down, and content growing below doesn't
+    // move scrollTop at all, so a scroll upward is the user's doing.
+    else if (el.scrollTop < lastScrollTop) following = false;
+    lastScrollTop = el.scrollTop;
+  }
+
+  function stickToBottom() {
+    requestAnimationFrame(() => {
+      if (following && streamEl) streamEl.scrollTop = streamEl.scrollHeight;
+    });
   }
 
   function jumpToBottom() {
     const el = streamEl;
     if (!el) return;
+    following = true;
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     el.scrollTo({ top: el.scrollHeight, behavior: reduced ? "auto" : "smooth" });
   }
 
-  // On new events, only auto-scroll if the user is already near the bottom.
+  // New output scrolls itself into view unless the user has scrolled up.
   $effect(() => {
     const len = store.eventsForSelected.length;
     if (!streamEl || len === 0) return;
-    const el = streamEl;
-    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < FOLLOW_SLACK;
-    if (nearBottom) {
-      requestAnimationFrame(() => {
-        el.scrollTop = el.scrollHeight;
-        syncAtBottom();
-      });
-    } else {
-      // Output that arrives while the user is reading back pushes the bottom
-      // further away, so the button has to notice without a scroll of its own.
-      syncAtBottom();
-    }
+    if (following) stickToBottom();
   });
+
+  // The pane shrinking (a taller composer, a resized window) would otherwise
+  // push the newest output out of sight without anything being scrolled.
+  function followResizes(el: HTMLDivElement) {
+    const ro = new ResizeObserver(() => {
+      if (following) el.scrollTop = el.scrollHeight;
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }
 
   // On selection change, always jump to the bottom of the new stream.
   $effect(() => {
     const id = store.selectedAgentId;
     if (!streamEl || !id) return;
-    requestAnimationFrame(() => {
-      streamEl!.scrollTop = streamEl!.scrollHeight;
-      syncAtBottom();
-    });
+    following = true;
+    stickToBottom();
   });
 
   // Helpers to decode common stream-json event shapes without breaking on
@@ -475,7 +489,7 @@
     <AgentDiff />
   {:else}
     <div class="stream-wrap">
-      <div class="stream" bind:this={streamEl} onscroll={syncAtBottom}>
+      <div class="stream" bind:this={streamEl} onscroll={onScroll} {@attach followResizes}>
         {#if store.selectedAgent?.state === "failed" && store.selectedAgent.fail_reason}
           <div class="fail-banner">
             <span class="label">Failed</span>
@@ -578,7 +592,7 @@
           {/each}
         {/if}
       </div>
-      {#if !atBottom}
+      {#if !following}
         <!-- Only while the transcript has been scrolled away from: the way
              back down is one click, in the gap above the composer. -->
         <button
