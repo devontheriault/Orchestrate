@@ -164,6 +164,17 @@ class AppStore {
   merging = $state<boolean>(false);
 
   /**
+   * Merges that hit conflicts, by agent: where the merge was headed and which
+   * files collided. Held until the user merges again or hands it to a
+   * resolver — the project was left untouched, so this is the only record of
+   * what went wrong.
+   */
+  conflicts = $state<Record<string, { target: string; files: string[] }>>({});
+
+  /** A resolver is being spawned for the selected agent's conflict. */
+  resolving = $state<boolean>(false);
+
+  /**
    * The selected agent's project's mergeable branches. Null until asked for, and
    * again when the branch list can't be read — the picker then offers nothing
    * rather than guessing.
@@ -655,7 +666,12 @@ class AppStore {
     this.merging = true;
     this.diffError = null;
     try {
-      await api.agentMerge(id, target);
+      const outcome = await api.agentMerge(id, target);
+      if (outcome.outcome === "conflict") {
+        this.conflicts[id] = { target: outcome.target, files: outcome.files };
+        return false;
+      }
+      delete this.conflicts[id];
       // The agent now carries where it merged, and the branch list has moved on.
       await this.refresh();
       if (this.selectedAgentId === id) {
@@ -668,6 +684,57 @@ class AppStore {
     } finally {
       if (this.selectedAgentId === id) this.merging = false;
     }
+  }
+
+  /** Put a conflict away without resolving it. The project is untouched either way. */
+  dismissConflict(agentId: string) {
+    delete this.conflicts[agentId];
+  }
+
+  /**
+   * Hand the selected agent's conflicted merge to a resolver: a new agent, cut
+   * from this one's branch, that merges the target in and settles the
+   * conflicts. When its turn completes the backend finishes the merge, and
+   * both agents move to Delivered. Opens the resolver, so the user watches the
+   * work that's now happening rather than the agent that's waiting on it.
+   */
+  async resolveConflict() {
+    const id = this.selectedAgentId;
+    const conflict = id ? this.conflicts[id] : undefined;
+    if (!id || !conflict || this.resolving) return false;
+    this.resolving = true;
+    this.error = null;
+    try {
+      const resolver = await api.resolveConflict(
+        id,
+        conflict.target,
+        conflict.files,
+        this.defaultSpawnModel || null,
+        this.defaultSpawnEffort || null,
+      );
+      delete this.conflicts[id];
+      this.agents.push(resolver);
+      this.selectAgent(resolver.id);
+      return true;
+    } catch (e) {
+      this.error = String(e);
+      return false;
+    } finally {
+      this.resolving = false;
+    }
+  }
+
+  /**
+   * The resolver still working on this agent's conflict, if there is one —
+   * the most recent that hasn't merged yet.
+   */
+  resolverFor(agentId: string): Agent | null {
+    let found: Agent | null = null;
+    for (const a of this.agents) {
+      if (a.resolves?.agent_id !== agentId || a.merged_at) continue;
+      if (!found || Date.parse(a.spawned_at) > Date.parse(found.spawned_at)) found = a;
+    }
+    return found;
   }
 
   /**

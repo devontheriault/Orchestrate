@@ -1,6 +1,7 @@
 pub mod commands;
 pub mod error;
 pub mod git;
+pub mod merging;
 pub mod model;
 pub mod models;
 pub mod paths;
@@ -153,6 +154,7 @@ pub fn run() {
             commands::agent_diff,
             commands::agent_commit,
             commands::agent_merge,
+            commands::resolve_conflict,
             commands::agents_holding_work,
             commands::project_branches,
             commands::startup_orphans,

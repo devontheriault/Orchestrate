@@ -162,6 +162,7 @@ mod tests {
             fail_reason: None,
             merged_branch: None,
             merged_at: None,
+            resolves: None,
         }
     }
 

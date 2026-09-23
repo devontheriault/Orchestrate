@@ -60,6 +60,17 @@ export type Agent = {
    */
   merged_branch?: string | null;
   merged_at?: string | null;
+  /**
+   * Set on a resolver: the agent whose merge conflicted, and the branch it was
+   * headed for. When the resolver's turn completes cleanly the app finishes
+   * that merge and records it on both.
+   */
+  resolves?: Resolution | null;
+};
+
+export type Resolution = {
+  agent_id: string;
+  target: string;
 };
 
 /**
@@ -150,6 +161,14 @@ export type Merged = {
   /** The merge commit now at the tip of `target`. */
   sha: string;
 };
+
+/**
+ * How a merge came out. A conflict isn't an error: the project is untouched,
+ * and the files that collided are what a resolver is handed.
+ */
+export type MergeOutcome =
+  | ({ outcome: "merged" } & Merged)
+  | { outcome: "conflict"; target: string; files: string[] };
 
 export type WorktreeDiff = {
   base: string;
@@ -267,7 +286,16 @@ export const api = {
   agentCommit: (agentId: string, message: string) =>
     invoke<Commit>("agent_commit", { agentId, message }),
   agentMerge: (agentId: string, target: string) =>
-    invoke<Merged>("agent_merge", { agentId, target }),
+    invoke<MergeOutcome>("agent_merge", { agentId, target }),
+  /** Spawn a resolver for a merge of `agentId` into `target` that conflicted. */
+  resolveConflict: (
+    agentId: string,
+    target: string,
+    files: string[],
+    model: string | null,
+    effort: string | null,
+  ) =>
+    invoke<Agent>("resolve_conflict", { agentId, target, files, model, effort }),
   /** Ids of merged agents whose worktree still holds work the project lacks. */
   agentsHoldingWork: () => invoke<string[]>("agents_holding_work"),
   projectBranches: (projectId: string) =>

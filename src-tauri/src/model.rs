@@ -141,6 +141,21 @@ pub struct Agent {
     pub merged_branch: Option<String>,
     #[serde(default, alias = "landed_at", with = "time::serde::rfc3339::option")]
     pub merged_at: Option<OffsetDateTime>,
+    /// Set on a Resolver: the Agent whose Merge conflicted, and the branch that
+    /// Merge was headed for. `None` on every other Agent.
+    #[serde(default)]
+    pub resolves: Option<Resolution>,
+}
+
+/// What a Resolver was spawned to finish: a Merge of another Agent's branch
+/// that conflicted. The Resolver's branch is cut from that Agent's, so once it
+/// has merged `target` in and Completed, merging it delivers both.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Resolution {
+    /// The Agent whose Merge conflicted.
+    pub agent_id: Id,
+    /// The branch its work was being merged into.
+    pub target: String,
 }
 
 fn one() -> u32 {
@@ -213,6 +228,10 @@ mod tests {
                 fail_reason: None,
                 merged_branch: None,
                 merged_at: None,
+                resolves: Some(Resolution {
+                    agent_id: "b4e0d2ef".into(),
+                    target: "main".into(),
+                }),
             };
             let s = serde_json::to_string(&a).unwrap();
             let back: Agent = serde_json::from_str(&s).unwrap();
@@ -273,6 +292,7 @@ mod tests {
             a.turn_started_at, None,
             "no recorded turn start means readers fall back to spawned_at"
         );
+        assert_eq!(a.resolves, None, "an old agent resolves nothing");
     }
 
     /// Meta files written while the action was called Land carry `landed_*`.

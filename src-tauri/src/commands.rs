@@ -4,15 +4,17 @@
 
 use std::path::PathBuf;
 
+use serde::Serialize;
 use tauri::State;
 use time::OffsetDateTime;
 
+use crate::error::Error;
 use crate::git::{self, Branches, Commit, Merged, WorktreeDiff};
 use crate::model::{new_id, Agent, AgentEvent, AgentState, Project};
 use crate::models::ModelInfo;
 use crate::runtime::AgentRuntime;
 use crate::usage::UsageSummary;
-use crate::{paths, storage, worktree};
+use crate::{merging, paths, storage, worktree};
 
 /// App-level shared state, managed by Tauri.
 pub struct AppState {
@@ -184,6 +186,15 @@ pub async fn project_branches(project_id: String) -> Result<Branches, String> {
     git::branches(&project.path).await.map_err(err)
 }
 
+/// How a Merge the user asked for came out. A conflict is an outcome rather
+/// than an error: the Project is untouched, and the UI offers to Resolve it.
+#[derive(Debug, Serialize)]
+#[serde(tag = "outcome", rename_all = "snake_case")]
+pub enum MergeOutcome {
+    Merged(Merged),
+    Conflict { target: String, files: Vec<String> },
+}
+
 /// Merge a Committed Agent's branch into a branch of the Project. The one thing
 /// the app writes to the Project, and only ever because the user asked.
 ///
@@ -191,57 +202,60 @@ pub async fn project_branches(project_id: String) -> Result<Branches, String> {
 /// is still writing. The Agent survives a Merge: only Reap destroys anything, so
 /// the Merge is recorded on the Agent and nothing is cleaned up.
 #[tauri::command]
-pub async fn agent_merge(agent_id: String, target: String) -> Result<Merged, String> {
+pub async fn agent_merge(agent_id: String, target: String) -> Result<MergeOutcome, String> {
     let mut agent = storage::load_agent(&agent_id).map_err(err)?;
     if agent.state == AgentState::Running {
         return Err("cannot merge while the agent is running; stop it first".into());
     }
+    let project = project_of(&agent, "merge")?;
 
+    match merging::merge(&project.path, &mut agent, &target).await {
+        Ok((merged, _)) => Ok(MergeOutcome::Merged(merged)),
+        Err(Error::MergeConflict { target, files }) => Ok(MergeOutcome::Conflict { target, files }),
+        Err(e) => Err(err(e)),
+    }
+}
+
+/// Resolve a Merge that conflicted: spawn a Resolver on a branch cut from the
+/// Agent's, told to merge `target` in and settle `files`. When the Resolver's
+/// Turn Completes the Merge is finished for the user and recorded on both.
+///
+/// Refused while the Agent is running, as a Merge is — the Resolver would be
+/// cut from a branch still moving.
+#[tauri::command]
+pub async fn resolve_conflict(
+    state: State<'_, AppState>,
+    agent_id: String,
+    target: String,
+    files: Vec<String>,
+    model: Option<String>,
+    effort: Option<String>,
+) -> Result<Agent, String> {
+    let agent = storage::load_agent(&agent_id).map_err(err)?;
+    if agent.state == AgentState::Running {
+        return Err("cannot resolve while the agent is running; stop it first".into());
+    }
+    let project = project_of(&agent, "resolve")?;
+    state
+        .runtime
+        .spawn_resolver(&project, &agent, &target, &files, model, effort)
+        .await
+        .map_err(err)
+}
+
+/// The registered Project an Agent belongs to, or an error naming `action` for
+/// an Agent whose Project has since been removed.
+fn project_of(agent: &Agent, action: &str) -> Result<Project, String> {
     let reg = storage::Registry::load().map_err(err)?;
-    let project = reg
-        .projects
-        .iter()
+    reg.projects
+        .into_iter()
         .find(|p| p.id == agent.project_id)
         .ok_or_else(|| {
             format!(
-                "cannot merge: the project this agent belongs to is no longer registered ({})",
+                "cannot {action}: the project this agent belongs to is no longer registered ({})",
                 agent.project_id
             )
-        })?;
-
-    // Git's own merge subject, with the Agent's name under it so the history
-    // says which piece of work merged rather than only which branch.
-    let what = agent.title.clone().unwrap_or_else(|| {
-        agent
-            .task
-            .prompt
-            .lines()
-            .next()
-            .unwrap_or("")
-            .trim()
-            .to_owned()
-    });
-    let mut message = format!("Merge branch '{}' into {target}", agent.branch);
-    if !what.is_empty() {
-        message.push_str("\n\n");
-        message.push_str(&what);
-    }
-
-    let merged = git::merge(
-        &project.path,
-        &agent.worktree_path,
-        &agent.branch,
-        &target,
-        &message,
-    )
-    .await
-    .map_err(err)?;
-
-    agent.merged_branch = Some(merged.target.clone());
-    agent.merged_at = Some(OffsetDateTime::now_utc());
-    storage::save_agent(&agent).map_err(err)?;
-
-    Ok(merged)
+        })
 }
 
 /// The Merged Agents whose Worktree still holds work the Project does not

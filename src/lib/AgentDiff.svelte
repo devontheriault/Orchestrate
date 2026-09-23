@@ -148,6 +148,27 @@
   const settled = $derived(
     mergedInto.length > 0 && !(store.diff?.uncommitted ?? false),
   );
+
+  /** The last merge of this agent hit conflicts, and nobody has taken them on yet. */
+  const conflict = $derived(
+    store.selectedAgentId ? store.conflicts[store.selectedAgentId] : undefined,
+  );
+
+  /** A resolver already working on this agent's conflicts. */
+  const resolver = $derived(
+    store.selectedAgentId ? store.resolverFor(store.selectedAgentId) : null,
+  );
+
+  /**
+   * The agent this one is resolving a merge for, while that merge is still
+   * pending — it finishes on its own when this agent's turn completes.
+   */
+  const resolvingFor = $derived.by(() => {
+    const r = store.selectedAgent?.resolves;
+    if (!r || store.selectedAgent?.merged_at) return null;
+    const agent = store.agents.find((a) => a.id === r.agent_id);
+    return agent ? { agent, target: r.target } : null;
+  });
 </script>
 
 <div class="diff-pane">
@@ -240,7 +261,66 @@
       {/if}
 
       {#if diff.commits.length > 0}
-        {#if settled}
+        {#if conflict}
+          <!-- The merge aborted, so the project is as it was. Offer the one
+               way forward the app has: hand the collision to an agent. -->
+          <div class="merge-box conflict">
+            <div class="merge-box-head">
+              <span class="danger-dot"></span>
+              <strong>Conflicts merging into <code>{conflict.target}</code></strong>
+              <span class="sub">the project is unchanged</span>
+            </div>
+            <ul class="conflict-files">
+              {#each conflict.files as f (f)}
+                <li class="mono">{f}</li>
+              {/each}
+            </ul>
+            <div class="merge-box-foot">
+              <span class="sub">
+                A new agent merges <code>{conflict.target}</code> into a copy of this
+                branch and settles the conflicts. When it finishes, the merge
+                completes and both agents move to Delivered.
+              </span>
+              <div class="merge-controls">
+                <button
+                  disabled={store.resolving}
+                  onclick={() => store.dismissConflict(store.selectedAgentId!)}
+                >
+                  Dismiss
+                </button>
+                <button
+                  class="primary"
+                  disabled={running || store.resolving}
+                  onclick={() => store.resolveConflict()}
+                >
+                  {store.resolving ? "Starting…" : "Resolve with an agent"}
+                </button>
+              </div>
+            </div>
+          </div>
+        {:else if resolver}
+          <div class="merge-box">
+            <div class="merge-box-head">
+              <span class={`status-dot status-${resolver.state}`}></span>
+              <strong>Resolving conflicts</strong>
+              <span class="sub">with <code>{resolver.resolves?.target}</code></span>
+            </div>
+            <div class="merge-box-foot">
+              <span class="sub">
+                {#if resolver.state === "running"}
+                  {store.agentName(resolver)} is on it. This work merges with its
+                  resolution when it finishes.
+                {:else}
+                  {store.agentName(resolver)} stopped before the merge went through.
+                  Open it to see why, and reply to finish the job.
+                {/if}
+              </span>
+              <div class="merge-controls">
+                <button onclick={() => store.showAgent(resolver.id)}>Open resolver</button>
+              </div>
+            </div>
+          </div>
+        {:else if settled}
           <!-- Already merged with nothing new since: say where the work went
                instead of offering a control there is no reason to use. -->
           <div class="merge-box merged">
@@ -253,7 +333,15 @@
           <div class="merge-box">
             <div class="merge-box-head">
               <strong>Merge this work</strong>
-              {#if mergedInto.length > 0}
+              {#if resolvingFor}
+                <span class="sub">
+                  resolving
+                  <button class="link" onclick={() => store.showAgent(resolvingFor.agent.id)}
+                    >{store.agentName(resolvingFor.agent)}</button
+                  >
+                  — merges into <code>{resolvingFor.target}</code> by itself when it finishes
+                </span>
+              {:else if mergedInto.length > 0}
                 <span class="sub">already in <code>{mergedInto.join(", ")}</code></span>
               {/if}
             </div>
@@ -509,9 +597,32 @@
     flex: none;
   }
 
+  .danger-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: var(--radius-circle);
+    background: var(--danger);
+    flex: none;
+    align-self: center;
+  }
+
   .sub {
     color: var(--fg-muted);
     font-size: var(--text-sm);
+  }
+
+  /* An agent's name inside a line of text, that opens the agent. */
+  .sub button.link {
+    background: none;
+    border: none;
+    padding: 0;
+    font: inherit;
+    color: var(--accent);
+    cursor: pointer;
+  }
+
+  .sub button.link:hover {
+    text-decoration: underline;
   }
 
   /* Only what makes this field different from the app's `.textarea`: it is
@@ -547,6 +658,25 @@
     display: flex;
     flex-direction: column;
     gap: var(--space-4);
+  }
+
+  /* A merge that didn't go through is the one thing here asking for a
+     decision, so it takes the danger tint rather than the neutral one. */
+  .merge-box.conflict {
+    border-color: var(--danger-soft-border);
+    background: var(--danger-soft-bg);
+  }
+
+  .conflict-files {
+    margin: 0;
+    padding: 0 0 0 1.1rem;
+    font-size: var(--text-md);
+    max-height: 8rem;
+    overflow: auto;
+  }
+
+  .merge-box .status-dot {
+    align-self: center;
   }
 
   /* Quieter still once there is nothing to do but read where it went. */

@@ -127,8 +127,31 @@ impl Drop for ScratchIndex {
 
 /// The commit a repository's HEAD currently points at.
 pub async fn head_commit(repo: &Path) -> Result<String> {
-    let out = stdout(repo, &["rev-parse", "HEAD"]).await?;
+    rev_parse(repo, "HEAD").await
+}
+
+/// The commit `rev` names in `repo` — a branch, `HEAD`, or a sha.
+pub async fn rev_parse(repo: &Path, rev: &str) -> Result<String> {
+    let out = stdout(
+        repo,
+        &["rev-parse", "--verify", &format!("{rev}^{{commit}}")],
+    )
+    .await?;
     Ok(out.trim().to_owned())
+}
+
+/// Whether `ancestor` is already in `rev`'s history. `Err` is git failing to
+/// answer — an unknown revision, say — which is not the same as "no".
+pub async fn is_ancestor(repo: &Path, ancestor: &str, rev: &str) -> Result<bool> {
+    let out = run_with_index(repo, &["merge-base", "--is-ancestor", ancestor, rev], None).await?;
+    match out.status.code() {
+        Some(0) => Ok(true),
+        Some(1) => Ok(false),
+        _ => Err(Error::Git {
+            command: format!("merge-base --is-ancestor {ancestor} {rev}"),
+            stderr: String::from_utf8_lossy(&out.stderr).trim().to_owned(),
+        }),
+    }
 }
 
 /// Resolve the commit an Agent's branch was cut from.
@@ -464,13 +487,7 @@ pub async fn merge(
     // Already an ancestor means there is nothing to merge; `git merge` would
     // report "Already up to date" and exit zero, which reads as a success that
     // did nothing.
-    let ancestor = run_with_index(
-        project_path,
-        &["merge-base", "--is-ancestor", agent_branch, target],
-        None,
-    )
-    .await?;
-    if ancestor.status.success() {
+    if is_ancestor(project_path, agent_branch, target).await? {
         return Err(Error::NothingToMerge {
             branch: agent_branch.to_owned(),
             target: target.to_owned(),
@@ -517,10 +534,11 @@ async fn merge_into(dir: &Path, agent_branch: &str, target: &str, message: &str)
         let conflicted = stdout(dir, &["diff", "--name-only", "--diff-filter=U"])
             .await
             .unwrap_or_default();
-        let files: Vec<&str> = conflicted
+        let files: Vec<String> = conflicted
             .lines()
             .map(str::trim)
             .filter(|l| !l.is_empty())
+            .map(str::to_owned)
             .collect();
 
         let _ = run_with_index(dir, &["merge", "--abort"], None).await;
@@ -535,7 +553,7 @@ async fn merge_into(dir: &Path, agent_branch: &str, target: &str, message: &str)
         }
         return Err(Error::MergeConflict {
             target: target.to_owned(),
-            files: files.join(", "),
+            files,
         });
     }
 
@@ -580,7 +598,7 @@ mod tests {
 
             let wt = TempDir::new().unwrap();
             let wt_path = wt.path().join("agent");
-            crate::worktree::create(repo.path(), &wt_path, Self::BRANCH)
+            crate::worktree::create(repo.path(), &wt_path, Self::BRANCH, "HEAD")
                 .await
                 .unwrap();
             Self { repo, wt }
@@ -1065,7 +1083,7 @@ mod tests {
         match err {
             Error::MergeConflict { target, files } => {
                 assert_eq!(target, "main");
-                assert!(files.contains("tracked.txt"), "got {files:?}");
+                assert_eq!(files, ["tracked.txt"]);
             }
             other => panic!("expected MergeConflict, got {other:?}"),
         }
