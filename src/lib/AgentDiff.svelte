@@ -120,14 +120,16 @@
     (store.branches?.names ?? []).filter((n) => !mergedInto.includes(n)),
   );
 
-  // Point at the branch the project is on, and follow the list rather than
-  // leaving a name in the picker that no longer exists.
+  // Point at main — where work usually lands — whatever the project happens to
+  // be checked out on, and follow the list rather than leaving a name in the
+  // picker that no longer exists.
   $effect(() => {
-    const current = store.branches?.current ?? null;
     if (targets.length === 0) {
       target = "";
     } else if (!targets.includes(target)) {
-      target = current && targets.includes(current) ? current : targets[0];
+      const current = store.branches?.current ?? null;
+      target =
+        ["main", "master", current].find((b) => b && targets.includes(b)) ?? targets[0];
     }
   });
 
