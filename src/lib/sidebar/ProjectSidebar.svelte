@@ -333,17 +333,12 @@
 
   li {
     position: relative;
-    border-left: 2px solid transparent;
   }
 
   /* An open project keeps its own row tinted; the guide line under it does
      the work of showing which agents belong to it. */
   li.open {
     padding-bottom: 0.1rem;
-  }
-
-  li.selected {
-    border-left-color: var(--accent);
   }
 
   li.selected .head {
