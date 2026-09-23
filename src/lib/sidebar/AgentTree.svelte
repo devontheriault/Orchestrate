@@ -376,8 +376,8 @@
     display: flex;
     flex-direction: column;
     gap: var(--space-3);
-    margin: var(--space-2) 0 var(--space-3);
-    padding: var(--space-4) var(--space-4) var(--space-4) var(--space-5);
+    margin: var(--space-3) var(--space-2) var(--space-4);
+    padding: var(--space-5);
     border: 1px solid var(--danger-soft-border);
     border-radius: var(--radius-md);
     background: var(--danger-soft-bg);
