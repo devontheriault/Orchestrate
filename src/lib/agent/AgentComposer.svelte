@@ -1,3 +1,24 @@
+<script module lang="ts">
+  /**
+   * What the user was typing and picking, set aside while they look elsewhere.
+   * Module-level, so it outlives the composer: it unmounts whenever the Diff
+   * tab is open, and coming back shouldn't cost the user their words.
+   */
+  type Draft = {
+    prompt: string;
+    attachments: string[];
+    model: string;
+    effort: string;
+    mode: string;
+  };
+
+  /**
+   * Unsent drafts, by agent id — or `new:<project id>` for the opening prompt
+   * of an agent not spawned yet. Only boxes with something in them are held.
+   */
+  const drafts = new Map<string, Draft>();
+</script>
+
 <script lang="ts">
   import { untrack } from "svelte";
   import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -62,28 +83,51 @@
     fit();
   });
 
+  /** Which conversation the box is holding a message for. */
+  const draftKey = $derived(
+    agent ? agent.id : drafting ? `new:${store.selectedProjectId}` : null,
+  );
+
   // A different agent — or a blank page for a new one — is a different
-  // conversation: don't carry a draft over. The picker starts on whatever the
-  // agent last ran on, or on the user's habitual model for a new agent —
-  // untracked, so a record updating mid-edit doesn't undo a model just picked.
+  // conversation: set the box's contents aside under the one being left, and
+  // bring back whatever was left in the one arrived at. With nothing left
+  // there, the picker starts on whatever the agent last ran on, or on the
+  // user's habitual model for a new agent — untracked, so a record updating
+  // mid-edit doesn't undo a model just picked.
   $effect(() => {
-    store.selectedAgentId;
-    store.drafting;
+    const key = draftKey;
+    untrack(() => restore(key));
+    return () => untrack(() => stash(key));
+  });
+
+  function stash(key: string | null) {
+    if (!key) return;
+    if (prompt.trim() || attachments.length) {
+      drafts.set(key, { prompt, attachments, model, effort, mode });
+    } else {
+      drafts.delete(key);
+    }
+  }
+
+  function restore(key: string | null) {
+    const draft = key ? drafts.get(key) : undefined;
+    if (draft) {
+      ({ prompt, attachments, model, effort, mode } = draft);
+      return;
+    }
     prompt = "";
     attachments = [];
-    untrack(() => {
-      const fresh = store.drafting && !store.selectedAgent;
-      model = fresh
-        ? store.prefs.spawnModel
-        : store.selectedAgent?.model ?? DEFAULT_MODEL;
-      effort = fresh
-        ? store.prefs.spawnEffort
-        : store.selectedAgent?.effort ?? DEFAULT_EFFORT;
-      mode = fresh
-        ? store.prefs.spawnMode
-        : store.selectedAgent?.permission_mode ?? DEFAULT_MODE;
-    });
-  });
+    const fresh = store.drafting && !store.selectedAgent;
+    model = fresh
+      ? store.prefs.spawnModel
+      : store.selectedAgent?.model ?? DEFAULT_MODEL;
+    effort = fresh
+      ? store.prefs.spawnEffort
+      : store.selectedAgent?.effort ?? DEFAULT_EFFORT;
+    mode = fresh
+      ? store.prefs.spawnMode
+      : store.selectedAgent?.permission_mode ?? DEFAULT_MODE;
+  }
 
   // The blank page exists to be typed into, so put the cursor there.
   $effect(() => {
@@ -100,10 +144,16 @@
     }
     // Keep the text and files on failure either way, so the user can retry
     // rather than gather them again.
+    const key = draftKey;
     const sent = drafting
       ? await store.spawn(prompt, attachments, model, effort, mode)
       : await store.resume(prompt, attachments, model, effort, mode);
-    if (sent) clear();
+    if (!sent) return;
+    // The box may have moved on while it went out — a spawn opens the agent it
+    // started — and so set what was sent aside as a draft. Drop that, and
+    // leave whatever the box holds now alone.
+    if (draftKey === key) clear();
+    else if (key) drafts.delete(key);
   }
 
   function clear() {
