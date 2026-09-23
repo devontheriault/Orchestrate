@@ -295,6 +295,8 @@ export const api = {
     invoke<string>("save_attachment", bytes, {
       headers: { "x-name": name.replace(/[^\x20-\x7e]/g, "_") },
     }),
+  /** An attached image's bytes, for its thumbnail. Refused for non-images. */
+  attachmentPreview: (path: string) => invoke<ArrayBuffer>("attachment_preview", { path }),
   stopAgent: (agentId: string) => invoke<void>("stop_agent", { agentId }),
   reapAgent: (agentId: string) => invoke<void>("reap_agent", { agentId }),
   agentEvents: (agentId: string) =>

@@ -52,6 +52,31 @@ pub fn check(attachments: &[PathBuf]) -> Result<()> {
     Ok(())
 }
 
+/// The extensions the composer and transcript draw a thumbnail for, and so the
+/// only files [`preview`] will read. The webview decides whether it can
+/// actually draw them; one it can't (HEIC, often) falls back to an icon.
+const PREVIEWABLE: &[&str] = &[
+    "png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "avif", "heic",
+];
+
+/// An attached image's bytes, for its thumbnail. Anything that isn't an image
+/// by its extension is refused, so this can't be used to read arbitrary files.
+pub fn preview(path: &Path) -> Result<Vec<u8>> {
+    let is_image = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| PREVIEWABLE.contains(&e.to_ascii_lowercase().as_str()));
+    if !is_image || !path.is_absolute() || !path.is_file() {
+        return Err(Error::AttachmentMissing {
+            path: path.to_owned(),
+        });
+    }
+    std::fs::read(path).map_err(|source| Error::Io {
+        path: path.to_owned(),
+        source,
+    })
+}
+
 /// Write pasted bytes to the state directory and return where they landed.
 /// Each paste gets its own folder, so the file keeps the name it was pasted
 /// with — which is what the Agent and the transcript will call it.
@@ -120,6 +145,18 @@ mod tests {
             check(&[dir.path().to_path_buf()]).is_err(),
             "a folder is not a file"
         );
+    }
+
+    #[test]
+    fn only_images_are_previewed() {
+        let dir = tempfile::tempdir().unwrap();
+        let shot = dir.path().join("shot.PNG");
+        std::fs::write(&shot, b"png").unwrap();
+        let notes = dir.path().join("notes.md");
+        std::fs::write(&notes, "secret").unwrap();
+        assert_eq!(preview(&shot).unwrap(), b"png");
+        assert!(preview(&notes).is_err());
+        assert!(preview(&dir.path().join("gone.png")).is_err());
     }
 
     #[test]
