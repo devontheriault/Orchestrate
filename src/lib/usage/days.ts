@@ -19,27 +19,32 @@ export type DayUsage = {
   turns: number;
 };
 
-/** Add up every Agent's slots by the local day they fell on, newest day first. */
-export function byDay(agents: AgentUsage[]): DayUsage[] {
+/** How many days the list covers, today included. */
+export const DAYS_SHOWN = 7;
+
+/**
+ * Add up every Agent's slots over the last week, newest day first. Every day
+ * gets a row, spent on or not, so the week reads as a week.
+ */
+export function byDay(agents: AgentUsage[], now: Date): DayUsage[] {
   const days = new Map<string, DayUsage>();
+  for (let i = 0; i < DAYS_SHOWN; i++) {
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+    days.set(dayKey(start), {
+      key: dayKey(start),
+      start,
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_read_tokens: 0,
+      cache_creation_tokens: 0,
+      cost_usd: 0,
+      turns: 0,
+    });
+  }
   for (const a of agents) {
     for (const s of a.slots) {
-      const at = new Date(s.start * 1000);
-      const key = dayKey(at);
-      let day = days.get(key);
-      if (!day) {
-        day = {
-          key,
-          start: new Date(at.getFullYear(), at.getMonth(), at.getDate()),
-          input_tokens: 0,
-          output_tokens: 0,
-          cache_read_tokens: 0,
-          cache_creation_tokens: 0,
-          cost_usd: 0,
-          turns: 0,
-        };
-        days.set(key, day);
-      }
+      const day = days.get(dayKey(new Date(s.start * 1000)));
+      if (!day) continue;
       day.input_tokens += s.input_tokens;
       day.output_tokens += s.output_tokens;
       day.cache_read_tokens += s.cache_read_tokens;
@@ -48,7 +53,7 @@ export function byDay(agents: AgentUsage[]): DayUsage[] {
       day.turns += s.turns;
     }
   }
-  return [...days.values()].sort((a, b) => b.start.getTime() - a.start.getTime());
+  return [...days.values()];
 }
 
 /** "Today", "Yesterday", then "Mon, Sep 21" — with the year once it isn't this one. */
