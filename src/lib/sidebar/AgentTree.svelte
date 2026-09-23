@@ -498,9 +498,15 @@
     background: var(--hover);
   }
 
-  /* Just the fill: the project's own edge already carries the accent. */
+  /* Just a faint wash of the accent: the project's own edge already carries
+     it at full strength. Tinted rather than grey so it can't be mistaken for
+     a hovered row, even though it is no heavier than one. */
   .agent.selected {
-    background: var(--selected);
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+  }
+
+  .agent.selected:hover {
+    background: color-mix(in srgb, var(--accent) 15%, transparent);
   }
 
   .agent.selected .name {
