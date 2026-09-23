@@ -1,6 +1,8 @@
 <script lang="ts">
   import { store } from "./store.svelte";
   import BranchPicker from "./BranchPicker.svelte";
+  import CodeSpans from "./CodeSpans.svelte";
+  import { highlightLines, languageOf, type Span } from "./highlight.svelte";
 
   // Suggested commit message: the agent's own prompt, as a subject line.
   const suggested = $derived.by(() => {
@@ -90,6 +92,39 @@
     }
     return { files, clipped };
   });
+
+  /**
+   * Each patch line's code as coloured spans, or null where a line stays
+   * plain. A hunk is highlighted as the two pieces of the file it shows —
+   * before (context and deletions) and after (context and additions) — so a
+   * comment or string running over several lines colours as it does in the
+   * file, as far as the hunk reaches.
+   */
+  function highlightPatch(lines: PatchLine[], lang: string): (Span[] | null)[] {
+    const out: (Span[] | null)[] = lines.map(() => null);
+    let start = 0;
+    for (let i = 0; i <= lines.length; i++) {
+      if (i < lines.length && lines[i].kind !== "hunk") continue;
+      const before: number[] = [];
+      const after: number[] = [];
+      for (let j = start; j < i; j++) {
+        // Skips git's "\ No newline at end of file" and the patch's last, empty line.
+        if (lines[j].text === "" || lines[j].text.startsWith("\\")) continue;
+        if (lines[j].kind !== "add") before.push(j);
+        if (lines[j].kind !== "del") after.push(j);
+      }
+      for (const side of [before, after]) {
+        const spans = highlightLines(side.map((j) => lines[j].text.slice(1)), lang);
+        side.forEach((j, k) => (out[j] ??= spans?.[k] ?? null));
+      }
+      start = i + 1;
+    }
+    return out;
+  }
+
+  const highlighted = $derived(
+    patchFiles.files.map((pf) => highlightPatch(pf.lines, languageOf(pf.path))),
+  );
 
   async function doCommit() {
     if (await store.commit(message)) messageEdited = false;
@@ -395,12 +430,19 @@
         </div>
       {/if}
 
-      {#each patchFiles.files as pf (pf.path)}
+      {#each patchFiles.files as pf, fi (pf.path)}
         <details class="patch-file" open>
           <summary class="mono">{pf.path}</summary>
           <div class="patch">
             {#each pf.lines as line, i (i)}
-              <div class={`line ${line.kind}`}>{line.text || " "}</div>
+              {@const spans = highlighted[fi]?.[i]}
+              <!-- Coloured, a line keeps its +/- and its tint to say what
+                   changed, and the code takes its syntax colours. -->
+              <div class={`line ${line.kind}`} class:coloured={!!spans}
+                >{#if spans}<span class="sign">{line.text[0]}</span><CodeSpans
+                    {spans}
+                  />{:else}{line.text || " "}{/if}</div
+              >
             {/each}
           </div>
         </details>
@@ -845,6 +887,13 @@
     background: var(--code-bg);
     color: var(--fg-muted);
   }
+
+  .line.coloured {
+    color: var(--fg);
+  }
+
+  .line.add .sign { color: var(--diff-add-fg); }
+  .line.del .sign { color: var(--diff-del-fg); }
 
   .diff-error,
   .clipped {

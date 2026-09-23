@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { SvelteSet } from "svelte/reactivity";
   import { store } from "./store.svelte";
   import { formatDuration, formatTokens } from "./format";
   import AgentDiff from "./AgentDiff.svelte";
@@ -6,6 +7,7 @@
   import Markdown from "./Markdown.svelte";
   import ShellCommand from "./ShellCommand.svelte";
   import HighlightedCode from "./HighlightedCode.svelte";
+  import NumberedCode from "./NumberedCode.svelte";
   import { languageOf } from "./highlight.svelte";
   import type { AgentEvent } from "./api";
 
@@ -422,6 +424,18 @@
     };
   }
 
+  /**
+   * Calls whose details have been opened. A call's input and result are only
+   * built once it has been: a transcript holds hundreds of calls, and one
+   * Read alone can be a thousand highlighted lines nobody asked to see.
+   */
+  const opened = new SvelteSet<string>();
+  function noteOpened(key: string) {
+    return (e: Event) => {
+      if ((e.currentTarget as HTMLDetailsElement).open) opened.add(key);
+    };
+  }
+
   /** A Bash call's command, if that's what `c` is. */
   function bashCommand(c: ToolCall): string | undefined {
     const o = c.input as Record<string, unknown> | null;
@@ -444,6 +458,28 @@
     return undefined;
   }
 
+  /**
+   * A Read call's result as the file's lines, split from the line numbers
+   * Claude Code puts in front of each (`12→` in older versions, `12<tab>`
+   * now), plus whatever trails them. A result that doesn't start that way —
+   * an error, an image — isn't one of these.
+   */
+  function readLines(
+    c: ToolCall,
+  ): { lang: string; lines: { n: string; text: string }[]; rest: string } | undefined {
+    const o = c.input as Record<string, unknown> | null;
+    if (c.name !== "Read" || typeof o?.file_path !== "string") return undefined;
+    const all = toolResultText(c.result).split("\n");
+    const lines: { n: string; text: string }[] = [];
+    for (const line of all) {
+      const m = /^\s*(\d+)(?:\t|→)(.*)$/.exec(line);
+      if (!m) break;
+      lines.push({ n: m[1], text: m[2] });
+    }
+    if (lines.length === 0) return undefined;
+    return { lang: languageOf(o.file_path), lines, rest: all.slice(lines.length).join("\n").trim() };
+  }
+
   function toolResultText(content: unknown): string {
     if (typeof content === "string") return content;
     if (Array.isArray(content)) {
@@ -457,6 +493,31 @@
 
 <!-- A call's input as shown when expanded. A command, or code going into a
      file, reads better laid out and coloured than JSON-escaped. -->
+<!-- What came back from a call. A file that was read shows as code, beside
+     its line numbers. -->
+{#snippet callResult(c: ToolCall)}
+  {@const read = readLines(c)}
+  <div class="call-result">
+    {#if read}
+      <pre class="read"><NumberedCode lines={read.lines} lang={read.lang} /></pre>
+      {#if read.rest}<pre>{read.rest}</pre>{/if}
+    {:else}
+      <pre>{toolResultText(c.result)}</pre>
+    {/if}
+  </div>
+{/snippet}
+
+<!-- A call's input and result, once there's been a reason to show them. The
+     newest Bash call opens itself, so it's built straight away. -->
+{#snippet callBody(c: ToolCall)}
+  {#if opened.has(c.key) || c.key === lastBashKey}
+    {@render callInput(c)}
+    {#if c.hasResult}
+      {@render callResult(c)}
+    {/if}
+  {/if}
+{/snippet}
+
 {#snippet callInput(c: ToolCall)}
   {@const command = bashCommand(c)}
   {@const file = fileChange(c)}
@@ -561,6 +622,7 @@
               <details
                 class="block tool"
                 {@attach autoOpen(row.calls.some((c) => c.key === lastBashKey))}
+                ontoggle={row.calls.length === 1 ? noteOpened(row.calls[0].key) : undefined}
               >
                 <summary>
                   <span class="tool-name">→ {row.name}</span>
@@ -573,24 +635,21 @@
                   {/if}
                 </summary>
                 {#if row.calls.length === 1}
-                  {@const c = row.calls[0]}
-                  {@render callInput(c)}
-                  {#if c.hasResult}
-                    <div class="call-result"><pre>{toolResultText(c.result)}</pre></div>
-                  {/if}
+                  {@render callBody(row.calls[0])}
                 {:else}
                   <!-- A run of same-tool calls: the group is one row, each
                        call inside it still opens on its own. -->
                   {#each row.calls as c (c.key)}
-                    <details class="call" {@attach autoOpen(c.key === lastBashKey)}>
+                    <details
+                      class="call"
+                      {@attach autoOpen(c.key === lastBashKey)}
+                      ontoggle={noteOpened(c.key)}
+                    >
                       <summary>
                         {truncate(callTarget(c.name, c.input), 80) || c.name}
                         {#if !c.hasResult}<span class="running-dot"></span>{/if}
                       </summary>
-                      {@render callInput(c)}
-                      {#if c.hasResult}
-                        <div class="call-result"><pre>{toolResultText(c.result)}</pre></div>
-                      {/if}
+                      {@render callBody(c)}
                     </details>
                   {/each}
                 {/if}
@@ -999,6 +1058,11 @@
 
   .call-result pre {
     color: var(--fg-muted);
+  }
+
+  /* A file's contents are the point of reading it, not a status line. */
+  .call-result pre.read {
+    color: var(--fg);
   }
 
   .system, .done {

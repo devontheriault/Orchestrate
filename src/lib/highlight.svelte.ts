@@ -16,10 +16,10 @@ let prism = $state.raw<Prism | null>(null);
 let requested = false;
 
 /**
- * Fetches Prism the first time it's wanted; every highlighter on screen
- * re-renders in colour when it lands. If it fails, code stays plain.
+ * Fetches Prism the first time code asks to be highlighted; everything on
+ * screen re-renders in colour when it lands. If it fails, code stays plain.
  */
-export function loadHighlighter(): void {
+function loadHighlighter(): void {
   if (requested) return;
   requested = true;
   // Unless told it's driven by hand, Prism restyles every `language-*`
@@ -55,14 +55,42 @@ export function languageOf(path: string): string {
 const LIMIT = 50_000;
 
 /**
- * `code` split into spans by what each piece is, or `null` if it can't be:
- * Prism hasn't loaded yet, the language is one we don't ship, or the code is
- * too long to be worth it.
+ * Lines of code, each split into spans by what its pieces are — or `null`
+ * if they can't be: Prism hasn't loaded yet (this asks for it), the language
+ * is one we don't ship, or there's too much code to be worth it.
+ *
+ * The lines are highlighted as one piece, so a comment or string running
+ * over several of them colours as it does in the file. They are often cut
+ * from the middle of one — a diff hunk, part of a Read, the text an Edit
+ * replaces — and in Svelte or HTML that can leave them inside a `<script>`
+ * or `<style>` whose tags are out of view. The grammar only colours script
+ * it can see the tags of, so the missing tags are stood in for first.
  */
-export function highlight(code: string, lang: string): Span[] | null {
-  const p = prism;
-  if (!p || !lang || code.length > LIMIT) return null;
+export function highlightLines(lines: string[], lang: string): Span[][] | null {
   const name = ALIASES[lang.toLowerCase()] ?? lang.toLowerCase();
+  const [open, close] = MARKUP.has(name) ? missingTags(lines) : [null, null];
+  const all = [open, ...lines, close].filter((l) => l !== null);
+  const spans = highlight(all.join("\n"), name);
+  if (!spans) return null;
+
+  const out: Span[][] = [[]];
+  for (const { text, kind } of spans) {
+    text.split("\n").forEach((part, i) => {
+      if (i > 0) out.push([]);
+      if (part) out[out.length - 1].push({ text: part, kind });
+    });
+  }
+  const first = open === null ? 0 : 1;
+  return out.slice(first, first + lines.length);
+}
+
+function highlight(code: string, name: string): Span[] | null {
+  if (!name || code.length > LIMIT) return null;
+  const p = prism;
+  if (!p) {
+    loadHighlighter();
+    return null;
+  }
   // `languages` also carries Prism's helper functions; only objects are grammars.
   const grammar = Object.hasOwn(p.languages, name) ? p.languages[name] : undefined;
   if (typeof grammar !== "object") return null;
@@ -77,6 +105,44 @@ export function highlight(code: string, lang: string): Span[] | null {
   const out: Span[] = [];
   flatten(env.tokens, "", out);
   return out;
+}
+
+/** Languages whose files hold script and style inside markup. */
+const MARKUP = new Set(["svelte", "html", "markup"]);
+
+type Section = "markup" | "script" | "style";
+
+/**
+ * The opening tag a fragment of markup is missing, if it starts inside a
+ * `<script>` or `<style>`, and the closing tag, if it ends inside one. The
+ * first such tag in view says where the fragment starts — a closing one
+ * means it began inside — and the last says where it ends.
+ */
+function missingTags(lines: string[]): [string | null, string | null] {
+  let start: Section | null = null;
+  let end: Section | null = null;
+  for (const line of lines) {
+    for (const m of line.matchAll(/<(\/?)(script|style)\b/g)) {
+      const tag = m[2] as Section;
+      start ??= m[1] ? tag : "markup";
+      end = m[1] ? "markup" : tag;
+    }
+  }
+  start ??= guessSection(lines);
+  end ??= start;
+  return [start === "markup" ? null : `<${start}>`, end === "markup" ? null : `</${end}>`];
+}
+
+/**
+ * Where a fragment with no `<script>` or `<style>` tags in it sits, from what
+ * it looks like: markup has tags and `{#…}` blocks, a stylesheet has
+ * selectors and custom properties, and anything else is script — which,
+ * inside a component, it usually is.
+ */
+function guessSection(lines: string[]): Section {
+  if (lines.some((l) => /^\s*(<[a-z!/]|\{[#/:@])/i.test(l))) return "markup";
+  if (lines.some((l) => /^\s*([.#&@][\w-]|:global\b)|var\(--/.test(l))) return "style";
+  return "script";
 }
 
 /**
