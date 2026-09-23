@@ -624,12 +624,9 @@
     font-size: var(--text-sm);
     font-weight: var(--weight-semibold);
     line-height: var(--leading-tight);
-    display: -webkit-box;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
-    line-clamp: 2;
+    white-space: nowrap;
     overflow: hidden;
-    overflow-wrap: anywhere;
+    text-overflow: ellipsis;
   }
 
   .age {
