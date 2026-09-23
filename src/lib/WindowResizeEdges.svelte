@@ -5,12 +5,13 @@
   /**
    * Grab strips around an undecorated window.
    *
-   * Only Windows runs undecorated now (see `platform.ts`), and taking the
-   * decoration away there takes the OS resize frame with it, so the app brings
-   * its own — thin enough that the scrollbar underneath the right edge stays
-   * usable, and gone while the window reports itself maximized, when there is
-   * nothing to resize. Everywhere else the OS or the compositor still owns the
-   * frame and does its own resizing, and `ownsWindowFrame` keeps these off.
+   * Taking the decoration away takes the OS resize frame with it on Windows,
+   * and on X11 desktops that don't add one back. Hyprland would manage without
+   * these, but the app can't tell which compositor it's under, so it brings its
+   * own — thin enough that the scrollbar underneath the right edge stays usable,
+   * and gone while the window reports itself maximized, when there's nothing to
+   * resize. That last test also stands them down under a tiling compositor,
+   * which reports a tiled window as maximized and does the resizing itself.
    */
   const win = getCurrentWindow();
 
