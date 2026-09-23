@@ -151,7 +151,10 @@
                     class="badge badge-running"
                     title={`${activity.running} agent${activity.running === 1 ? "" : "s"} running`}
                   >
-                    <span class="badge-dot"></span>
+                    <svg class="badge-icon spinner" viewBox="0 0 10 10" aria-hidden="true">
+                      <circle cx="5" cy="5" r="3.75" opacity="0.3" />
+                      <path d="M5 1.25a3.75 3.75 0 0 1 3.75 3.75" />
+                    </svg>
                     {#if !collapsed}{activity.running}{/if}
                   </span>
                 {:else if activity.attention > 0}
@@ -166,7 +169,9 @@
                     class="badge badge-completed"
                     title={`${activity.completed} agent${activity.completed === 1 ? "" : "s"} completed`}
                   >
-                    <span class="badge-dot"></span>
+                    <svg class="badge-icon" viewBox="0 0 10 10" aria-hidden="true">
+                      <path d="M2 5.25l2 2 4-4.5" />
+                    </svg>
                     {#if !collapsed}{activity.completed}{/if}
                   </span>
                 {/if}
@@ -441,6 +446,29 @@
 
   aside.collapsed .badge {
     padding: var(--space-1);
+  }
+
+  /* Says what the count is — still working, or done — where a dot only
+     repeated the pill's colour. */
+  .badge-icon {
+    flex: none;
+    width: 0.62rem;
+    height: 0.62rem;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .spinner {
+    animation: badge-spin 0.9s linear infinite;
+  }
+
+  @keyframes badge-spin {
+    to {
+      transform: rotate(360deg);
+    }
   }
 
   .sub {
