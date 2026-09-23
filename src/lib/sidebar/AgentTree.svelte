@@ -528,7 +528,7 @@
     background: var(--hover);
   }
 
-  /* A running agent's row has a band of its green sweeping through it, so the
+  /* A running agent's row has a band of its accent sweeping through it, so the
      work shows across the whole row rather than in one small dot. It sits
      under the text and over the hover/selected tint, so both still show. */
   .agent.running {

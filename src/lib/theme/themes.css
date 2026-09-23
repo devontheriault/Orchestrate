@@ -61,7 +61,7 @@
   --diff-del-fg: #f6a8be;
   --diff-del-bg: rgba(243, 139, 168, 0.14);
 
-  --running-bg: rgba(166, 227, 161, 0.18);
+  --running-bg: color-mix(in srgb, var(--accent) 18%, transparent);
   --attention-bg: rgba(249, 226, 175, 0.2);
   --completed: #89b4fa;
   --completed-bg: rgba(137, 180, 250, 0.2);
@@ -112,7 +112,7 @@
   --diff-del-fg: #ff8080;
   --diff-del-bg: rgba(255, 85, 85, 0.14);
 
-  --running-bg: rgba(80, 250, 123, 0.18);
+  --running-bg: color-mix(in srgb, var(--accent) 18%, transparent);
   --attention-bg: rgba(255, 184, 108, 0.2);
   --completed: #8be9fd;
   --completed-bg: rgba(139, 233, 253, 0.2);
@@ -163,7 +163,7 @@
   --diff-del-fg: #ec9ea0;
   --diff-del-bg: rgba(230, 126, 128, 0.14);
 
-  --running-bg: rgba(167, 192, 128, 0.18);
+  --running-bg: color-mix(in srgb, var(--accent) 18%, transparent);
   --attention-bg: rgba(219, 188, 127, 0.2);
   --completed: #7fbbb3;
   --completed-bg: rgba(127, 187, 179, 0.2);
@@ -214,7 +214,7 @@
   --diff-del-fg: #fc7667;
   --diff-del-bg: rgba(251, 73, 52, 0.14);
 
-  --running-bg: rgba(184, 187, 38, 0.18);
+  --running-bg: color-mix(in srgb, var(--accent) 18%, transparent);
   --attention-bg: rgba(254, 128, 25, 0.2);
   --completed: #83a598;
   --completed-bg: rgba(131, 165, 152, 0.2);
@@ -265,7 +265,7 @@
   --diff-del-fg: #fa5c95;
   --diff-del-bg: rgba(249, 38, 114, 0.14);
 
-  --running-bg: rgba(166, 226, 46, 0.18);
+  --running-bg: color-mix(in srgb, var(--accent) 18%, transparent);
   --attention-bg: rgba(253, 151, 31, 0.2);
   --completed: #66d9ef;
   --completed-bg: rgba(102, 217, 239, 0.2);
@@ -316,7 +316,7 @@
   --diff-del-fg: #cf888f;
   --diff-del-bg: rgba(191, 97, 106, 0.14);
 
-  --running-bg: rgba(163, 190, 140, 0.18);
+  --running-bg: color-mix(in srgb, var(--accent) 18%, transparent);
   --attention-bg: rgba(235, 203, 139, 0.2);
   --completed: #81a1c1;
   --completed-bg: rgba(129, 161, 193, 0.2);
@@ -367,7 +367,7 @@
   --diff-del-fg: #e89198;
   --diff-del-bg: rgba(224, 108, 117, 0.14);
 
-  --running-bg: rgba(152, 195, 121, 0.18);
+  --running-bg: color-mix(in srgb, var(--accent) 18%, transparent);
   --attention-bg: rgba(209, 154, 102, 0.2);
   --completed: #56b6c2;
   --completed-bg: rgba(86, 182, 194, 0.2);
@@ -418,7 +418,7 @@
   --diff-del-fg: #f093ad;
   --diff-del-bg: rgba(235, 111, 146, 0.14);
 
-  --running-bg: rgba(149, 177, 172, 0.18);
+  --running-bg: color-mix(in srgb, var(--accent) 18%, transparent);
   --attention-bg: rgba(246, 193, 119, 0.2);
   --completed: #9ccfd8;
   --completed-bg: rgba(156, 207, 216, 0.2);
@@ -469,7 +469,7 @@
   --diff-del-fg: #e56563;
   --diff-del-bg: rgba(220, 50, 47, 0.14);
 
-  --running-bg: rgba(133, 153, 0, 0.18);
+  --running-bg: color-mix(in srgb, var(--accent) 18%, transparent);
   --attention-bg: rgba(181, 137, 0, 0.2);
   --completed: #2aa198;
   --completed-bg: rgba(42, 161, 152, 0.2);
@@ -520,7 +520,7 @@
   --diff-del-fg: #f998aa;
   --diff-del-bg: rgba(247, 118, 142, 0.14);
 
-  --running-bg: rgba(158, 206, 106, 0.18);
+  --running-bg: color-mix(in srgb, var(--accent) 18%, transparent);
   --attention-bg: rgba(224, 175, 104, 0.2);
   --completed: #7dcfff;
   --completed-bg: rgba(125, 207, 255, 0.2);
@@ -573,7 +573,7 @@
   --diff-del-fg: #a80c2e;
   --diff-del-bg: rgba(210, 15, 57, 0.1);
 
-  --running-bg: rgba(64, 160, 43, 0.14);
+  --running-bg: color-mix(in srgb, var(--accent) 14%, transparent);
   --attention-bg: rgba(223, 142, 29, 0.16);
   --completed: #1e66f5;
   --completed-bg: rgba(30, 102, 245, 0.14);
@@ -621,7 +621,7 @@
   --diff-del-fg: #7e0005;
   --diff-del-bg: rgba(157, 0, 6, 0.1);
 
-  --running-bg: rgba(121, 116, 14, 0.14);
+  --running-bg: color-mix(in srgb, var(--accent) 14%, transparent);
   --attention-bg: rgba(181, 118, 20, 0.16);
   --completed: #076678;
   --completed-bg: rgba(7, 102, 120, 0.14);
@@ -669,7 +669,7 @@
   --diff-del-fg: #904f62;
   --diff-del-bg: rgba(180, 99, 122, 0.1);
 
-  --running-bg: rgba(97, 135, 116, 0.14);
+  --running-bg: color-mix(in srgb, var(--accent) 14%, transparent);
   --attention-bg: rgba(234, 157, 52, 0.16);
   --completed: #56949f;
   --completed-bg: rgba(86, 148, 159, 0.14);
@@ -717,7 +717,7 @@
   --diff-del-fg: #b02826;
   --diff-del-bg: rgba(220, 50, 47, 0.1);
 
-  --running-bg: rgba(133, 153, 0, 0.14);
+  --running-bg: color-mix(in srgb, var(--accent) 14%, transparent);
   --attention-bg: rgba(181, 137, 0, 0.16);
   --completed: #2aa198;
   --completed-bg: rgba(42, 161, 152, 0.14);
