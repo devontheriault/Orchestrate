@@ -111,10 +111,12 @@
 :root {
   /* ------------------------------------------------------------ TYPOGRAPHY */
 
-  --font-sans:
-    -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", Roboto, sans-serif;
-  --font-mono:
-    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  /* The whole app is set in JetBrains Mono, bundled from
+     @fontsource-variable in +layout.svelte. `--font-sans` is kept as its own
+     token so the UI face can diverge from code again with a one-line change. */
+  --font-mono: "JetBrains Mono Variable", ui-monospace, Menlo, Consolas,
+    monospace;
+  --font-sans: var(--font-mono);
 
   /* The whole UI is sized in rem off this one value, so it scales with the
      window instead of being pinned to a pixel size. */
