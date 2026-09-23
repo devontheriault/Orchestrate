@@ -37,7 +37,7 @@ What the user has said to an Agent that wasn't free to hear it yet: prompts type
 _Avoid_: Buffer, Pipeline, Inbox.
 
 **Project**:
-A local Git repository the user has explicitly registered with the app. A Project may contain many Agents over time (spawned across separate Worktrees), and no Agent ever touches the Project's own working tree. The app touches the Project only when the user asks it to: a Merge advances one of the Project's branches, and reaches its working tree only when the branch being merged into is the one checked out.
+A local Git repository the user has explicitly registered with the app. Registering is also the user's one decision to trust it: `claude --print` skips Claude Code's own workspace trust prompt, so the repository's `CLAUDE.md`, hooks and settings take effect in every Agent unasked. The app says so and asks once, when the Project is added; Projects already registered are not asked again. A Project may contain many Agents over time (spawned across separate Worktrees), and no Agent ever touches the Project's own working tree. The app touches the Project only when the user asks it to: a Merge advances one of the Project's branches, and reaches its working tree only when the branch being merged into is the one checked out.
 _Avoid_: Workspace, Repo (in UI), Directory.
 
 **Worktree**:

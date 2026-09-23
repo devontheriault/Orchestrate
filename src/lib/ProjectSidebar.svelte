@@ -3,6 +3,7 @@
   import { store } from "./store.svelte";
   import AgentTree from "./AgentTree.svelte";
   import SettingsMenu from "./SettingsMenu.svelte";
+  import TrustProject from "./TrustProject.svelte";
 
   /** Rail mode: initials only, for windows too narrow to spare the width. */
   let { collapsed = false }: { collapsed?: boolean } = $props();
@@ -15,11 +16,21 @@
 
   const FLYOUT_MAX = 380;
 
+  /** A folder the user picked, held until they say they trust it. */
+  let trusting = $state<string | null>(null);
+
   async function pickAndAdd() {
     const picked = await open({ directory: true, multiple: false });
     if (typeof picked !== "string") return;
-    const name = picked.split("/").filter(Boolean).pop() ?? picked;
-    await store.addProject(name, picked);
+    trusting = picked;
+  }
+
+  async function addTrusted() {
+    const path = trusting;
+    trusting = null;
+    if (!path) return;
+    const name = path.split("/").filter(Boolean).pop() ?? path;
+    await store.addProject(name, path);
   }
 
   /** Select the project, and show its agents wherever there's room for them. */
@@ -182,6 +193,10 @@
     <SettingsMenu {collapsed} />
   </footer>
 </aside>
+
+{#if trusting}
+  <TrustProject path={trusting} onconfirm={addTrusted} oncancel={() => (trusting = null)} />
+{/if}
 
 {#if flyout && flyoutProject}
   <div
