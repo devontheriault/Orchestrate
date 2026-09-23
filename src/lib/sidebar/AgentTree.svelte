@@ -122,28 +122,27 @@
 
   /**
    * Clearing out the Delivered pile in one go. Their work is already in the
-   * project, but a reap still deletes branches and conversations, so like the
-   * header's Reap it takes two clicks.
+   * project, but a reap still deletes branches and conversations, so the
+   * button opens a confirmation under the heading that says so, and marks the
+   * rows it would take, before anything is deleted.
    */
-  let reapAllArmed = $state(false);
-  let reapingAll = $state(false);
-  let disarm: ReturnType<typeof setTimeout> | undefined;
+  let confirmingReap = $state(false);
+  let cancelReapEl: HTMLButtonElement | undefined = $state();
 
-  function armReapAll() {
-    reapAllArmed = true;
-    clearTimeout(disarm);
-    disarm = setTimeout(() => (reapAllArmed = false), 4000);
+  const bulkReap = $derived(store.bulkReaps[projectId]);
+
+  // Focus lands on Cancel, so a stray Enter backs out rather than deletes.
+  $effect(() => {
+    if (confirmingReap) cancelReapEl?.focus();
+  });
+
+  function reapAll() {
+    confirmingReap = false;
+    store.reapDelivered(projectId);
   }
 
-  async function reapAll() {
-    clearTimeout(disarm);
-    reapAllArmed = false;
-    reapingAll = true;
-    try {
-      await store.reapDelivered(projectId);
-    } finally {
-      reapingAll = false;
-    }
+  function plural(n: number, word: string): string {
+    return `${n} ${word}${n === 1 ? "" : "s"}`;
   }
 </script>
 
@@ -163,29 +162,75 @@
         <span class={`status-dot status-${bucket}`}></span>
         {bucketLabel[bucket]}
         <span class="count">{group.length}</span>
-        {#if bucket === "delivered"}
+        {#if bucket === "delivered" && !bulkReap}
           <button
             class="reap-all"
-            class:armed={reapAllArmed}
-            disabled={reapingAll}
-            onclick={() => (reapAllArmed ? reapAll() : armReapAll())}
-            onblur={() => (reapAllArmed = false)}
-            title="Delete every delivered agent's worktree and branch — their work is already merged, but their conversations go with them"
+            class:open={confirmingReap}
+            onclick={() => (confirmingReap = !confirmingReap)}
+            title="Reap all delivered agents"
+            aria-label="Reap all delivered agents"
+            aria-expanded={confirmingReap}
           >
-            {#if reapingAll}
-              Reaping…
-            {:else if reapAllArmed}
-              Reap {group.length} for good?
-            {:else}
-              Reap all
-            {/if}
+            <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
+              <path
+                d="M2.75 4.25h10.5M6.25 4.25V2.75h3.5v1.5M4 4.25l.6 8.2a1 1 0 0 0 1 .93h4.8a1 1 0 0 0 1-.93l.6-8.2M6.75 6.75v4M9.25 6.75v4"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.3"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
           </button>
         {/if}
       </div>
+      {#if bucket === "delivered" && bulkReap}
+        <div class="reap-panel" role="status">
+          <p class="reap-title">
+            {#if bulkReap.total === 0}
+              Checking for unmerged work…
+            {:else}
+              Reaping {Math.min(bulkReap.done + 1, bulkReap.total)} of {bulkReap.total}…
+            {/if}
+          </p>
+          <div class="reap-progress">
+            <div
+              class="reap-progress-fill"
+              style={`width: ${bulkReap.total ? (bulkReap.done / bulkReap.total) * 100 : 0}%`}
+            ></div>
+          </div>
+        </div>
+      {:else if bucket === "delivered" && confirmingReap}
+        <div
+          class="reap-panel"
+          role="alertdialog"
+          aria-labelledby={`reap-title-${projectId}`}
+          tabindex="-1"
+          onkeydown={(e) => e.key === "Escape" && (confirmingReap = false)}
+        >
+          <p class="reap-title" id={`reap-title-${projectId}`}>
+            Reap {plural(group.length, "agent")}?
+          </p>
+          <p class="reap-sub">
+            Their work is merged. Worktrees, branches and conversations are deleted.
+          </p>
+          <div class="reap-actions">
+            <button
+              bind:this={cancelReapEl}
+              class="btn btn-ghost btn-sm"
+              onclick={() => (confirmingReap = false)}>Cancel</button
+            >
+            <button class="btn btn-danger btn-sm" onclick={reapAll}>
+              Reap {group.length}
+            </button>
+          </div>
+        </div>
+      {/if}
       {#each group as a (a.id)}
         <div
           class="agent"
           class:selected={store.selectedAgentId === a.id}
+          class:doomed={bucket === "delivered" && (confirmingReap || !!bulkReap)}
           onclick={() => pick(a.id)}
           role="button"
           tabindex="0"
@@ -291,36 +336,91 @@
     opacity: 0.8;
   }
 
-  /* Pulled back in by its own padding and border so the Delivered heading sits
-     at the same height as the others. */
+  /* Pulled back in by its own size so the Delivered heading sits at the same
+     height as the others. */
   .reap-all {
-    margin: calc(-0.1rem - 1px) 0 calc(-0.1rem - 1px) auto;
-    padding: 0.1rem 0.35rem;
-    border: 1px solid transparent;
+    display: grid;
+    place-items: center;
+    width: 1.3rem;
+    height: 1.3rem;
+    margin: -0.3rem 0 -0.3rem auto;
+    padding: 0;
+    border: none;
     border-radius: var(--radius-sm);
     background: transparent;
     color: var(--fg-muted);
-    font: inherit;
-    letter-spacing: inherit;
-    text-transform: inherit;
-    cursor: pointer;
-  }
-
-  .reap-all:hover:not(:disabled) {
-    border-color: var(--accent);
-    color: var(--accent);
-  }
-
-  .reap-all:disabled {
-    cursor: default;
     opacity: 0.7;
+    cursor: pointer;
+    transition:
+      background var(--transition-fast),
+      color var(--transition-fast),
+      opacity var(--transition-fast);
   }
 
-  .reap-all.armed,
-  .reap-all.armed:hover {
-    border-color: var(--danger);
+  .group:hover .reap-all,
+  .reap-all:focus-visible {
+    opacity: 1;
+  }
+
+  .reap-all:hover,
+  .reap-all.open {
+    opacity: 1;
+    background: var(--danger-soft-bg);
+    color: var(--danger-text);
+  }
+
+  .reap-all:focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring);
+  }
+
+  .reap-panel {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    margin: var(--space-2) 0 var(--space-3);
+    padding: var(--space-4) var(--space-4) var(--space-4) var(--space-5);
+    border: 1px solid var(--danger-soft-border);
+    border-radius: var(--radius-md);
+    background: var(--danger-soft-bg);
+    outline: none;
+  }
+
+  .reap-panel p {
+    margin: 0;
+  }
+
+  .reap-title {
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
+    color: var(--fg);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .reap-sub {
+    font-size: var(--text-xs);
+    line-height: var(--leading-snug);
+    color: var(--fg-muted);
+  }
+
+  .reap-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-2);
+    margin-top: var(--space-1);
+  }
+
+  .reap-progress {
+    height: 3px;
+    border-radius: var(--radius-pill);
+    background: var(--danger-soft-border);
+    overflow: hidden;
+  }
+
+  .reap-progress-fill {
+    height: 100%;
     background: var(--danger);
-    color: var(--on-danger);
+    transition: width var(--duration-slow) var(--ease);
   }
 
   .agent {
@@ -373,6 +473,17 @@
 
   .agent.selected .prompt {
     font-weight: var(--weight-medium);
+  }
+
+  /* The rows a reap-all would take, marked while it is being confirmed and
+     while it runs, so it is plain which ones go. */
+  .agent.doomed .prompt,
+  .agent.doomed .age {
+    color: var(--fg-muted);
+  }
+
+  .agent.doomed::before {
+    background: var(--danger-soft-border);
   }
 
   .prompt {
