@@ -101,6 +101,13 @@ export class AppStore {
    */
   holdingWork = $state<string[]>([]);
 
+  /**
+   * Reap-all runs in progress, by project. Kept here rather than in the list
+   * that starts one, so collapsing the project or closing the flyout mid-run
+   * doesn't lose the progress. `total` is 0 until git has said which are safe.
+   */
+  bulkReaps = $state<Record<string, { done: number; total: number }>>({});
+
   /** A follow-up prompt is in flight for the selected agent. */
   sending = $state<boolean>(false);
 
@@ -591,14 +598,21 @@ export class AppStore {
    * worktree and deletes a branch in the same repository.
    */
   async reapDelivered(projectId: string) {
+    if (this.bulkReaps[projectId]) return;
+    this.bulkReaps[projectId] = { done: 0, total: 0 };
     try {
       this.holdingWork = await api.agentsHoldingWork();
+      const delivered = this.agentsForProject(projectId).filter((a) => this.isDelivered(a));
+      this.bulkReaps[projectId].total = delivered.length;
+      for (const a of delivered) {
+        await this.reapAgent(a.id);
+        this.bulkReaps[projectId].done++;
+      }
     } catch (e) {
       this.error = String(e);
-      return;
+    } finally {
+      delete this.bulkReaps[projectId];
     }
-    const delivered = this.agentsForProject(projectId).filter((a) => this.isDelivered(a));
-    for (const a of delivered) await this.reapAgent(a.id);
   }
 }
 
