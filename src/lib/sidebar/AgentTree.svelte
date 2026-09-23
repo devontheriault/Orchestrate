@@ -7,6 +7,7 @@
   import { store } from "$lib/state/store.svelte";
   import { models } from "$lib/state/models.svelte";
   import type { Agent } from "$lib/api";
+  import { rowDetail } from "./agentRow";
 
   let {
     projectId,
@@ -72,6 +73,26 @@
       .filter((b) => groups[b]?.length)
       .map((b) => ({ bucket: b, agents: groups[b]! }));
   });
+
+  /**
+   * Delivered folds away: it is the pile you are done with, so it shouldn't
+   * push live work off the screen. It opens by itself while one of its agents
+   * is the one showing, so the selection is never hidden.
+   */
+  let deliveredOpen = $state(false);
+  const showingDelivered = $derived(
+    grouped.some(
+      (g) => g.bucket === "delivered" && g.agents.some((a) => a.id === store.selectedAgentId),
+    ),
+  );
+
+  function detail(a: Agent): string {
+    return rowDetail(a, store.eventsByAgent[a.id] ?? [], {
+      delivered: store.isDelivered(a),
+      holdingWork: store.isHoldingWork(a.id),
+      modelName: a.model ? models.name(a.model) : "",
+    });
+  }
 
   const anyRunning = $derived(agents.some((a) => a.state === "running"));
 
@@ -153,35 +174,49 @@
     onclick={spawn}
     title="Spawn a new agent on this project (n)"
   >
-    <span class="plus">+</span> New agent
+    <span class="plus" aria-hidden="true">+</span> New agent
   </button>
 
   {#each grouped as { bucket, agents: group } (bucket)}
+    {@const folded = bucket === "delivered" && !deliveredOpen && !showingDelivered}
     <div class="group">
       <div class="group-label">
-        <span class={`status-dot status-${bucket}`}></span>
-        {bucketLabel[bucket]}
-        <span class="count">{group.length}</span>
-        {#if bucket === "delivered" && !bulkReap}
+        {#if bucket === "delivered"}
           <button
-            class="reap-all"
-            class:open={confirmingReap}
-            onclick={() => (confirmingReap = !confirmingReap)}
-            title="Reap all delivered agents"
-            aria-label="Reap all delivered agents"
-            aria-expanded={confirmingReap}
+            class="fold"
+            aria-expanded={!folded}
+            disabled={showingDelivered}
+            onclick={() => (deliveredOpen = !deliveredOpen)}
+            title={folded ? "Show delivered agents" : "Hide delivered agents"}
           >
-            <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
-              <path
-                d="M2.75 4.25h10.5M6.25 4.25V2.75h3.5v1.5M4 4.25l.6 8.2a1 1 0 0 0 1 .93h4.8a1 1 0 0 0 1-.93l.6-8.2M6.75 6.75v4M9.25 6.75v4"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.3"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              />
-            </svg>
+            <span class="chevron" class:open={!folded} aria-hidden="true">›</span>
+            {bucketLabel[bucket]}
+            <span class="count">{group.length}</span>
           </button>
+          {#if !bulkReap}
+            <button
+              class="reap-all"
+              class:open={confirmingReap}
+              onclick={() => (confirmingReap = !confirmingReap)}
+              title="Reap all delivered agents"
+              aria-label="Reap all delivered agents"
+              aria-expanded={confirmingReap}
+            >
+              <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
+                <path
+                  d="M2.75 4.25h10.5M6.25 4.25V2.75h3.5v1.5M4 4.25l.6 8.2a1 1 0 0 0 1 .93h4.8a1 1 0 0 0 1-.93l.6-8.2M6.75 6.75v4M9.25 6.75v4"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.3"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </button>
+          {/if}
+        {:else}
+          {bucketLabel[bucket]}
+          <span class="count">{group.length}</span>
         {/if}
       </div>
       {#if bucket === "delivered" && bulkReap}
@@ -224,68 +259,57 @@
           </div>
         </div>
       {/if}
-      {#each group as a (a.id)}
-        <div
-          class="agent"
-          class:selected={store.selectedAgentId === a.id}
-          class:doomed={bucket === "delivered" && (confirmingReap || !!bulkReap)}
-          onclick={() => pick(a.id)}
-          role="button"
-          tabindex="0"
-          onkeydown={(e) => e.key === "Enter" && pick(a.id)}
-          title={`${a.task.prompt}\n\n${a.id}${a.model ? ` · ${models.name(a.model)}` : ""}`}
-        >
-          <span class="prompt">{store.agentName(a)}</span>
-          {#if a.state === "running"}
-            <span class="age live" title="Working for {runTime(a)}">{runTime(a)}</span>
-          {:else}
-            <span class="age" title="Spawned {relTime(a.spawned_at)} ago"
-              >{relTime(a.spawned_at)}</span
-            >
-          {/if}
-        </div>
-      {/each}
+      {#if !folded}
+        {#each group as a (a.id)}
+          <div
+            class="agent"
+            class:selected={store.selectedAgentId === a.id}
+            class:doomed={bucket === "delivered" && (confirmingReap || !!bulkReap)}
+            onclick={() => pick(a.id)}
+            role="button"
+            tabindex="0"
+            onkeydown={(e) => e.key === "Enter" && pick(a.id)}
+            title={`${a.task.prompt}\n\n${a.id}${a.model ? ` · ${models.name(a.model)}` : ""}`}
+          >
+            <span class={`status-dot status-${bucket}`}></span>
+            <span class="name">{store.agentName(a)}</span>
+            {#if a.state === "running"}
+              <span class="age live" title="Working for {runTime(a)}">{runTime(a)}</span>
+            {:else}
+              <span class="age" title="Spawned {relTime(a.spawned_at)} ago"
+                >{relTime(a.spawned_at)}</span
+              >
+            {/if}
+            <span class="detail" class:failed={a.state === "failed"}>{detail(a)}</span>
+          </div>
+        {/each}
+      {/if}
     </div>
   {/each}
 </div>
 
 <style>
   .tree {
-    position: relative;
     display: flex;
     flex-direction: column;
     gap: var(--space-1);
-    /* Indented to sit under the project name, beside the guide line below. */
-    padding: 0.15rem 0.4rem 0.45rem calc(var(--pad-x) + 0.75rem);
-  }
-
-  /* The line that ties the agents to the project they belong to. */
-  .tree::before {
-    content: "";
-    position: absolute;
-    left: calc(var(--pad-x) + 0.25rem);
-    top: 0.1rem;
-    bottom: 0.5rem;
-    width: 1px;
-    background: var(--border);
+    /* Indented so each row's dot sits under the project's name. */
+    padding: 0.15rem 0.4rem 0.6rem calc(var(--pad-x) + 0.2rem);
   }
 
   .tree.flat {
     padding: var(--space-3);
   }
 
-  .tree.flat::before {
-    display: none;
-  }
-
+  /* Laid out like an agent row, with the plus where the dot goes, so it reads
+     as the list's first entry rather than a control bolted on top. */
   .new {
     display: flex;
     align-items: center;
     gap: var(--space-3);
     width: 100%;
-    padding: 0.3rem 0.45rem;
-    margin-bottom: var(--space-1);
-    border: 1px dashed var(--border);
+    padding: 0.4rem 0.5rem;
+    border: none;
     border-radius: var(--radius-sm);
     background: transparent;
     color: var(--fg-muted);
@@ -295,22 +319,21 @@
   }
 
   .new:hover {
-    border-color: var(--accent);
+    background: var(--hover);
     color: var(--accent);
-    border-style: solid;
   }
 
   /* While the blank page is open, this row reads as the thing that's showing. */
   .new.active {
-    border-style: solid;
-    border-color: var(--accent);
     background: var(--selected);
     color: var(--accent);
   }
 
   .plus {
-    font-size: var(--text-xl);
+    width: 0.5rem;
+    font-size: var(--text-lg);
     line-height: var(--leading-none);
+    text-align: center;
   }
 
   .group + .group {
@@ -320,8 +343,8 @@
   .group-label {
     display: flex;
     align-items: center;
-    gap: var(--space-3);
-    padding: 0.25rem 0.45rem 0.15rem;
+    gap: var(--space-2);
+    padding: 0.35rem 0.5rem 0.2rem;
     font-size: var(--text-3xs);
     font-weight: var(--weight-semibold);
     color: var(--fg-muted);
@@ -331,7 +354,43 @@
 
   .count {
     font-variant-numeric: tabular-nums;
-    opacity: 0.8;
+    opacity: 0.7;
+  }
+
+  /* The Delivered heading is its own toggle; it keeps the label's look. */
+  .fold {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-left: -0.9rem;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    letter-spacing: inherit;
+    text-transform: inherit;
+    cursor: pointer;
+  }
+
+  .fold:hover:not(:disabled) {
+    color: var(--fg);
+  }
+
+  .fold:disabled {
+    cursor: default;
+  }
+
+  .chevron {
+    width: 0.7rem;
+    font-size: var(--text-sm);
+    line-height: var(--leading-none);
+    text-align: center;
+    transition: transform var(--transition-fast);
+  }
+
+  .chevron.open {
+    transform: rotate(90deg);
   }
 
   /* Pulled back in by its own size so the Delivered heading sits at the same
@@ -421,87 +480,64 @@
     transition: width var(--duration-slow) var(--ease);
   }
 
+  /* Dot, name and age across the top; what it's doing underneath, lined up
+     with the name. */
   .agent {
-    position: relative;
-    display: flex;
-    align-items: center;
-    gap: var(--space-3);
-    /* Three one-line rows tall, so the name has room to wrap and say what the
-       agent is doing rather than trailing off after a few words. */
-    min-height: calc(3 * (var(--text-sm) * var(--leading-tight) + 0.6rem));
-    padding: 0.3rem 0.45rem;
+    display: grid;
+    grid-template-columns: 0.5rem minmax(0, 1fr) auto;
+    column-gap: var(--space-3);
+    row-gap: 0.2rem;
+    align-items: baseline;
+    padding: 0.5rem 0.5rem 0.55rem;
     border-radius: var(--radius-sm);
     cursor: pointer;
     color: var(--fg);
-  }
-
-  /* The elbow off the guide line: a short tick that points at this row, so an
-     agent reads as hanging from its project rather than floating beside it. */
-  .agent::before {
-    content: "";
-    position: absolute;
-    left: -0.5rem;
-    top: 50%;
-    width: 0.5rem;
-    height: 1px;
-    background: var(--border);
-  }
-
-  /* No guide line in the flyout, so nothing for a tick to come off. */
-  .tree.flat .agent::before {
-    display: none;
   }
 
   .agent:hover {
     background: var(--hover);
   }
 
-  .agent:hover::before {
-    background: var(--accent);
-  }
-
-  /* The selected row already carries the accent on its left edge — the tick
-     stays grey so the blue reads in one place. Listed after the hover rule so
-     it holds while the pointer is over the row. */
-  .agent.selected::before {
-    background: color-mix(in srgb, var(--fg-muted) 55%, var(--border));
-  }
-
+  /* Just the fill: the project's own edge already carries the accent. */
   .agent.selected {
     background: var(--selected);
-    box-shadow: inset 2px 0 0 var(--accent);
   }
 
-  .agent.selected .prompt {
+  .agent.selected .name {
     font-weight: var(--weight-medium);
+  }
+
+  /* Sits on the name's first line, not the middle of the row. */
+  .agent .status-dot {
+    align-self: start;
+    justify-self: center;
+    margin-top: calc((var(--text-sm) * var(--leading-tight) - 6px) / 2);
   }
 
   /* The rows a reap-all would take, marked while it is being confirmed and
      while it runs, so it is plain which ones go. */
-  .agent.doomed .prompt,
-  .agent.doomed .age {
+  .agent.doomed .name,
+  .agent.doomed .age,
+  .agent.doomed .detail {
     color: var(--fg-muted);
   }
 
-  .agent.doomed::before {
+  .agent.doomed .status-dot {
     background: var(--danger-soft-border);
   }
 
-  .prompt {
-    flex: 1;
-    min-width: 0;
+  .name {
     font-size: var(--text-sm);
     line-height: var(--leading-tight);
     display: -webkit-box;
     -webkit-box-orient: vertical;
-    -webkit-line-clamp: 3;
-    line-clamp: 3;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
     overflow: hidden;
     overflow-wrap: anywhere;
   }
 
   .age {
-    flex: none;
     font-size: var(--text-2xs);
     color: var(--fg-muted);
     font-variant-numeric: tabular-nums;
@@ -510,5 +546,19 @@
   /* A clock that's ticking should look like it belongs to the running dot. */
   .age.live {
     color: var(--running);
+  }
+
+  .detail {
+    grid-column: 2 / -1;
+    font-size: var(--text-2xs);
+    line-height: var(--leading-tight);
+    color: var(--fg-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .detail.failed {
+    color: color-mix(in srgb, var(--failed) 80%, var(--fg-muted));
   }
 </style>
