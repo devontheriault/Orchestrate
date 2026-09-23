@@ -142,6 +142,15 @@ pub async fn save_attachment(request: tauri::ipc::Request<'_>) -> Result<PathBuf
     crate::attachments::save(name, bytes).map_err(err)
 }
 
+/// An attached image's bytes, for the thumbnail on its chip. Returned raw
+/// rather than as JSON, for the same reason [`save_attachment`] takes them so.
+#[tauri::command]
+pub async fn attachment_preview(path: PathBuf) -> Result<tauri::ipc::Response, String> {
+    crate::attachments::preview(&path)
+        .map(tauri::ipc::Response::new)
+        .map_err(err)
+}
+
 #[tauri::command]
 pub async fn stop_agent(state: State<'_, AppState>, agent_id: String) -> Result<(), String> {
     state.runtime.stop(&agent_id).await.map_err(err)
