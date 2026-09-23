@@ -449,6 +449,17 @@
     margin-left: auto;
   }
 
+  /* Out past the room the row keeps for "×", to end where the agent timers
+     under it do: the tree's inset plus an agent row's. */
+  aside:not(.collapsed) .name-row .badge {
+    margin-right: calc(var(--space-3) + 0.5rem - 1.7rem);
+  }
+
+  /* Which leaves it under "×", so it gives way while that shows. */
+  aside:not(.collapsed) .head:hover .badge {
+    visibility: hidden;
+  }
+
   aside.collapsed .badge {
     padding: var(--space-1);
   }
