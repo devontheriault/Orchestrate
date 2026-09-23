@@ -8,9 +8,9 @@ use serde::Serialize;
 use tauri::State;
 use time::OffsetDateTime;
 
+use crate::domain::{new_id, Agent, AgentEvent, AgentState, Project};
 use crate::error::Error;
 use crate::git::{self, Branches, Commit, Merged, WorktreeDiff};
-use crate::model::{new_id, Agent, AgentEvent, AgentState, Project};
 use crate::models::ModelInfo;
 use crate::runtime::AgentRuntime;
 use crate::usage::UsageSummary;
@@ -87,9 +87,7 @@ pub async fn spawn_agent(
 ) -> Result<Agent, String> {
     let reg = storage::Registry::load().map_err(err)?;
     let project = reg
-        .projects
-        .iter()
-        .find(|p| p.id == project_id)
+        .project(&project_id)
         .ok_or_else(|| format!("project not found: {project_id}"))?;
     state
         .runtime
@@ -166,7 +164,7 @@ pub async fn reap_agent(agent_id: String) -> Result<(), String> {
     // Best-effort worktree removal. If the Project has been unregistered we
     // fall back to a plain directory delete.
     let reg = storage::Registry::load().map_err(err)?;
-    if let Some(project) = reg.projects.iter().find(|p| p.id == agent.project_id) {
+    if let Some(project) = reg.project(&agent.project_id) {
         let _ = worktree::reap(&project.path, &agent.worktree_path, &agent.branch).await;
     } else if agent.worktree_path.exists() {
         let _ = std::fs::remove_dir_all(&agent.worktree_path);
@@ -194,11 +192,7 @@ pub async fn agent_events(agent_id: String) -> Result<Vec<AgentEvent>, String> {
 pub async fn agent_diff(agent_id: String) -> Result<WorktreeDiff, String> {
     let agent = storage::load_agent(&agent_id).map_err(err)?;
     let reg = storage::Registry::load().map_err(err)?;
-    let project_path = reg
-        .projects
-        .iter()
-        .find(|p| p.id == agent.project_id)
-        .map(|p| p.path.clone());
+    let project_path = reg.project(&agent.project_id).map(|p| p.path.clone());
 
     git::diff(
         project_path.as_deref(),
@@ -230,9 +224,7 @@ pub async fn agent_commit(agent_id: String, message: String) -> Result<Commit, S
 pub async fn project_branches(project_id: String) -> Result<Branches, String> {
     let reg = storage::Registry::load().map_err(err)?;
     let project = reg
-        .projects
-        .iter()
-        .find(|p| p.id == project_id)
+        .project(&project_id)
         .ok_or_else(|| format!("project not found: {project_id}"))?;
     git::branches(&project.path).await.map_err(err)
 }
@@ -298,15 +290,12 @@ pub async fn resolve_conflict(
 /// an Agent whose Project has since been removed.
 fn project_of(agent: &Agent, action: &str) -> Result<Project, String> {
     let reg = storage::Registry::load().map_err(err)?;
-    reg.projects
-        .into_iter()
-        .find(|p| p.id == agent.project_id)
-        .ok_or_else(|| {
-            format!(
-                "cannot {action}: the project this agent belongs to is no longer registered ({})",
-                agent.project_id
-            )
-        })
+    reg.project(&agent.project_id).cloned().ok_or_else(|| {
+        format!(
+            "cannot {action}: the project this agent belongs to is no longer registered ({})",
+            agent.project_id
+        )
+    })
 }
 
 /// The Merged Agents whose Worktree still holds work the Project does not

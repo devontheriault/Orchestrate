@@ -1,3 +1,7 @@
+//! The app's own records: Projects, Agents, and the events in an Agent's log.
+//! What these words mean is spelled out in CONTEXT.md; this is their shape on
+//! disk and over IPC.
+
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};

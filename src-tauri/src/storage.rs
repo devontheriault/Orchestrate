@@ -4,8 +4,8 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+use crate::domain::{Agent, AgentEvent, Project};
 use crate::error::{Error, Result};
-use crate::model::{Agent, AgentEvent, Project};
 use crate::paths;
 
 /// The app's persistent state: the registered Projects. In-flight Agents are
@@ -33,6 +33,11 @@ impl Registry {
         let path = paths::state_file()?;
         let contents = serde_json::to_string_pretty(self)?;
         atomic_write(&path, &contents)
+    }
+
+    /// The registered Project with this id, if there still is one.
+    pub fn project(&self, id: &str) -> Option<&Project> {
+        self.projects.iter().find(|p| p.id == id)
     }
 }
 
@@ -134,7 +139,7 @@ fn atomic_write(path: &Path, contents: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{new_id, AgentState, Task};
+    use crate::domain::{new_id, AgentState, Task};
     use crate::test_util::StateEnv;
     use time::OffsetDateTime;
 

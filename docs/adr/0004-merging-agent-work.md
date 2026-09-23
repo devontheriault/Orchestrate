@@ -2,7 +2,7 @@
 
 An Agent Commits to its own branch, `cw/agent-<id>`, and there the work sat. Getting it into a real branch meant leaving the app for a terminal — the single most common thing the app sent its user elsewhere to do. **Merge** closes that: a Committed Agent's branch is merged into a branch the user picks, from a control beside Commit on the Agent itself.
 
-This action was originally called **Land**, to keep the domain verb distinct from the git operation underneath it. The distinction turned out not to earn its keep: users, the UI and git all called it a merge anyway, so the term is now Merge. Agent records written under the old name store `landed_branch` / `landed_at`, which `model.rs` still reads via serde aliases.
+This action was originally called **Land**, to keep the domain verb distinct from the git operation underneath it. The distinction turned out not to earn its keep: users, the UI and git all called it a merge anyway, so the term is now Merge. Agent records written under the old name store `landed_branch` / `landed_at`, which `domain.rs` still reads via serde aliases.
 
 Merge is **the only thing that writes to the Project**, and it is always the user's action. An Agent never touches the Project — that invariant is unchanged and is what makes Worktree isolation worth having. What changed is the wording: `CONTEXT.md` used to say the Project's working tree is never touched, which was true only because nothing wrote to the Project at all. It now says the app writes to the Project when the user asks, and names the one case where a Merge reaches the working tree rather than just a branch ref.
 

@@ -12,9 +12,9 @@ use std::path::Path;
 
 use time::OffsetDateTime;
 
+use crate::domain::{Agent, Resolution};
 use crate::error::{Error, Result};
 use crate::git::{self, Merged};
-use crate::model::{Agent, Resolution};
 use crate::storage;
 
 /// Merge `agent`'s branch into `target` and record the Merge on it.
@@ -137,9 +137,7 @@ pub async fn finish_resolution(
     };
     let reg = storage::Registry::load()?;
     let project_path = reg
-        .projects
-        .iter()
-        .find(|p| p.id == resolver.project_id)
+        .project(&resolver.project_id)
         .map(|p| p.path.clone())
         .ok_or_else(|| unresolved("its project is no longer registered".into()))?;
 

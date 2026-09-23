@@ -114,7 +114,7 @@ impl ScratchIndex {
         if !source.exists() {
             return None;
         }
-        let path = std::env::temp_dir().join(format!("cw-index-{}", crate::model::new_id()));
+        let path = std::env::temp_dir().join(format!("cw-index-{}", crate::domain::new_id()));
         std::fs::copy(&source, &path).ok()?;
         Some(Self { path })
     }
@@ -248,7 +248,9 @@ pub async fn diff(
         uncommitted: status.split('\0').any(|f| !f.trim().is_empty()),
         // Best-effort here: if git can't say, the picker simply keeps offering
         // a branch that has nothing to take, which [`merge`] itself refuses.
-        merged_into: branches_containing_head(worktree_path).await.unwrap_or_default(),
+        merged_into: branches_containing_head(worktree_path)
+            .await
+            .unwrap_or_default(),
     })
 }
 
@@ -302,7 +304,7 @@ async fn branches_containing_head(worktree_path: &Path) -> Result<Vec<String>> {
         .lines()
         .map(str::trim)
         .filter(|n| !n.is_empty())
-        .filter(|n| !n.starts_with(crate::model::AGENT_BRANCH_PREFIX))
+        .filter(|n| !n.starts_with(crate::domain::AGENT_BRANCH_PREFIX))
         .map(str::to_owned)
         .collect())
 }
@@ -509,7 +511,7 @@ pub async fn branches(project_path: &Path) -> Result<Branches> {
         .lines()
         .map(str::trim)
         .filter(|n| !n.is_empty())
-        .filter(|n| !n.starts_with(crate::model::AGENT_BRANCH_PREFIX))
+        .filter(|n| !n.starts_with(crate::domain::AGENT_BRANCH_PREFIX))
         .map(str::to_owned)
         .collect();
     names.sort();
@@ -588,7 +590,7 @@ pub async fn merge(
 
     // Borrow the target branch into a worktree of our own, merge there, and
     // hand it back. The user's checkout is never involved.
-    let borrowed = paths::worktrees_dir()?.join(format!("merge-{}", crate::model::new_id()));
+    let borrowed = paths::worktrees_dir()?.join(format!("merge-{}", crate::domain::new_id()));
     crate::worktree::add_existing(project_path, &borrowed, target).await?;
     let merged = merge_into(&borrowed, agent_branch, target, message).await;
     crate::worktree::release(project_path, &borrowed).await?;

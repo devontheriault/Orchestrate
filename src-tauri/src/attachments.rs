@@ -10,8 +10,8 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
+use crate::domain::new_id;
 use crate::error::{Error, Result};
-use crate::model::new_id;
 use crate::paths;
 
 /// The prompt `claude` is actually handed: the user's text with the attached
