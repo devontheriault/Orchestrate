@@ -1,59 +1,73 @@
 <script lang="ts">
   import { theme, THEMES, type ThemePref } from "$lib/theme/theme.svelte";
   import { usage } from "$lib/usage/usage.svelte";
-  import { dismissOnMove, menuStyle, opensMenu, placeMenu, stepActive, type Placement } from "$lib/menus/menu";
+  import {
+    dismissOnMove,
+    menuStyle,
+    opensMenu,
+    placeMenu,
+    placeSubmenu,
+    stepActive,
+    type Placement,
+  } from "$lib/menus/menu";
 
   /** Rail mode: icon only, for windows too narrow to spare the width. */
   let { collapsed = false }: { collapsed?: boolean } = $props();
 
   const uid = $props.id();
 
+  /** The menu's own rows: Theme, which opens the themes beside it, and Usage. */
+  const THEME = 0;
+  const USAGE = 1;
+  const COUNT = 2;
+
   /**
-   * The menu reads as three groups — System, the light themes, the dark ones —
-   * but the keyboard walks one flat list, so `rows` is that list and the
-   * groups are only how it is drawn. A theme row is worn by the whole window as
-   * soon as it is pointed at, and picking one is the one row that leaves the
-   * menu up: the point of a theme picker is seeing the app change under it, and
-   * with this many to try, closing after each would be the whole cost of
-   * trying them.
+   * The submenu reads as three groups — System, the light themes, the dark
+   * ones — but the keyboard walks one flat list, so `themes` is that list and
+   * the groups are only how it is drawn. A theme row is worn by the whole
+   * window as soon as it is pointed at, and picking one leaves the menus up:
+   * the point of a theme picker is seeing the app change under it, and with
+   * this many to try, closing after each would be the whole cost of trying
+   * them.
    */
   const light = THEMES.filter((t) => t.mode === "light");
   const dark = THEMES.filter((t) => t.mode === "dark");
-  const rows: { id: ThemePref; name: string }[] = [
+  const themes: { id: ThemePref; name: string }[] = [
     { id: "system", name: "System" },
     ...light,
     ...dark,
   ];
 
-  const COUNT = rows.length + 1;
-  /** The Usage row sits after the themes. */
-  const USAGE = rows.length;
+  const SUB_WIDTH = 222;
 
   let open = $state(false);
   /** Index the keyboard is on while the menu is up. */
   let active = $state(0);
+  /** Whether the themes submenu is showing, and where the keys are in it. */
+  let subOpen = $state(false);
+  let subActive = $state(0);
+  /** Whether the keys are driving the submenu rather than the menu. */
+  let inSub = $state(false);
 
   let triggerEl: HTMLButtonElement | undefined = $state();
   let menuEl: HTMLElement | undefined = $state();
+  let subEl: HTMLElement | undefined = $state();
 
   let placement = $state<Placement | null>(null);
+  let subPlacement = $state<Placement | null>(null);
 
   function place() {
     if (!triggerEl) return;
     // This button lives at the bottom of the window, so opening upward is the
-    // rule rather than the exception — but the list of themes outgrew the
-    // window long ago, so it has no height of its own: it takes the roomier
-    // side and scrolls inside it, with the Usage row staying put below.
-    // Left edges line up: the footer's rows are left-aligned, and in the rail
-    // the menu has nowhere to go but out to the right.
-    placement = placeMenu(triggerEl, { minWidth: 222, align: "left" });
+    // rule rather than the exception. Left edges line up: the footer's rows
+    // are left-aligned, and in the rail the menu has nowhere to go but out to
+    // the right.
+    placement = placeMenu(triggerEl, { minWidth: 200, align: "left" });
   }
 
   function openMenu() {
-    active = Math.max(
-      0,
-      rows.findIndex((t) => t.id === theme.pref),
-    );
+    active = THEME;
+    closeSub();
     place();
     open = true;
   }
@@ -61,7 +75,26 @@
   function close(refocus = true) {
     if (!open) return;
     open = false;
+    closeSub();
     if (refocus) triggerEl?.focus();
+  }
+
+  function openSub() {
+    const row = menuEl?.querySelector<HTMLElement>(`#${CSS.escape(`${uid}-item-${THEME}`)}`);
+    if (!row || !menuEl) return;
+    if (!subOpen) {
+      subActive = Math.max(
+        0,
+        themes.findIndex((t) => t.id === theme.pref),
+      );
+    }
+    subPlacement = placeSubmenu(row, menuEl, SUB_WIDTH);
+    subOpen = true;
+  }
+
+  function closeSub() {
+    subOpen = false;
+    inSub = false;
   }
 
   function pick(i: number) {
@@ -70,41 +103,40 @@
       usage.show();
       return;
     }
-    // Stays open: the window is repainting behind the menu, which is the
-    // fastest way to try a few and keep the one you like.
-    theme.set(rows[i].id);
+    openSub();
+    inSub = true;
   }
 
   /**
-   * Wear the row the user is on. `active` is what the pointer is over and what
-   * the arrow keys are on, so hover and keyboard preview the same way, and the
-   * rows that aren't themes (Usage) drop the preview rather than freezing it.
-   * Clearing on close is what puts the chosen theme back after a look around.
+   * Wear the theme the user is on. `subActive` is what the pointer is over and
+   * what the arrow keys are on, so hover and keyboard preview the same way.
+   * Closing the submenu — or the menu — drops the preview, which is what puts
+   * the chosen theme back after a look around.
    */
   $effect(() => {
-    if (!open) return;
-    theme.preview = active < rows.length ? rows[active].id : null;
+    if (!open || !subOpen) return;
+    theme.preview = themes[subActive].id;
     return () => (theme.preview = null);
   });
 
-  // The menu is pinned to the trigger's position, so anything that moves it
-  // dismisses the menu rather than leaving it stranded mid-air.
+  // The menus are pinned to the trigger's position, so anything that moves it
+  // dismisses them rather than leaving them stranded mid-air.
   $effect(() => {
     if (!open) return;
-    return dismissOnMove(() => [menuEl, triggerEl], () => close(false));
+    return dismissOnMove(() => [menuEl, subEl, triggerEl], () => close(false));
   });
 
-  // Keys land on the menu itself, per the codebase's other pickers.
+  // Keys land on the menu itself, including while it is driving the submenu.
   $effect(() => {
     if (open) menuEl?.focus();
   });
 
-  // Arrowing past the bottom of a scrolling list has to bring the list with
-  // it, or the lit row is one the user cannot see.
+  // Arrowing past the bottom of the scrolling themes has to bring the list
+  // with it, or the lit row is one the user cannot see.
   $effect(() => {
-    if (!open) return;
-    menuEl
-      ?.querySelector(`#${CSS.escape(`${uid}-item-${active}`)}`)
+    if (!subOpen) return;
+    subEl
+      ?.querySelector(`#${CSS.escape(`${uid}-theme-${subActive}`)}`)
       ?.scrollIntoView({ block: "nearest" });
   });
 
@@ -116,24 +148,44 @@
   }
 
   function onMenuKeydown(e: KeyboardEvent) {
-    const next = stepActive(e.key, active, COUNT);
+    // The arrows, Home and End walk whichever list the keys are in; leaving
+    // the Theme row closes the submenu hanging off it.
+    const next = inSub
+      ? stepActive(e.key, subActive, themes.length)
+      : stepActive(e.key, active, COUNT);
     if (next !== null) {
       e.preventDefault();
-      active = next;
+      if (inSub) subActive = next;
+      else {
+        active = next;
+        closeSub();
+      }
       return;
     }
     switch (e.key) {
       case "Escape":
         e.preventDefault();
-        close();
+        if (inSub) closeSub();
+        else close();
         break;
       case "Tab":
         close(false);
         break;
+      case "ArrowRight":
+        e.preventDefault();
+        if (!inSub && active === THEME) pick(THEME);
+        break;
+      case "ArrowLeft":
+        e.preventDefault();
+        closeSub();
+        break;
       case "Enter":
       case " ":
         e.preventDefault();
-        pick(active);
+        // Stays open: the window is repainting behind the menu, which is the
+        // fastest way to try a few and keep the one you like.
+        if (inSub) theme.set(themes[subActive].id);
+        else pick(active);
         break;
     }
   }
@@ -173,15 +225,18 @@
 {#snippet row(t: { id: ThemePref; name: string }, i: number)}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
-    id={`${uid}-item-${i}`}
+    id={`${uid}-theme-${i}`}
     role="menuitemradio"
     aria-checked={t.id === theme.pref}
     tabindex="-1"
-    data-active={i === active}
+    data-active={inSub && i === subActive}
     class="menu-item"
     class:on={t.id === theme.pref}
-    onclick={() => pick(i)}
-    onpointermove={() => (active = i)}
+    onclick={() => theme.set(t.id)}
+    onpointermove={() => {
+      subActive = i;
+      inSub = true;
+    }}
   >
     <span class="menu-tick" aria-hidden="true">{t.id === theme.pref ? "✓" : ""}</span>
     <!-- The swatch wears the theme rather than describing it: the ring is the
@@ -201,45 +256,57 @@
 {#if open && placement}
   <div
     bind:this={menuEl}
-    class="popover menu settings-menu"
+    class="popover menu"
     role="menu"
     aria-label="Settings"
-    aria-activedescendant={`${uid}-item-${active}`}
+    aria-activedescendant={inSub ? `${uid}-theme-${subActive}` : `${uid}-item-${active}`}
     tabindex="-1"
     onkeydown={onMenuKeydown}
     style={menuStyle(placement)}
   >
-    <div class="themes">
-      <div class="menu-title" id={`${uid}-theme`}>Theme</div>
-      <div role="group" aria-labelledby={`${uid}-theme`}>
-        {@render row(rows[0], 0)}
-      </div>
-
-      <div class="menu-title" id={`${uid}-light`}>Light</div>
-      <div role="group" aria-labelledby={`${uid}-light`}>
-        {#each light as t, n (t.id)}{@render row(t, 1 + n)}{/each}
-      </div>
-
-      <div class="menu-title" id={`${uid}-dark`}>Dark</div>
-      <div role="group" aria-labelledby={`${uid}-dark`}>
-        {#each dark as t, n (t.id)}{@render row(t, 1 + light.length + n)}{/each}
-      </div>
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <div
+      id={`${uid}-item-${THEME}`}
+      role="menuitem"
+      aria-haspopup="menu"
+      aria-expanded={subOpen}
+      tabindex="-1"
+      data-active={!inSub && active === THEME}
+      class="menu-item"
+      class:sub-open={subOpen}
+      onclick={() => pick(THEME)}
+      onpointermove={() => {
+        active = THEME;
+        inSub = false;
+        if (!subOpen) openSub();
+      }}
+    >
+      <!-- The theme being worn, in the tick column the way Usage's gauge is. -->
+      <span class="menu-tick lead" aria-hidden="true">
+        <span class="swatch">
+          <span class="swatch-fill" data-theme={theme.resolved}></span>
+        </span>
+      </span>
+      <span class="menu-label">Theme</span>
+      <span class="menu-note">{theme.label}</span>
+      <span class="menu-more" aria-hidden="true">›</span>
     </div>
-
-    <div class="menu-sep" role="none"></div>
 
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div
       id={`${uid}-item-${USAGE}`}
       role="menuitem"
       tabindex="-1"
-      data-active={USAGE === active}
+      data-active={!inSub && active === USAGE}
       class="menu-item usage"
       onclick={() => pick(USAGE)}
-      onpointermove={() => (active = USAGE)}
+      onpointermove={() => {
+        active = USAGE;
+        closeSub();
+      }}
       title="Token usage (Ctrl+Shift+U)"
     >
-      <span class="menu-tick gauge" aria-hidden="true">
+      <span class="menu-tick lead gauge" aria-hidden="true">
         <svg viewBox="0 0 10 8" width="10" height="8">
           <rect x="0.5" y="5" width="2" height="3" rx="0.5" fill="currentColor" />
           <rect x="4" y="2.5" width="2" height="5.5" rx="0.5" fill="currentColor" />
@@ -248,6 +315,31 @@
       </span>
       <span class="menu-label">Usage</span>
       <kbd>Ctrl + Shift + U</kbd>
+    </div>
+  </div>
+{/if}
+
+{#if open && subOpen && subPlacement}
+  <div
+    bind:this={subEl}
+    class="popover popover-above menu"
+    role="menu"
+    aria-label="Theme"
+    tabindex="-1"
+    style={menuStyle(subPlacement)}
+  >
+    <div role="group" aria-label="System">
+      {@render row(themes[0], 0)}
+    </div>
+
+    <div class="menu-title" id={`${uid}-light`}>Light</div>
+    <div role="group" aria-labelledby={`${uid}-light`}>
+      {#each light as t, n (t.id)}{@render row(t, 1 + n)}{/each}
+    </div>
+
+    <div class="menu-title" id={`${uid}-dark`}>Dark</div>
+    <div role="group" aria-labelledby={`${uid}-dark`}>
+      {#each dark as t, n (t.id)}{@render row(t, 1 + light.length + n)}{/each}
     </div>
   </div>
 {/if}
@@ -284,27 +376,27 @@
     text-overflow: ellipsis;
   }
 
-  /* The themes scroll; the separator and Usage below them do not, so the one
-     row that is not a theme is always where the user left it. */
-  .settings-menu {
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
+  /* The Theme row stays lit while the pointer is off in its submenu. */
+  .sub-open {
+    background: var(--hover);
   }
 
-  .themes {
-    min-height: 0;
-    overflow-y: auto;
-    /* The scrollbar rides the menu's inner edge rather than cutting through
-       the rows' padding. */
-    margin: 0 calc(-1 * var(--menu-pad));
-    padding: 0 var(--menu-pad);
+  /* An icon standing in for the tick column, so the labels still line up. */
+  .lead {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .lead .swatch {
+    width: 0.8rem;
+    height: 0.8rem;
   }
 
   /* The heading over a group of rows: the same inset as a row's label, so the
      words line up down the menu's left edge. */
   .menu-title {
-    padding: 0.2rem var(--menu-item-pad-x) 0.3rem;
+    padding: 0.5rem var(--menu-item-pad-x) 0.3rem;
     font-size: var(--text-3xs);
     font-weight: var(--weight-semibold);
     color: var(--fg-muted);
@@ -338,11 +430,7 @@
     );
   }
 
-  /* The gauge stands in for the tick column, so the labels still line up. */
   .gauge {
-    display: flex;
-    align-items: center;
-    justify-content: center;
     color: var(--fg-muted);
   }
 
