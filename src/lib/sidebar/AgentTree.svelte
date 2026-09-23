@@ -326,8 +326,11 @@
   .agent {
     position: relative;
     display: flex;
-    align-items: baseline;
+    align-items: center;
     gap: var(--space-3);
+    /* Three one-line rows tall, so the name has room to wrap and say what the
+       agent is doing rather than trailing off after a few words. */
+    min-height: calc(3 * (var(--text-sm) * var(--leading-tight) + 0.6rem));
     padding: 0.3rem 0.45rem;
     border-radius: var(--radius-sm);
     cursor: pointer;
@@ -380,9 +383,12 @@
     min-width: 0;
     font-size: var(--text-sm);
     line-height: var(--leading-tight);
-    white-space: nowrap;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
     overflow: hidden;
-    text-overflow: ellipsis;
+    overflow-wrap: anywhere;
   }
 
   .age {
