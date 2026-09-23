@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { theme, type ThemePref } from "./theme.svelte";
+  import { theme, THEMES, type ThemePref } from "./theme.svelte";
   import { usage } from "./usage.svelte";
 
   /** Rail mode: icon only, for windows too narrow to spare the width. */
@@ -8,19 +8,24 @@
   const uid = $props.id();
 
   /**
-   * One flat list, so the keyboard walks it without a mode: the three themes,
-   * then the actions. Picking a theme is the only row that leaves the menu up —
-   * the point of a theme picker is seeing the app change under it.
+   * The menu reads as three groups — System, the light themes, the dark ones —
+   * but the keyboard walks one flat list, so `rows` is that list and the
+   * groups are only how it is drawn. Picking a theme is the one row that
+   * leaves the menu up: the point of a theme picker is seeing the app change
+   * under it, and with this many to try, closing after each would be the
+   * whole cost of trying them.
    */
-  const themes: { id: ThemePref; name: string }[] = [
+  const light = THEMES.filter((t) => t.mode === "light");
+  const dark = THEMES.filter((t) => t.mode === "dark");
+  const rows: { id: ThemePref; name: string }[] = [
     { id: "system", name: "System" },
-    { id: "light", name: "Light" },
-    { id: "dark", name: "Dark" },
+    ...light,
+    ...dark,
   ];
 
-  const COUNT = themes.length + 1;
+  const COUNT = rows.length + 1;
   /** The Usage row sits after the themes. */
-  const USAGE = themes.length;
+  const USAGE = rows.length;
 
   let open = $state(false);
   /** Index the keyboard is on while the menu is up. */
@@ -30,28 +35,31 @@
   let menuEl: HTMLElement | undefined = $state();
 
   /** Where the fixed menu sits — measured off the trigger, flipped if needed. */
-  type Placement = { left: number; width: number; y: string };
+  type Placement = { left: number; width: number; max: number; y: string };
   let placement = $state<Placement | null>(null);
 
   const GAP = 6;
   const EDGE = 8;
-  const MENU_MIN_WIDTH = 194;
-  /** Four rows and the separator; enough to decide which way to open. */
-  const MENU_HEIGHT = 178;
+  const MENU_MIN_WIDTH = 222;
 
   function place() {
     if (!triggerEl) return;
     const r = triggerEl.getBoundingClientRect();
     const below = window.innerHeight - r.bottom - GAP - EDGE;
+    const above = r.top - GAP - EDGE;
     // This button lives at the bottom of the window, so opening upward is the
-    // rule rather than the exception.
-    const up = below < MENU_HEIGHT;
+    // rule rather than the exception — but the list is long enough that the
+    // roomier side wins outright rather than a threshold deciding.
+    const up = above >= below;
     const width = Math.max(r.width, MENU_MIN_WIDTH);
     placement = {
       width,
       // Left edges line up: the footer's rows are left-aligned, and in the rail
       // the menu has nowhere to go but out to the right.
       left: Math.min(Math.max(EDGE, r.left), window.innerWidth - width - EDGE),
+      // The list of themes outgrew the window long ago; it scrolls inside
+      // whatever height the window has, and the Usage row stays put below it.
+      max: Math.max(160, Math.round(up ? above : below)),
       y: up
         ? `bottom: ${Math.round(window.innerHeight - r.top + GAP)}px`
         : `top: ${Math.round(r.bottom + GAP)}px`,
@@ -61,7 +69,7 @@
   function openMenu() {
     active = Math.max(
       0,
-      themes.findIndex((t) => t.id === theme.pref),
+      rows.findIndex((t) => t.id === theme.pref),
     );
     place();
     open = true;
@@ -80,8 +88,8 @@
       return;
     }
     // Stays open: the window is repainting behind the menu, which is the
-    // fastest way to try the three and keep the one you like.
-    theme.set(themes[i].id);
+    // fastest way to try a few and keep the one you like.
+    theme.set(rows[i].id);
   }
 
   // The menu is pinned to the trigger's position, so anything that moves it
@@ -113,6 +121,15 @@
   // Keys land on the menu itself, per the codebase's other pickers.
   $effect(() => {
     if (open) menuEl?.focus();
+  });
+
+  // Arrowing past the bottom of a scrolling list has to bring the list with
+  // it, or the lit row is one the user cannot see.
+  $effect(() => {
+    if (!open) return;
+    menuEl
+      ?.querySelector(`#${CSS.escape(`${uid}-item-${active}`)}`)
+      ?.scrollIntoView({ block: "nearest" });
   });
 
   function onTriggerKeydown(e: KeyboardEvent) {
@@ -186,6 +203,33 @@
   {#if !collapsed}<span class="label">Settings</span>{/if}
 </button>
 
+<!-- One theme row. The menu owns the keyboard: the rows aren't focusable, so
+     a key handler on each one would never fire. -->
+{#snippet row(t: { id: ThemePref; name: string }, i: number)}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <div
+    id={`${uid}-item-${i}`}
+    role="menuitemradio"
+    aria-checked={t.id === theme.pref}
+    tabindex="-1"
+    data-active={i === active}
+    class="menu-item"
+    class:on={t.id === theme.pref}
+    onclick={() => pick(i)}
+    onpointermove={() => (active = i)}
+  >
+    <span class="menu-tick" aria-hidden="true">{t.id === theme.pref ? "✓" : ""}</span>
+    <!-- The swatch wears the theme rather than describing it: the ring is the
+         menu's, the disc inside is painted with that theme's own tokens, so a
+         palette can never be previewed as something it is not. -->
+    <span class="swatch" aria-hidden="true">
+      <span class="swatch-fill" data-theme={t.id === "system" ? theme.system : t.id}></span>
+    </span>
+    <span class="menu-label">{t.name}</span>
+    {#if t.id === "system"}<span class="menu-note">{theme.systemName}</span>{/if}
+  </div>
+{/snippet}
+
 <!--
   Fixed position, so the panes' `overflow: hidden` can't clip it.
 -->
@@ -198,30 +242,23 @@
     aria-activedescendant={`${uid}-item-${active}`}
     tabindex="-1"
     onkeydown={onMenuKeydown}
-    style={`left: ${Math.round(placement.left)}px; width: ${Math.round(placement.width)}px; ${placement.y}`}
+    style={`left: ${Math.round(placement.left)}px; width: ${Math.round(placement.width)}px; max-height: ${placement.max}px; ${placement.y}`}
   >
-    <div class="menu-title" id={`${uid}-theme`}>Theme</div>
-    <div role="group" aria-labelledby={`${uid}-theme`}>
-      {#each themes as t, i (t.id)}
-        <!-- The menu owns the keyboard: the rows aren't focusable, so a key
-             handler on each one would never fire. -->
-        <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <div
-          id={`${uid}-item-${i}`}
-          role="menuitemradio"
-          aria-checked={t.id === theme.pref}
-          tabindex="-1"
-          data-active={i === active}
-          class="menu-item"
-          class:on={t.id === theme.pref}
-          onclick={() => pick(i)}
-          onpointermove={() => (active = i)}
-        >
-          <span class="menu-tick" aria-hidden="true">{t.id === theme.pref ? "✓" : ""}</span>
-          <span class="menu-label">{t.name}</span>
-          {#if t.id === "system"}<span class="menu-note">{theme.resolved}</span>{/if}
-        </div>
-      {/each}
+    <div class="themes">
+      <div class="menu-title" id={`${uid}-theme`}>Theme</div>
+      <div role="group" aria-labelledby={`${uid}-theme`}>
+        {@render row(rows[0], 0)}
+      </div>
+
+      <div class="menu-title" id={`${uid}-light`}>Light</div>
+      <div role="group" aria-labelledby={`${uid}-light`}>
+        {#each light as t, n (t.id)}{@render row(t, 1 + n)}{/each}
+      </div>
+
+      <div class="menu-title" id={`${uid}-dark`}>Dark</div>
+      <div role="group" aria-labelledby={`${uid}-dark`}>
+        {#each dark as t, n (t.id)}{@render row(t, 1 + light.length + n)}{/each}
+      </div>
     </div>
 
     <div class="menu-sep" role="none"></div>
@@ -287,6 +324,23 @@
     text-overflow: ellipsis;
   }
 
+  /* The themes scroll; the separator and Usage below them do not, so the one
+     row that is not a theme is always where the user left it. */
+  .settings-menu {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .themes {
+    min-height: 0;
+    overflow-y: auto;
+    /* The scrollbar rides the menu's inner edge rather than cutting through
+       the rows' padding. */
+    margin: 0 calc(-1 * var(--menu-pad));
+    padding: 0 var(--menu-pad);
+  }
+
   /* The heading over a group of rows: the same inset as a row's label, so the
      words line up down the menu's left edge. */
   .menu-title {
@@ -296,6 +350,32 @@
     color: var(--fg-muted);
     text-transform: uppercase;
     letter-spacing: 0.05em;
+  }
+
+  /* A disc of the theme: its page, its accent, its green. Three thirds rather
+     than a single square of background, because two themes can share a
+     background and still be nothing alike. */
+  .swatch {
+    flex: none;
+    display: flex;
+    width: 0.92rem;
+    height: 0.92rem;
+    border-radius: var(--radius-circle);
+    /* Drawn in the menu's border colour, not the theme's, so a dark palette
+       previewed in a dark menu still has an edge. */
+    border: var(--border-width) solid var(--border);
+  }
+
+  .swatch-fill {
+    width: 100%;
+    height: 100%;
+    border-radius: inherit;
+    background: conic-gradient(
+      from 0.5turn,
+      var(--surface) 0 33.34%,
+      var(--accent) 33.34% 66.67%,
+      var(--success) 66.67% 100%
+    );
   }
 
   /* The gauge stands in for the tick column, so the labels still line up. */
