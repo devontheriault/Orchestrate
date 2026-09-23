@@ -23,12 +23,12 @@ export type DayUsage = {
 export const DAYS_SHOWN = 7;
 
 /**
- * Add up every Agent's slots over the last week, newest day first. Every day
- * gets a row, spent on or not, so the week reads as a week.
+ * Add up every Agent's slots over the last week, in weekday order ending on
+ * today. Every day gets a row, spent on or not, so the week reads as a week.
  */
 export function byDay(agents: AgentUsage[], now: Date): DayUsage[] {
   const days = new Map<string, DayUsage>();
-  for (let i = 0; i < DAYS_SHOWN; i++) {
+  for (let i = DAYS_SHOWN - 1; i >= 0; i--) {
     const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
     days.set(dayKey(start), {
       key: dayKey(start),
