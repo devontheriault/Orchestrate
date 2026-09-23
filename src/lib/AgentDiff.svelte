@@ -135,6 +135,17 @@
   const canMerge = $derived(
     !running && !store.merging && !(store.diff?.uncommitted ?? false) && targets.length > 0,
   );
+
+  /**
+   * Whether this work has landed and nothing has happened since: some branch
+   * has the agent's tip, and the worktree is clean. `merged_into` empties the
+   * moment the agent commits again, so this reads as "merged, no new changes"
+   * — and a merge into whatever other branches remain is not what the user
+   * came here for. See `merged_into` in api.ts.
+   */
+  const settled = $derived(
+    mergedInto.length > 0 && !(store.diff?.uncommitted ?? false),
+  );
 </script>
 
 <div class="diff-pane">
@@ -227,9 +238,9 @@
       {/if}
 
       {#if diff.commits.length > 0}
-        {#if targets.length === 0 && mergedInto.length > 0}
-          <!-- Nowhere left to merge: say where the work went instead of
-               offering a control that has nothing to do. -->
+        {#if settled}
+          <!-- Already merged with nothing new since: say where the work went
+               instead of offering a control there is no reason to use. -->
           <div class="merge-box merged">
             <div class="merge-box-head">
               <strong>Merged</strong>
