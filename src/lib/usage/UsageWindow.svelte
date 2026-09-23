@@ -97,6 +97,9 @@
         : agents.reduce((n, a) => n + a.turns, 0),
   );
 
+  /** Local midnight today. Changes once a day, not with every tick of `now`. */
+  const today = $derived(new Date(now).setHours(0, 0, 0, 0));
+
   /** Days follow the scope toggle, like the totals above them. */
   const days = $derived(
     byDay(
@@ -109,6 +112,7 @@
             ? [selectedUsage]
             : []
           : agents,
+      new Date(today),
     ),
   );
 
@@ -366,13 +370,13 @@
         {/if}
       </section>
 
-      {#if days.length > 0}
+      {#if busiestDay > 0}
         <section>
           <div class="section-label">By day</div>
           <div class="day-list">
             {#each days as d (d.key)}
-              <div class="day-row" title={`${d.turns} repl${d.turns === 1 ? "y" : "ies"}`}>
-                <span class="day">{dayLabel(d.start, new Date(now))}</span>
+              <div class="day-row" class:idle={d.turns === 0} title={`${d.turns} repl${d.turns === 1 ? "y" : "ies"}`}>
+                <span class="day">{dayLabel(d.start)}</span>
                 <div class="day-bar" aria-hidden="true">
                   <div
                     class="fill"
@@ -768,9 +772,6 @@
   .day-list {
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
-    max-height: 12rem;
-    overflow-y: auto;
-    overscroll-behavior: contain;
   }
 
   .day-row {
@@ -784,6 +785,10 @@
 
   .day-row:first-child {
     border-top: none;
+  }
+
+  .day-row.idle {
+    color: var(--fg-muted);
   }
 
   .day-row .day {

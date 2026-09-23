@@ -19,27 +19,32 @@ export type DayUsage = {
   turns: number;
 };
 
-/** Add up every source's slots by the local day they fell on, newest day first. */
-export function byDay(sources: { slots: SlotUsage[] }[]): DayUsage[] {
+/**
+ * Add up every source's slots over this calendar week, Monday through Sunday.
+ * Every day gets a row, spent on or not — the days still to come included —
+ * so the week reads as a week.
+ */
+export function byDay(sources: { slots: SlotUsage[] }[], now: Date): DayUsage[] {
+  // getDay() counts from Sunday; shift it so the week opens on Monday.
+  const monday = now.getDate() - ((now.getDay() + 6) % 7);
   const days = new Map<string, DayUsage>();
+  for (let i = 0; i < 7; i++) {
+    const start = new Date(now.getFullYear(), now.getMonth(), monday + i);
+    days.set(dayKey(start), {
+      key: dayKey(start),
+      start,
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_read_tokens: 0,
+      cache_creation_tokens: 0,
+      cost_usd: 0,
+      turns: 0,
+    });
+  }
   for (const a of sources) {
     for (const s of a.slots) {
-      const at = new Date(s.start * 1000);
-      const key = dayKey(at);
-      let day = days.get(key);
-      if (!day) {
-        day = {
-          key,
-          start: new Date(at.getFullYear(), at.getMonth(), at.getDate()),
-          input_tokens: 0,
-          output_tokens: 0,
-          cache_read_tokens: 0,
-          cache_creation_tokens: 0,
-          cost_usd: 0,
-          turns: 0,
-        };
-        days.set(key, day);
-      }
+      const day = days.get(dayKey(new Date(s.start * 1000)));
+      if (!day) continue;
       day.input_tokens += s.input_tokens;
       day.output_tokens += s.output_tokens;
       day.cache_read_tokens += s.cache_read_tokens;
@@ -48,21 +53,12 @@ export function byDay(sources: { slots: SlotUsage[] }[]): DayUsage[] {
       day.turns += s.turns;
     }
   }
-  return [...days.values()].sort((a, b) => b.start.getTime() - a.start.getTime());
+  return [...days.values()];
 }
 
-/** "Today", "Yesterday", then "Mon, Sep 21" — with the year once it isn't this one. */
-export function dayLabel(day: Date, now: Date): string {
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
-  if (dayKey(day) === dayKey(today)) return "Today";
-  if (dayKey(day) === dayKey(yesterday)) return "Yesterday";
-  return day.toLocaleDateString([], {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    ...(day.getFullYear() === now.getFullYear() ? {} : { year: "numeric" }),
-  });
+/** The day's name: "Monday". A week never repeats one, so it's enough. */
+export function dayLabel(day: Date): string {
+  return day.toLocaleDateString([], { weekday: "long" });
 }
 
 function dayKey(d: Date): string {
