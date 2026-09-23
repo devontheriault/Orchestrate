@@ -225,11 +225,11 @@
           onclick={() => toggle(bucket)}
           title={`${open ? "Hide" : "Show"} ${bucketLabel[bucket].toLowerCase()} agents`}
         >
-          <span class="chevron" class:open aria-hidden="true">›</span>
           {bucketLabel[bucket]}
           <span class="count">{group.length}</span>
+          <span class="rule" aria-hidden="true"></span>
+          <span class="chevron" class:open aria-hidden="true">›</span>
         </button>
-        <span class="rule" aria-hidden="true"></span>
         {#if bucket === "delivered"}
           {#if !bulkReap}
             <button
@@ -393,8 +393,8 @@
     opacity: 0.7;
   }
 
-  /* Runs from the heading to the column's edge, so each bucket reads as its
-     own section. */
+  /* Runs from the heading to the chevron, so each bucket reads as its own
+     section. */
   .rule {
     flex: 1;
     min-width: 0;
@@ -402,12 +402,14 @@
     background: var(--border);
   }
 
-  /* Each heading is its own toggle; it keeps the label's look. */
+  /* Each heading is its own toggle; it keeps the label's look. It spans the
+     rule too, so the chevron sits at the line's right end. */
   .fold {
+    flex: 1;
+    min-width: 0;
     display: flex;
     align-items: center;
     gap: var(--space-2);
-    margin-left: -0.9rem;
     padding: 0;
     border: none;
     background: transparent;
