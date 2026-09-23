@@ -121,6 +121,7 @@
     | { kind: "tool_use"; name: string; input: unknown; id: string }
     | { kind: "tool_result"; tool_use_id: string; content: unknown; isError: boolean }
     | { kind: "thinking"; text: string }
+    | { kind: "progress"; tool_use_id: string; seconds: number }
     | {
         kind: "result";
         result: string;
@@ -173,6 +174,8 @@
       text?: string;
       duration_ms?: number;
       usage?: { output_tokens?: number };
+      parent_tool_use_id?: string;
+      elapsed_time_seconds?: number;
     } | null;
     if (!e || typeof e !== "object") return [{ kind: "raw" }];
     if (SILENT_EVENT_TYPES.has(e.type ?? "")) return [];
@@ -186,6 +189,18 @@
     if (e.type === "system") {
       if (SILENT_SYSTEM_SUBTYPES.has(e.subtype ?? "")) return [];
       return [{ kind: "system", subtype: e.subtype ?? "" }];
+    }
+    // A heartbeat `claude` sends every 30s while a tool is still going. It
+    // belongs to the call it's timing, not the transcript: one row per
+    // heartbeat reads as the same line repeated.
+    if (e.type === "tool_progress") {
+      return [
+        {
+          kind: "progress",
+          tool_use_id: e.parent_tool_use_id ?? "",
+          seconds: e.elapsed_time_seconds ?? 0,
+        },
+      ];
     }
     if (e.type === "result")
       return [
@@ -234,6 +249,8 @@
     result: unknown;
     hasResult: boolean;
     isError: boolean;
+    /** How long the call had been running at its latest heartbeat. */
+    elapsedSeconds: number;
   };
 
   /**
@@ -310,6 +327,7 @@
           result: undefined,
           hasResult: false,
           isError: false,
+          elapsedSeconds: 0,
         };
         if (k.id) callsById.set(k.id, call);
         if (last?.kind === "tools" && last.name === k.name) last.calls.push(call);
@@ -323,6 +341,9 @@
           call.hasResult = true;
           call.isError = k.isError;
         }
+      } else if (k.kind === "progress") {
+        const call = callsById.get(k.tool_use_id);
+        if (call) call.elapsedSeconds = Math.max(call.elapsedSeconds, k.seconds);
       } else if (k.kind === "thinking") {
         if (last?.kind === "thinking") last.parts.push(k.text);
         else out.push({ key: it.key, kind: "thinking", parts: [k.text] });
@@ -411,6 +432,24 @@
     const shown = seen.slice(0, 2);
     const rest = seen.length - shown.length;
     return rest > 0 ? `${shown.join(", ")}, +${rest}` : shown.join(", ");
+  }
+
+  /**
+   * How long a slow call ran, from its heartbeats. They only come every 30s,
+   * so a finished call ran at least this long, not exactly it.
+   */
+  function elapsedLabel(c: ToolCall): string {
+    if (!c.elapsedSeconds) return "";
+    const d = formatDuration(c.elapsedSeconds * 1000);
+    return c.hasResult ? `ran over ${d}` : `running ${d}`;
+  }
+
+  /** The longest-running call in a group, for the group's own summary. */
+  function groupElapsed(calls: ToolCall[]): string {
+    const running = calls.filter((c) => !c.hasResult);
+    const pool = running.length ? running : calls;
+    const slowest = pool.reduce((a, b) => (b.elapsedSeconds > a.elapsedSeconds ? b : a));
+    return elapsedLabel(slowest);
   }
 
   /**
@@ -666,6 +705,9 @@
                   {#if row.calls.some((c) => !c.hasResult)}
                     <span class="running-dot" title="still running"></span>
                   {/if}
+                  {#if groupElapsed(row.calls)}
+                    <span class="elapsed">{groupElapsed(row.calls)}</span>
+                  {/if}
                 </summary>
                 {#if row.calls.length === 1}
                   {@render callBody(row.calls[0])}
@@ -681,6 +723,7 @@
                       <summary>
                         {truncate(callTarget(c.name, c.input), 80) || c.name}
                         {#if !c.hasResult}<span class="running-dot"></span>{/if}
+                        {#if elapsedLabel(c)}<span class="elapsed">{elapsedLabel(c)}</span>{/if}
                       </summary>
                       {@render callBody(c)}
                     </details>
@@ -1009,6 +1052,12 @@
 
   details.block summary .targets::before {
     content: "— ";
+  }
+
+  .elapsed {
+    margin-left: var(--space-2);
+    color: var(--fg-muted);
+    font-size: var(--text-sm);
   }
 
   /* A call whose result hasn't come back yet — the row is still being
