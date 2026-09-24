@@ -233,9 +233,17 @@ async fn handle(host: &Host, call: Call) -> Result<Value, String> {
     let runtime = &host.runtime;
     match call {
         Call::ListProjects {} => {
-            let mut projects = Vec::new();
-            for p in storage::Registry::load().map_err(err)?.projects {
-                projects.push(listed(p).await);
+            // Each remote is a few git calls, asked of every Project at once:
+            // the window's first paint waits on this list.
+            let reading: Vec<_> = storage::Registry::load()
+                .map_err(err)?
+                .projects
+                .into_iter()
+                .map(|p| tokio::spawn(listed(p)))
+                .collect();
+            let mut projects = Vec::with_capacity(reading.len());
+            for p in reading {
+                projects.push(p.await.map_err(err)?);
             }
             ok(projects)
         }
@@ -598,16 +606,24 @@ fn project_of(agent: &Agent, action: &str) -> Result<Project, String> {
 /// bounded by how many Agents you have already Merged rather than by how many
 /// you have. Running Agents are skipped: their Worktree is being written as we
 /// look, and Running outranks the merge record anyway.
+///
+/// Each Worktree is asked at once, as the window's first paint waits on this.
 async fn agents_holding_work() -> Result<Vec<String>, String> {
-    let agents = storage::list_agents().map_err(err)?;
+    let asking: Vec<_> = storage::list_agents()
+        .map_err(err)?
+        .into_iter()
+        .filter(|a| a.merged_at.is_some() && a.state != AgentState::Running)
+        .map(|a| {
+            tokio::spawn(async move {
+                git::holds_unmerged_work(&a.worktree_path)
+                    .await
+                    .then_some(a.id)
+            })
+        })
+        .collect();
     let mut holding = Vec::new();
-    for agent in agents {
-        if agent.merged_at.is_none() || agent.state == AgentState::Running {
-            continue;
-        }
-        if git::holds_unmerged_work(&agent.worktree_path).await {
-            holding.push(agent.id);
-        }
+    for asked in asking {
+        holding.extend(asked.await.map_err(err)?);
     }
     Ok(holding)
 }

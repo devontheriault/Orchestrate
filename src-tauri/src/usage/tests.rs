@@ -182,6 +182,27 @@ fn summary_ranks_agents_by_cost_and_takes_the_newest_limits() {
 }
 
 #[test]
+fn summary_rereads_a_log_that_grew_and_forgets_one_that_went() {
+    let _env = StateEnv::new();
+    let one = log(&[("2026-09-20T10:00:00Z", turn("claude-opus-5", 100, 10, 1.00))]);
+    write_log("growing", &one);
+    write_log("gone", &one);
+    assert_eq!(summary().unwrap().agents.len(), 2);
+
+    let two = log(&[
+        ("2026-09-20T10:00:00Z", turn("claude-opus-5", 100, 10, 1.00)),
+        ("2026-09-20T11:00:00Z", turn("claude-opus-5", 200, 20, 2.00)),
+    ]);
+    write_log("growing", &two);
+    fs::remove_file(paths::agent_log_path("gone").unwrap()).unwrap();
+
+    let s = summary().unwrap();
+    assert_eq!(s.agents.len(), 1);
+    assert_eq!(s.agents[0].turns, 2);
+    assert_eq!(s.agents[0].models[0].input_tokens, 300);
+}
+
+#[test]
 fn summary_skips_agents_that_spent_nothing() {
     let _env = StateEnv::new();
     let quiet = log(&[("2026-09-20T10:00:00Z", json!({ "type": "system" }))]);

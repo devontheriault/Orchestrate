@@ -29,7 +29,8 @@ type Kind =
  * Pure telemetry that `claude` emits every turn (sometimes several times)
  * but carries nothing a user reading the transcript can act on. Dropped
  * rather than rendered, so the stream doesn't read as the same line
- * repeated.
+ * repeated. A Host of this build never sends them (`storage::unseen`); one
+ * from an older build still does.
  */
 const SILENT_EVENT_TYPES = new Set(["rate_limit_event"]);
 const SILENT_SYSTEM_SUBTYPES = new Set(["thinking_tokens"]);

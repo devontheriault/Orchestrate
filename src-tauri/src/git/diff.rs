@@ -125,25 +125,22 @@ pub async fn diff(
     // Best-effort: if this fails, new files are simply missing from the patch.
     let _ = run_with_index(worktree_path, &["add", "-A", "--intent-to-add"], index).await;
 
-    let numstat = stdout_with_index(
-        worktree_path,
-        &["diff", "--numstat", "-z", "--no-renames", &base],
-        index,
-    )
-    .await?;
-    let name_status = stdout_with_index(
-        worktree_path,
-        &["diff", "--name-status", "-z", "--no-renames", &base],
-        index,
-    )
-    .await?;
-    let patch = stdout_with_index(worktree_path, &["diff", "--no-renames", &base], index).await?;
-    let log = stdout(
-        worktree_path,
-        &["log", "--format=%h%x1f%s", &format!("{base}..HEAD")],
-    )
-    .await?;
-    let status = stdout_with_index(worktree_path, &["status", "--porcelain", "-z"], index).await?;
+    // Only reads from here on, so they're asked all at once.
+    let range = format!("{base}..HEAD");
+    let numstat_args = ["diff", "--numstat", "-z", "--no-renames", &base];
+    let name_status_args = ["diff", "--name-status", "-z", "--no-renames", &base];
+    let patch_args = ["diff", "--no-renames", &base];
+    let log_args = ["log", "--format=%h%x1f%s", &range];
+    let (numstat, name_status, patch, log, status, merged_into) = tokio::join!(
+        stdout_with_index(worktree_path, &numstat_args, index),
+        stdout_with_index(worktree_path, &name_status_args, index),
+        stdout_with_index(worktree_path, &patch_args, index),
+        stdout(worktree_path, &log_args),
+        stdout_with_index(worktree_path, &["status", "--porcelain", "-z"], index),
+        branches_containing_head(worktree_path),
+    );
+    let (numstat, name_status, patch, log, status) =
+        (numstat?, name_status?, patch?, log?, status?);
 
     let statuses = parse_name_status(&name_status);
     let files = parse_numstat(&numstat)
@@ -170,9 +167,7 @@ pub async fn diff(
         uncommitted: status.split('\0').any(|f| !f.trim().is_empty()),
         // Best-effort here: if git can't say, the picker simply keeps offering
         // a branch that has nothing to take, which [`merge`] itself refuses.
-        merged_into: branches_containing_head(worktree_path)
-            .await
-            .unwrap_or_default(),
+        merged_into: merged_into.unwrap_or_default(),
     })
 }
 

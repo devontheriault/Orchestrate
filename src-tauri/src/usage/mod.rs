@@ -11,6 +11,9 @@
 
 use std::collections::HashMap;
 use std::fs;
+use std::path::PathBuf;
+use std::sync::Mutex;
+use std::time::SystemTime;
 
 use serde::Serialize;
 use serde_json::Value;
@@ -132,7 +135,22 @@ pub fn summary() -> Result<UsageSummary> {
     })
 }
 
+/// One Agent log's totals as last read, and how to tell whether it has
+/// changed since.
+struct Scanned {
+    len: u64,
+    modified: Option<SystemTime>,
+    usage: AgentUsage,
+    limits: Option<Limits>,
+}
+
+/// The logs as last read. The window re-asks every few seconds while it's up,
+/// and the logs of every Agent ever run add up to a lot to read each time;
+/// only a live Agent's is still growing.
+static CACHE: Mutex<Option<HashMap<PathBuf, Scanned>>> = Mutex::new(None);
+
 /// Read every Agent log: what each spent, and the newest limits reading.
+/// A log unchanged since the last call isn't read again.
 fn agents() -> Result<(Vec<AgentUsage>, Option<Limits>)> {
     let dir = paths::logs_dir()?;
     let entries = match fs::read_dir(&dir) {
@@ -144,27 +162,46 @@ fn agents() -> Result<(Vec<AgentUsage>, Option<Limits>)> {
     let mut agents = Vec::new();
     let mut limits: Option<Limits> = None;
 
+    let mut cache = CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    let mut old = cache.take().unwrap_or_default();
+    let mut fresh = HashMap::new();
+
     for entry in entries {
-        let path = entry
-            .map_err(|source| Error::Io {
-                path: dir.clone(),
-                source,
-            })?
-            .path();
+        let entry = entry.map_err(|source| Error::Io {
+            path: dir.clone(),
+            source,
+        })?;
+        let path = entry.path();
         if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
             continue;
         }
         let Some(agent_id) = path.file_stem().and_then(|s| s.to_str()) else {
             continue;
         };
-        // A log being unreadable shouldn't cost the user the whole view; the
-        // Agents that did read give an honest partial total.
-        let Ok(contents) = fs::read_to_string(&path) else {
-            continue;
+        let Ok(meta) = entry.metadata() else { continue };
+        let (len, modified) = (meta.len(), meta.modified().ok());
+        let kept = old
+            .remove(&path)
+            .filter(|s| s.len == len && s.modified == modified);
+        let scanned = match kept {
+            Some(s) => s,
+            // A log being unreadable shouldn't cost the user the whole view;
+            // the Agents that did read give an honest partial total.
+            None => match fs::read_to_string(&path) {
+                Ok(contents) => {
+                    let (usage, limits) = scan_log(agent_id, &contents);
+                    Scanned {
+                        len,
+                        modified,
+                        usage,
+                        limits,
+                    }
+                }
+                Err(_) => continue,
+            },
         };
 
-        let (usage, seen) = scan_log(agent_id, &contents);
-        if let Some(seen) = seen {
+        if let Some(seen) = scanned.limits.clone() {
             let newer = limits
                 .as_ref()
                 .is_none_or(|kept| seen.observed_at > kept.observed_at);
@@ -172,10 +209,14 @@ fn agents() -> Result<(Vec<AgentUsage>, Option<Limits>)> {
                 limits = Some(seen);
             }
         }
-        if usage.turns > 0 {
-            agents.push(usage);
+        if scanned.usage.turns > 0 {
+            agents.push(scanned.usage.clone());
         }
+        fresh.insert(path, scanned);
     }
+    // Logs that have gone are dropped with `old`.
+    *cache = Some(fresh);
+    drop(cache);
 
     agents.sort_by(|a, b| {
         total_cost(b)
