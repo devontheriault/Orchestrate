@@ -143,6 +143,7 @@ pub fn run() {
             commands::host,
             commands::hosts,
             commands::add_host,
+            commands::tailnet_machines,
             commands::remove_host,
             commands::send_attachments,
             commands::save_attachment,
