@@ -52,11 +52,14 @@
         {store.agentName(agent)}
       </span>
     {:else if drafting}
-      <span class="name" data-tauri-drag-region={dragRegion}>New agent</span>
-      <!-- Up here rather than in a pane header of its own, which would have
-           held nothing else. It sits at the pane's right edge, centred on the
-           title's row like the rest of the bar. -->
-      <button class="cancel" onclick={() => store.cancelDraft()}>Cancel</button>
+      <!-- Cancel sits up here rather than in a pane header of its own, which
+           would have held nothing else. Its label is smaller than the title,
+           so centring the two boxes leaves its text sitting high; the label
+           shares the title's baseline instead. -->
+      <div class="draft" data-tauri-drag-region={dragRegion}>
+        <span class="name" data-tauri-drag-region={dragRegion}>New agent</span>
+        <button class="cancel" onclick={() => store.cancelDraft()}>Cancel</button>
+      </div>
     {:else}
       <span class="idle" data-tauri-drag-region={dragRegion}>No agent selected</span>
     {/if}
@@ -169,6 +172,13 @@
     margin: 0 0.1rem;
   }
 
+  .draft {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: baseline;
+  }
+
   .cancel {
     flex: none;
     margin-left: auto;
@@ -181,6 +191,10 @@
     font-family: inherit;
     color: var(--fg);
     cursor: pointer;
+    /* Out of the row's height, so the title alone sizes it and stays centred
+       in the bar exactly as it does over an agent; the button just hangs off
+       the shared baseline. */
+    margin-block: -1rem;
   }
 
   .cancel:hover { border-color: var(--accent); color: var(--accent); }
