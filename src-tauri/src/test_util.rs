@@ -1,5 +1,5 @@
 //! Test-only helpers. Shared across all `#[cfg(test)]` modules so that any
-//! test touching `CLAUDEWRAPPER_STATE_DIR` serialises against every other one
+//! test touching `ORCHESTRATE_STATE_DIR` serialises against every other one
 //! — env vars are process-wide, so a per-module mutex would let tests from
 //! different modules clobber each other's tempdir override.
 
@@ -10,7 +10,7 @@ use tokio::process::Command;
 
 static ENV_MUTEX: Mutex<()> = Mutex::new(());
 
-/// Scope a test to a fresh `CLAUDEWRAPPER_STATE_DIR` tempdir, with Claude
+/// Scope a test to a fresh `ORCHESTRATE_STATE_DIR` tempdir, with Claude
 /// Code's own config dir inside it so nothing reads the developer's real
 /// sessions. Drops the env vars and the lock when it goes out of scope.
 pub struct StateEnv {
@@ -24,7 +24,7 @@ impl StateEnv {
         let dir = TempDir::new().unwrap();
         // SAFETY: guarded by ENV_MUTEX for the lifetime of this StateEnv.
         unsafe {
-            std::env::set_var("CLAUDEWRAPPER_STATE_DIR", dir.path());
+            std::env::set_var("ORCHESTRATE_STATE_DIR", dir.path());
             std::env::set_var("CLAUDE_CONFIG_DIR", dir.path().join("claude"));
         }
         Self {
@@ -38,7 +38,7 @@ impl Drop for StateEnv {
     fn drop(&mut self) {
         // SAFETY: still holding ENV_MUTEX.
         unsafe {
-            std::env::remove_var("CLAUDEWRAPPER_STATE_DIR");
+            std::env::remove_var("ORCHESTRATE_STATE_DIR");
             std::env::remove_var("CLAUDE_CONFIG_DIR");
         }
     }

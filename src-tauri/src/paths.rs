@@ -2,16 +2,23 @@ use std::path::{Path, PathBuf};
 
 use crate::error::{Error, Result};
 
-/// Root state directory. Defaults to `dirs::state_dir()/claudewrapper` (usually
-/// `~/.local/state/claudewrapper` on Linux), overridable via `CLAUDEWRAPPER_STATE_DIR`
+/// Root state directory. Defaults to `dirs::state_dir()/orchestrate` (usually
+/// `~/.local/state/orchestrate` on Linux), overridable via `ORCHESTRATE_STATE_DIR`
 /// for tests and portable installations.
 pub fn state_dir() -> Result<PathBuf> {
-    if let Ok(override_) = std::env::var("CLAUDEWRAPPER_STATE_DIR") {
+    if let Ok(override_) = std::env::var("ORCHESTRATE_STATE_DIR") {
         return Ok(PathBuf::from(override_));
     }
-    dirs::state_dir()
-        .map(|d| d.join("claudewrapper"))
-        .ok_or(Error::NoStateDir)
+    let root = dirs::state_dir().ok_or(Error::NoStateDir)?;
+    let dir = root.join("orchestrate");
+    // Installs from before the app was renamed keep their old directory: its
+    // worktrees are recorded by absolute path, in git and in Claude's sessions.
+    let legacy = root.join("claudewrapper");
+    Ok(if !dir.exists() && legacy.exists() {
+        legacy
+    } else {
+        dir
+    })
 }
 
 /// Where Claude Code keeps a transcript of every session it runs, whoever

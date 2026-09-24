@@ -70,10 +70,10 @@ pub async fn set_up(path: &Path) -> Result<()> {
     // never have set. Theirs is used whenever they have one.
     let mut args: Vec<&str> = Vec::new();
     if stdout(path, &["config", "user.name"]).await.is_err() {
-        args.extend(["-c", "user.name=Claude Wrapper"]);
+        args.extend(["-c", "user.name=Orchestrate"]);
     }
     if stdout(path, &["config", "user.email"]).await.is_err() {
-        args.extend(["-c", "user.email=claude-wrapper@localhost"]);
+        args.extend(["-c", "user.email=orchestrate@localhost"]);
     }
     args.extend(["commit", "--allow-empty", "-m", "Initial commit"]);
     stdout(path, &args).await?;

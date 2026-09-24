@@ -22,9 +22,9 @@ use tokio::process::Command;
 /// machines reach a Host as `<its Tailscale name>:47300`.
 pub const DEFAULT_PORT: u16 = 47300;
 
-/// The Host port, overridable with `CLAUDEWRAPPER_HOST_PORT`.
+/// The Host port, overridable with `ORCHESTRATE_HOST_PORT`.
 pub fn port() -> u16 {
-    std::env::var("CLAUDEWRAPPER_HOST_PORT")
+    std::env::var("ORCHESTRATE_HOST_PORT")
         .ok()
         .and_then(|p| p.parse().ok())
         .unwrap_or(DEFAULT_PORT)

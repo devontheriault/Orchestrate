@@ -340,12 +340,12 @@ async fn start() -> Result<(), String> {
 /// user has it switched off — since its address can't be listened on until it
 /// is, and a Host that gave up would stay unreachable until it restarted.
 ///
-/// A debug build can instead be given `CLAUDEWRAPPER_DEBUG_LISTEN=addr:port`,
+/// A debug build can instead be given `ORCHESTRATE_DEBUG_LISTEN=addr:port`,
 /// which lets in *anyone* who can reach that address. It's for trying a second
 /// Host on one machine; a release build ignores it.
 async fn remote_listener() -> Option<(TcpListener, Vet)> {
     if cfg!(debug_assertions) {
-        if let Ok(addr) = std::env::var("CLAUDEWRAPPER_DEBUG_LISTEN") {
+        if let Ok(addr) = std::env::var("ORCHESTRATE_DEBUG_LISTEN") {
             let tcp = TcpListener::bind(&addr).await.ok()?;
             eprintln!("host: DEBUG: letting anyone in on {addr}, unchecked");
             let open: Vet = Arc::new(|_| Box::pin(async { Ok(()) }));

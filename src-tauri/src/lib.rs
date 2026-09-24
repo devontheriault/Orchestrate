@@ -48,7 +48,7 @@ use host::hosts::Hosts;
 /// with any size it's given.
 fn build_main_window(app: &tauri::AppHandle) -> tauri::Result<()> {
     let win = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
-        .title("Claude Wrapper")
+        .title("Orchestrate")
         .inner_size(1280.0, 800.0);
 
     #[cfg(target_os = "macos")]

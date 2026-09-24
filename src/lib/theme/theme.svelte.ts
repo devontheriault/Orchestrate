@@ -18,7 +18,7 @@ export type ThemeId = (typeof THEMES)[number]["id"];
 export type ThemePref = "system" | ThemeId;
 
 /** Shared with the pre-paint script in `app.html`. */
-export const STORAGE_KEY = "devcode:theme";
+export const STORAGE_KEY = "orchestrate:theme";
 
 /**
  * The themes, in the order the menu lists them: the app's own first — Light,
