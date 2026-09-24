@@ -395,6 +395,13 @@ export const api = {
    * Save the image on the OS clipboard as `name` and return its path, or null
    * if there's none — for a paste whose event carried no files.
    */
+  /**
+   * Send attached files to the Host and return the paths of its copies, which
+   * are what a spawn or a message then attaches. Files are read by the window,
+   * where they are; the Host may be another machine.
+   */
+  sendAttachments: (paths: string[]) =>
+    paths.length ? invoke<string[]>("send_attachments", { paths }) : Promise.resolve([]),
   saveClipboardImage: (name: string) => invoke<string | null>("save_clipboard_image", { name }),
   /** An attached image's bytes, for its thumbnail. Refused for non-images. */
   attachmentPreview: (path: string) => invoke<ArrayBuffer>("attachment_preview", { path }),

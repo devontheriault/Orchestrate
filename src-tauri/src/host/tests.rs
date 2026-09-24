@@ -375,3 +375,30 @@ async fn two_windows_sending_at_once_start_one_turn_and_queue_the_other() {
         .await
         .unwrap();
 }
+
+#[tokio::test]
+async fn an_attachment_sent_to_the_host_is_a_copy_it_keeps() {
+    use base64::Engine;
+    let _env = StateEnv::new();
+    let socket = paths::host_socket().unwrap();
+    let (_host, _serving) = host_on(&socket, &fake_claude_ok());
+    let (mut window, _) = Window::open(&socket).await;
+
+    let data = base64::engine::general_purpose::STANDARD.encode(b"\x89PNG not really");
+    let stored = window
+        .call(
+            "store_attachment",
+            json!({ "name": "shot.png", "data": data }),
+        )
+        .await
+        .unwrap();
+    let path = std::path::PathBuf::from(stored.as_str().unwrap());
+    assert!(path.starts_with(paths::attachments_dir().unwrap()));
+    assert_eq!(path.file_name().unwrap(), "shot.png");
+    assert_eq!(std::fs::read(&path).unwrap(), b"\x89PNG not really");
+
+    let garbled = window
+        .call("store_attachment", json!({ "name": "x", "data": "%%%" }))
+        .await;
+    assert!(garbled.unwrap_err().contains("didn't arrive intact"));
+}

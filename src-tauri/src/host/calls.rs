@@ -81,6 +81,13 @@ pub enum Call {
     ClearQueue {
         agent_id: String,
     },
+    /// Keep an attachment's bytes on this Host, and say where. The path is what
+    /// a Spawn or a message then attaches: the Agent reads the Host's copy.
+    StoreAttachment {
+        name: String,
+        /// The file's bytes, base64.
+        data: String,
+    },
     /// Whether this Host keeps running while its user is logged out: `null`
     /// when it isn't a service that could.
     KeepRunning {},
@@ -283,6 +290,14 @@ async fn handle(host: &Host, call: Call) -> Result<Value, String> {
             .edit(&agent_id, |a| a.queue.clear())
             .await
             .map_err(err)?),
+
+        Call::StoreAttachment { name, data } => {
+            use base64::Engine;
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(data)
+                .map_err(|e| format!("the attachment {name} didn't arrive intact: {e}"))?;
+            ok(crate::attachments::save(&name, &bytes).map_err(err)?)
+        }
 
         Call::KeepRunning {} => ok(tokio::task::spawn_blocking(super::service::keeps_running)
             .await

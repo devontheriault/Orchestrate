@@ -31,6 +31,34 @@ pub fn host_status(link: State<'_, HostLink>) -> Status {
     link.status()
 }
 
+/// Send files the user attached to the Host, and return the paths of the
+/// Host's copies, which are what the Agent is handed. Read here, on the
+/// window's side, because the files are on this machine and the Host may not be.
+#[tauri::command]
+pub async fn send_attachments(
+    link: State<'_, HostLink>,
+    paths: Vec<PathBuf>,
+) -> Result<Vec<PathBuf>, String> {
+    use base64::Engine;
+    let mut sent = Vec::with_capacity(paths.len());
+    for path in paths {
+        let (name, bytes) =
+            tauri::async_runtime::spawn_blocking(move || crate::attachments::read_for_host(&path))
+                .await
+                .map_err(err)?
+                .map_err(err)?;
+        let data = base64::engine::general_purpose::STANDARD.encode(bytes);
+        let stored = link
+            .call(
+                "store_attachment",
+                serde_json::json!({ "name": name, "data": data }),
+            )
+            .await?;
+        sent.push(serde_json::from_value(stored).map_err(err)?);
+    }
+    Ok(sent)
+}
+
 /// Write a pasted file to the state directory, so it can be attached by path
 /// like any other. The bytes arrive as the raw request body rather than as
 /// JSON — a screenshot as a JSON array of numbers is several times its size —

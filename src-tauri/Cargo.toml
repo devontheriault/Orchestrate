@@ -43,6 +43,8 @@ dirs = "6"
 # native-tls so the app doesn't need a system OpenSSL.
 reqwest = { version = "0.13", features = ["json", "rustls"] }
 tokio = { version = "1", features = ["process", "io-util", "sync", "time", "macros", "rt-multi-thread", "net", "signal"] }
+# Attachments cross to the Host inside JSON, which has no bytes of its own.
+base64 = "0.22"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

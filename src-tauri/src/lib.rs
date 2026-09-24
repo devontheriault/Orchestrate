@@ -138,6 +138,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::host,
             commands::host_status,
+            commands::send_attachments,
             commands::save_attachment,
             commands::save_clipboard_image,
             commands::attachment_preview,

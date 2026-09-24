@@ -576,7 +576,7 @@ export class AppStore {
       const agent = await api.spawnAgent(
         this.selectedProjectId,
         prompt,
-        attachments,
+        await api.sendAttachments(attachments),
         model || null,
         effort || null,
         mode || null,
@@ -615,7 +615,7 @@ export class AppStore {
       const agent = await api.sendMessage(
         id,
         prompt,
-        attachments,
+        await api.sendAttachments(attachments),
         model || null,
         effort || null,
         mode || null,
