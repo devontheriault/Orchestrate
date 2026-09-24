@@ -17,6 +17,9 @@ use serde_json::Value;
 pub const PROTOCOL: u32 = 3;
 
 /// Who the Host is, sent as the first line of every connection.
+///
+/// Every build must be able to read every other build's Hello, or a window
+/// can't tell an old Host to make way: give any field added later a default.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Hello {
     pub protocol: u32,
@@ -29,7 +32,9 @@ pub struct Hello {
     /// New each time a Host starts, so a window can tell a reconnection to the
     /// same Host from one to its successor.
     pub instance: String,
-    /// The machine's own name, for a window to call this Host by.
+    /// The machine's own name, for a window to call this Host by. Empty from a
+    /// Host older than protocol 3.
+    #[serde(default)]
     pub name: String,
 }
 

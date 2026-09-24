@@ -463,6 +463,20 @@ mod tests {
     }
 
     #[test]
+    fn a_hello_from_before_names_is_still_read_and_asked_to_make_way() {
+        let line = r#"{"hello":{"protocol":2,"version":"0.1.0","build":"99","instance":"i"}}"#;
+        let Ok(Frame::Hello(old)) = serde_json::from_str::<Frame>(line) else {
+            panic!("an older Host's Hello must parse");
+        };
+        assert_eq!(
+            fit(&old, 3, "100"),
+            Fit::Incompatible {
+                ours_is_newer: true
+            }
+        );
+    }
+
+    #[test]
     fn a_different_protocol_names_the_side_to_update() {
         assert_eq!(
             fit(&hello(1, "99"), 2, "100"),
