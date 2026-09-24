@@ -188,13 +188,24 @@ export function buildRows(evs: AgentEvent[]): Row[] {
   // Flatten every event into its blocks first, tagged with the turn they
   // fall in, so superseded snapshots can be spotted before anything is
   // grouped.
-  const items: { key: string; k: Kind; turn: number; event: unknown }[] = [];
+  let items: { key: string; k: Kind; turn: number; event: unknown }[] = [];
   let turn = 0;
+  let clearedTurn = -1;
   for (let i = 0; i < evs.length; i++) {
     const ks = classify(evs[i]);
     for (let j = 0; j < ks.length; j++) {
-      if (ks[j].kind === "prompt") turn++;
-      items.push({ key: `${i}:${j}`, k: ks[j], turn, event: evs[i].event });
+      const k = ks[j];
+      if (k.kind === "prompt") turn++;
+      // `/clear` clears the pane too: everything before it, the `/clear`
+      // itself included, belongs to a conversation that's gone. The new
+      // session's `init` follows, and reads as "Session started" again.
+      if (k.kind === "system" && k.subtype === "conversation_reset") {
+        items = [];
+        clearedTurn = turn;
+      }
+      // The clearing Turn's "done" says nothing the reset row didn't.
+      if (k.kind === "result" && turn === clearedTurn) continue;
+      items.push({ key: `${i}:${j}`, k, turn, event: evs[i].event });
     }
   }
 
