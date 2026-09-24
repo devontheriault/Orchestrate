@@ -80,6 +80,49 @@ async fn spawn_run_to_completion() {
     assert_eq!(first.event["prompt"], "hello");
 }
 
+#[tokio::test]
+async fn telemetry_is_logged_but_not_sent_to_windows() {
+    let _env = StateEnv::new();
+    let repo = init_repo().await;
+    let project = sample_project(repo.path().to_path_buf());
+    let bin = write_script(
+        r#"#!/bin/sh
+echo '{"type":"system","subtype":"thinking_tokens","estimated_tokens":50}'
+echo '{"type":"rate_limit_event","rate_limit_info":{}}'
+echo '{"type":"assistant","message":"hi"}'
+exit 0
+"#,
+    );
+    let (rt, mut rx) = AgentRuntime::with_bin(bin);
+    let agent = rt
+        .spawn(
+            &project,
+            "hello".into(),
+            vec![],
+            None,
+            None,
+            None,
+            AgentOptions::default(),
+        )
+        .await
+        .unwrap();
+
+    let mut sent = Vec::new();
+    loop {
+        match rx.recv().await.expect("channel open") {
+            RuntimeEvent::AgentEvent { event, .. } => {
+                sent.push(event.event["type"].as_str().unwrap().to_owned())
+            }
+            RuntimeEvent::StateChanged { agent, .. } if agent.state != AgentState::Running => break,
+            _ => {}
+        }
+    }
+    assert_eq!(sent, [PROMPT_EVENT_TYPE, "assistant"]);
+
+    let log = std::fs::read_to_string(paths::agent_log_path(&agent.id).unwrap()).unwrap();
+    assert_eq!(log.lines().count(), 4);
+}
+
 /// A fake `claude` that behaves like a real one that got partway: it commits
 /// some work on the Agent's branch and leaves the rest dirty.
 fn fake_claude_writes_code() -> String {

@@ -71,9 +71,13 @@ impl Emitter {
 
     /// Append an event to the Agent's log, then push it to the UI, both
     /// without the weight the transcript never shows (see [`storage::slim`]).
+    /// An event no window shows at all is only logged (see [`storage::unseen`]).
     pub(super) fn record(&self, agent_id: &str, mut event: AgentEvent) {
         storage::slim(&mut event.event);
         let _ = storage::append_event(agent_id, &event);
+        if storage::unseen(&event.event) {
+            return;
+        }
         let _ = self.0.send(RuntimeEvent::AgentEvent {
             agent_id: agent_id.to_owned(),
             event,

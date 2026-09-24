@@ -96,10 +96,11 @@ pub fn append_event(agent_id: &str, event: &AgentEvent) -> Result<()> {
         .map_err(|source| Error::Io { path, source })
 }
 
-/// Replay an Agent's event log, oldest first. A missing log means the Agent
-/// has not produced output yet, which is not an error. Lines that fail to parse
-/// are skipped: the last line of a live log can be half-written. Logs written
-/// before [`slim`] existed are slimmed on the way out.
+/// Replay an Agent's event log, oldest first, less what no window shows (see
+/// [`unseen`]). A missing log means the Agent has not produced output yet,
+/// which is not an error. Lines that fail to parse are skipped: the last line
+/// of a live log can be half-written. Logs written before [`slim`] existed are
+/// slimmed on the way out.
 pub fn read_events(agent_id: &str) -> Result<Vec<AgentEvent>> {
     let path = paths::agent_log_path(agent_id)?;
     let contents = match fs::read_to_string(&path) {
@@ -110,11 +111,25 @@ pub fn read_events(agent_id: &str) -> Result<Vec<AgentEvent>> {
     Ok(contents
         .lines()
         .filter_map(|line| serde_json::from_str::<AgentEvent>(line).ok())
+        .filter(|e| !unseen(&e.event))
         .map(|mut e| {
             slim(&mut e.event);
             e
         })
         .collect())
+}
+
+/// Whether a `claude` event is telemetry no window shows: the running count
+/// of thinking tokens, sent about once a second while the model thinks, and
+/// the account's rate limits. They stay in the log, where the usage totals
+/// read the limits, but aren't sent to a window or replayed to one. Most of a
+/// thinking Agent's events are these, and each one cost a window a rebuild
+/// of the transcript it would leave unchanged.
+pub fn unseen(event: &serde_json::Value) -> bool {
+    let kind = event.get("type").and_then(|t| t.as_str());
+    kind == Some("rate_limit_event")
+        || (kind == Some("system")
+            && event.get("subtype").and_then(|s| s.as_str()) == Some("thinking_tokens"))
 }
 
 /// Drop the parts of a `claude` event the transcript never shows, which are
@@ -372,6 +387,33 @@ mod tests {
         let back = read_events(&a.id).unwrap();
         assert!(back[0].event.get("tool_use_result").is_none());
         assert!(!back[0].event.to_string().contains("iVBORw0KGgo="));
+    }
+
+    #[test]
+    fn read_events_leaves_out_what_no_window_shows() {
+        let _env = StateEnv::new();
+        let a = sample_agent();
+        for event in [
+            serde_json::json!({"type": "system", "subtype": "thinking_tokens", "estimated_tokens": 50}),
+            serde_json::json!({"type": "rate_limit_event", "rate_limit_info": {}}),
+            serde_json::json!({"type": "system", "subtype": "init"}),
+            serde_json::json!({"type": "assistant", "message": {"content": [{"type": "text", "text": "thinking_tokens"}]}}),
+        ] {
+            let e = AgentEvent {
+                ts: OffsetDateTime::now_utc(),
+                event,
+            };
+            append_event(&a.id, &e).unwrap();
+        }
+        let back = read_events(&a.id).unwrap();
+        let kinds: Vec<&str> = back
+            .iter()
+            .map(|e| e.event["type"].as_str().unwrap())
+            .collect();
+        assert_eq!(kinds, ["system", "assistant"]);
+        // Still on disk, where the usage totals read the limits.
+        let log = fs::read_to_string(paths::agent_log_path(&a.id).unwrap()).unwrap();
+        assert_eq!(log.lines().count(), 4);
     }
 
     #[test]

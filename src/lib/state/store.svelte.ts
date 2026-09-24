@@ -69,10 +69,14 @@ function eventKey(e: AgentEvent): string {
  * The log is written before an event is emitted, so a replay is a superset of
  * what arrived live — except for anything emitted after the read. Keep the
  * log's order and append only the live events it doesn't already contain.
+ * Only logged events from the first live one's millisecond on can be among
+ * them, so only those are keyed: keying means stringifying, and the rest of a
+ * long log can run to megabytes.
  */
 function mergeEvents(logged: AgentEvent[], live: AgentEvent[]): AgentEvent[] {
   if (live.length === 0) return logged;
-  const seen = new Set(logged.map(eventKey));
+  const from = live.reduce((min, e) => Math.min(min, Date.parse(e.ts)), Infinity);
+  const seen = new Set(logged.filter((e) => !(Date.parse(e.ts) < from)).map(eventKey));
   return [...logged, ...live.filter((e) => !seen.has(eventKey(e)))];
 }
 
