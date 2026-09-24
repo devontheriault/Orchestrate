@@ -203,7 +203,7 @@ fn settle(agent: &mut Agent, outcome: Outcome, stderr: &str) {
     match outcome {
         Outcome::Stopped => {
             // The Worktree stays: a Stopped Turn may have left work behind, and
-            // the Agent can be Resumed to redirect it. Reap is explicit.
+            // the Agent can be Resumed to redirect it. Discard is explicit.
             agent.state = AgentState::Stopped;
         }
         Outcome::Exited(Ok(status)) => {
@@ -259,7 +259,7 @@ async fn finish_resolution(agent: &mut Agent, emitter: &Emitter) -> Option<Agent
 /// name comes back, the user may already have Resumed the Agent, and only the
 /// title is ours to change.
 async fn name_agent(namer: Arc<String>, agent: Agent, answer: String, emitter: Emitter) {
-    // The Worktree is the namer's cwd; a Reaped Agent has nowhere to run.
+    // The Worktree is the namer's cwd; a Discarded Agent has nowhere to run.
     if !agent.worktree_path.exists() {
         return;
     }
@@ -270,7 +270,7 @@ async fn name_agent(namer: Arc<String>, agent: Agent, answer: String, emitter: E
     };
 
     let Ok(mut fresh) = storage::load_agent(&agent.id) else {
-        return; // Reaped while we were naming it.
+        return; // Discarded while we were naming it.
     };
     // Last name back wins, even if a later Turn has since started or finished.
     // Two namers can land out of order, but the worst case is a name drawn from

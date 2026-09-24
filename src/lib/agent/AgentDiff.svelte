@@ -197,7 +197,7 @@
           <div class="commit-box-head">
             <span class="warn-dot"></span>
             <strong>Uncommitted work</strong>
-            <span class="sub">A reap now would discard it.</span>
+            <span class="sub">Discarding now would lose it.</span>
           </div>
           <textarea
             class="textarea"

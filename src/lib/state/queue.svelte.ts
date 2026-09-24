@@ -141,7 +141,7 @@ export class Queue {
   }
 
   /**
-   * Forget queues belonging to Agents that no longer exist — Reaped in another
+   * Forget queues belonging to Agents that no longer exist — Discarded in another
    * window, or gone since the last launch. A stored queue outliving its Agent
    * would otherwise never be sent and never be seen.
    */

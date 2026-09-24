@@ -286,7 +286,7 @@ impl AgentRuntime {
 
     /// Request Stop for a working Agent. Returns when the supervisor has
     /// finished (meta persisted, state=Stopped). The Worktree is left alone so
-    /// the Turn's work survives and the Agent can be Resumed; Reap is a
+    /// the Turn's work survives and the Agent can be Resumed; Discard is a
     /// separate, explicit action.
     pub async fn stop(&self, agent_id: &str) -> Result<()> {
         let handle = self.inner.write().await.remove(agent_id);
@@ -311,7 +311,7 @@ impl AgentRuntime {
     }
 
     /// Signal every live Agent to stop and wait (bounded) for their
-    /// supervisors to finish. Called on app close. Worktrees are *not* reaped
+    /// supervisors to finish. Called on app close. Worktrees are *not* discarded
     /// on shutdown — the next launch surfaces them as Orphaned via
     /// `adopt_orphans_on_launch`.
     pub async fn shutdown(&self) {

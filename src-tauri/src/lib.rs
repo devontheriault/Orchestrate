@@ -174,7 +174,7 @@ pub fn run() {
             commands::save_clipboard_image,
             commands::attachment_preview,
             commands::stop_agent,
-            commands::reap_agent,
+            commands::discard_agent,
             commands::agent_events,
             commands::agent_diff,
             commands::agent_commit,

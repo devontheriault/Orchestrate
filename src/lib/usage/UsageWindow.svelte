@@ -140,14 +140,14 @@
 
   /**
    * What to call an agent in the by-agent list. Logs outlive the Agents that
-   * wrote them, so an id with no Agent behind it is one that was Reaped —
+   * wrote them, so an id with no Agent behind it is one that was Discarded —
    * worth counting, and worth saying so.
    */
-  function agentLabel(id: string): { text: string; reaped: boolean } {
+  function agentLabel(id: string): { text: string; discarded: boolean } {
     const agent = store.agents.find((a) => a.id === id);
-    if (!agent) return { text: "reaped agent", reaped: true };
+    if (!agent) return { text: "discarded agent", discarded: true };
     const name = store.agentName(agent).trim();
-    return { text: name || agent.branch, reaped: false };
+    return { text: name || agent.branch, discarded: false };
   }
 
   /** Jump to an agent's output and get out of the way. */
@@ -428,12 +428,12 @@
               <button
                 class="agent-row"
                 class:selected={a.agent_id === store.selectedAgentId}
-                disabled={label.reaped}
+                disabled={label.discarded}
                 onclick={() => jumpTo(a.agent_id)}
-                title={label.reaped ? "This agent has been reaped" : "Show this agent"}
+                title={label.discarded ? "This agent has been discarded" : "Show this agent"}
               >
                 <code class="id">{a.agent_id}</code>
-                <span class="task" class:reaped={label.reaped}>{label.text}</span>
+                <span class="task" class:discarded={label.discarded}>{label.text}</span>
                 <span class="tokens">{formatTokens(agentTokens(a.models))}</span>
                 <span class="money">{formatCost(agentCost(a.models))}</span>
               </button>
@@ -885,7 +885,7 @@
     white-space: nowrap;
   }
 
-  .agent-row .task.reaped {
+  .agent-row .task.discarded {
     color: var(--fg-muted);
     font-style: italic;
   }

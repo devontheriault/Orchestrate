@@ -1,6 +1,6 @@
 /**
  * The app's state: its Projects and Agents, what's selected, and the
- * lifecycle verbs — Spawn, Resume, Stop, Reap — the UI calls on them.
+ * lifecycle verbs — Spawn, Resume, Stop, Discard — the UI calls on them.
  *
  * Three slices hang off it, each in its own file because each is its own
  * concern that happens to need the Agents and the selection:
@@ -110,11 +110,11 @@ export class AppStore {
   holdingWork = $state<string[]>([]);
 
   /**
-   * Reap-all runs in progress, by project. Kept here rather than in the list
-   * that starts one, so collapsing the project or closing the flyout mid-run
+   * Clears of Delivered in progress, by project. Kept here rather than in the
+   * list that starts one, so collapsing the project or closing the flyout mid-run
    * doesn't lose the progress. `total` is 0 until git has said which are safe.
    */
-  bulkReaps = $state<Record<string, { done: number; total: number }>>({});
+  bulkClears = $state<Record<string, { done: number; total: number }>>({});
 
   /** A follow-up prompt is in flight for the selected agent. */
   sending = $state<boolean>(false);
@@ -453,7 +453,7 @@ export class AppStore {
   /**
    * Bring an Agent on screen wherever it lives: switch to its Project, then
    * select it. False if there is no such Agent any more — its log can outlive
-   * it, so a caller working from the logs can be holding a Reaped id.
+   * it, so a caller working from the logs can be holding a Discarded id.
    */
   showAgent(id: string): boolean {
     const agent = this.agents.find((a) => a.id === id);
@@ -589,9 +589,9 @@ export class AppStore {
     }
   }
 
-  async reapAgent(id: string) {
+  async discardAgent(id: string) {
     try {
-      await api.reapAgent(id);
+      await api.discardAgent(id);
       this.agents = this.agents.filter((a) => a.id !== id);
       delete this.eventsByAgent[id];
       this.hydrated.delete(id);
@@ -606,27 +606,28 @@ export class AppStore {
   }
 
   /**
-   * Reap every Delivered agent in a project. Git is asked afresh first rather
-   * than trusting `holdingWork`, which is only re-read when a turn ends or a
-   * commit lands and reads empty before its first answer — a stale "nothing
-   * held" here would destroy work. One at a time, since each reap removes a
-   * worktree and deletes a branch in the same repository.
+   * Clear a project's Delivered bucket by Discarding each agent in it. Git is
+   * asked afresh first rather than trusting `holdingWork`, which is only
+   * re-read when a turn ends or a commit lands and reads empty before its
+   * first answer — a stale "nothing held" here would destroy work. One at a
+   * time, since each discard removes a worktree and deletes a branch in the
+   * same repository.
    */
-  async reapDelivered(projectId: string) {
-    if (this.bulkReaps[projectId]) return;
-    this.bulkReaps[projectId] = { done: 0, total: 0 };
+  async clearDelivered(projectId: string) {
+    if (this.bulkClears[projectId]) return;
+    this.bulkClears[projectId] = { done: 0, total: 0 };
     try {
       this.holdingWork = await api.agentsHoldingWork();
       const delivered = this.agentsForProject(projectId).filter((a) => this.isDelivered(a));
-      this.bulkReaps[projectId].total = delivered.length;
+      this.bulkClears[projectId].total = delivered.length;
       for (const a of delivered) {
-        await this.reapAgent(a.id);
-        this.bulkReaps[projectId].done++;
+        await this.discardAgent(a.id);
+        this.bulkClears[projectId].done++;
       }
     } catch (e) {
       this.error = String(e);
     } finally {
-      delete this.bulkReaps[projectId];
+      delete this.bulkClears[projectId];
     }
   }
 }

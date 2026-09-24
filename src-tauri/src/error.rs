@@ -37,7 +37,7 @@ pub enum Error {
     #[error("cannot continue agent {id}: {why}")]
     NotResumable { id: String, why: String },
 
-    #[error("worktree is gone at {path} (already reaped?)")]
+    #[error("worktree is gone at {path} (already discarded?)")]
     WorktreeMissing { path: PathBuf },
 
     #[error(

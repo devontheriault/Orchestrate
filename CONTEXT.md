@@ -45,7 +45,7 @@ A local Git repository the user has explicitly registered with the app. Register
 _Avoid_: Workspace, Repo (in UI), Directory.
 
 **Worktree**:
-An isolated Git worktree created for one Agent, living under a global scratch directory outside the Project. The Worktree is the Agent's sandbox; it is reaped when the Agent stops.
+An isolated Git worktree created for one Agent, living under a global scratch directory outside the Project. The Worktree is the Agent's sandbox; it is destroyed when the Agent is Discarded.
 _Avoid_: Checkout, Clone, Branch dir.
 
 **Base**:
@@ -69,7 +69,7 @@ The Claude Code conversation history behind an Agent, named by the UUID we mint 
 _Avoid_: using it as a synonym for Agent (an Agent is the thing the user talks to; the Session is the history that makes talking again possible), Thread, History, Context.
 
 **Usage**:
-What Turns have cost: tokens and dollars per Model, plus how much of the account's rate-limit windows is spent. Read back out of the Agent logs rather than tallied as events arrive — Claude Code reports a Turn's per-model totals on its `result` event and the account's windows on `rate_limit_event`, so the logs are the record and the numbers are right after a restart. Account-wide rather than per-Project: every Agent spends against the same limits, which is why the usage window totals across Agents by default, and why a log that outlived its Reaped Agent still counts toward the total.
+What Turns have cost: tokens and dollars per Model, plus how much of the account's rate-limit windows is spent. Read back out of the Agent logs rather than tallied as events arrive — Claude Code reports a Turn's per-model totals on its `result` event and the account's windows on `rate_limit_event`, so the logs are the record and the numbers are right after a restart. Account-wide rather than per-Project: every Agent spends against the same limits, which is why the usage window totals across Agents by default, and why a log that outlived its Discarded Agent still counts toward the total.
 _Avoid_: Cost (only half of it), Quota, Budget (nothing here enforces one), Stats.
 
 ## Agent lifecycle
@@ -84,7 +84,7 @@ Putting a stopped Agent back to work with a follow-up prompt: start a new `claud
 _Avoid_: Continue, Restart (a Resume keeps the conversation; a restart would discard it), Retry, Follow-up (as a verb).
 
 **Stop**:
-A user-initiated end to the current Turn. The `claude` process is terminated (SIGTERM, then SIGKILL after a grace period) and the Agent goes to *stopped*. The Worktree and Session are preserved, so a Stopped Agent can be inspected, Committed, or Resumed with a corrected prompt — Stop is how a user interrupts an Agent heading the wrong way. Only Reap destroys anything.
+A user-initiated end to the current Turn. The `claude` process is terminated (SIGTERM, then SIGKILL after a grace period) and the Agent goes to *stopped*. The Worktree and Session are preserved, so a Stopped Agent can be inspected, Committed, or Resumed with a corrected prompt — Stop is how a user interrupts an Agent heading the wrong way. Only Discard destroys anything.
 _Avoid_: Kill, Cancel, Abort.
 
 **Complete**:
@@ -92,11 +92,11 @@ A Turn's natural end — the `claude` process exits zero on its own. The Worktre
 _Avoid_: Finish, End, Done (as verbs).
 
 **Fail**:
-A Turn's unnatural end — the `claude` process exits non-zero, cannot be started at all, is killed by the OS, or otherwise crashes. Distinct from Complete (clean exit) and Stop (user-initiated). Like Complete, the Worktree and Session are preserved: the user can read the stderr in `fail_reason`, then Reap or Resume. The last JSONL events and exit code are recorded.
+A Turn's unnatural end — the `claude` process exits non-zero, cannot be started at all, is killed by the OS, or otherwise crashes. Distinct from Complete (clean exit) and Stop (user-initiated). Like Complete, the Worktree and Session are preserved: the user can read the stderr in `fail_reason`, then Discard or Resume. The last JSONL events and exit code are recorded.
 _Avoid_: Crash, Error (as state names).
 
 **Commit**:
-A user action on a Completed, Failed, Stopped, or Orphaned Agent: stage everything in its Worktree and commit it onto the Agent's own branch. This is how work survives a later Reap — the commit stays reachable in the Project's object store — and it is what a Merge needs, since only committed work can be merged. Refused while the Agent is *running*, since it would capture a tree the Agent is still writing. The app never commits on its own; whether an Agent commits its own work is up to Claude Code.
+A user action on a Completed, Failed, Stopped, or Orphaned Agent: stage everything in its Worktree and commit it onto the Agent's own branch. This is how work survives a later Discard — the commit stays reachable in the Project's object store — and it is what a Merge needs, since only committed work can be merged. Refused while the Agent is *running*, since it would capture a tree the Agent is still writing. The app never commits on its own; whether an Agent commits its own work is up to Claude Code.
 _Avoid_: Save, Merge (that's the next action along — a Commit stays on the Agent's own branch and touches nothing of the user's), Checkpoint.
 
 **Merge**:
@@ -107,10 +107,10 @@ _Avoid_: Land (what this was called before), Ship, Integrate, Promote.
 The user's answer to a Merge that conflicted: Spawn a **Resolver** to settle the conflict, and let the app finish the Merge once it has. The Resolver is an ordinary Agent with two differences — its branch is cut from the conflicted Agent's rather than from the Project's HEAD, and it records which Agent and target branch it is resolving. Its Task tells it to merge the target into its own branch and settle the conflicts there, in its own Worktree, so the Project is never half-merged and the conflicted Agent's branch is never touched. Its Base is the target's tip, so its diff reads as what the finished Merge will bring in. It always runs YOLO, since a Resolver that may not write can resolve nothing. When its Turn Completes with the target in its branch and nothing left uncommitted, the app Merges the Resolver's branch into the target — the Merge the user already asked for — and records it on both Agents, which puts both under Delivered. The conflicted Agent is recorded only if its tip really is in the target, so one that kept working meanwhile stays where its own State puts it. If the Resolver ends short of that — the target not merged in, work left loose, or the target moved and conflicts again — nothing is merged, the transcript says why, and the user can reply to it or Merge it by hand. That happens once: a Resolver Resumed after its Merge went through is just an Agent.
 _Avoid_: Fixer, Conflict agent, Rebase.
 
-**Reap**:
-Ends an Agent for good: destroys its Worktree, deletes its branch, and removes it from the app's list. Always an explicit user action, and the only action that destroys anything — so it discards Commits the Agent made as well as uncommitted work, and takes the Session with it (a Session cannot outlive the directory it ran in). Refused while the Agent is working. After Reap, the Agent's on-disk log file (JSONL) is still preserved. The Delivered Bucket can be Reaped in one go from its sidebar heading; git is asked afresh first, so an Agent that has picked up work since its Merge is left alone.
-_Avoid_: Cleanup, Delete, Remove.
+**Discard**:
+Ends an Agent for good: destroys its Worktree, deletes its branch, and removes it from the app's list. Always an explicit user action, and the only action that destroys anything — so it discards Commits the Agent made as well as uncommitted work, and takes the Session with it (a Session cannot outlive the directory it ran in). Refused while the Agent is working. After Discard, the Agent's on-disk log file (JSONL) is still preserved. The Delivered Bucket can be Cleared in one go from its sidebar heading, which Discards every Agent in it; git is asked afresh first, so an Agent that has picked up work since its Merge is left alone. Clearing is named apart because Delivered work is already in the Project, so nothing the user needs is lost.
+_Avoid_: Reap (what this was called before), Cleanup, Delete, Remove, Clear (for a single Agent — it reads as clearing the transcript, like Claude Code's `/clear`).
 
 **Orphan**:
-An Agent that was working when the app was closed. The `claude` process is dead (SIGKILL on close), but the Worktree, Session, and log file are preserved. On next launch, the app surfaces Orphans in the UI for the user to inspect, Resume, or Reap. Distinct from Fail (which exits abnormally *on its own*) and Stop (user-initiated).
+An Agent that was working when the app was closed. The `claude` process is dead (SIGKILL on close), but the Worktree, Session, and log file are preserved. On next launch, the app surfaces Orphans in the UI for the user to inspect, Resume, or Discard. Distinct from Fail (which exits abnormally *on its own*) and Stop (user-initiated).
 _Avoid_: Abandoned, Dropped, Zombie.

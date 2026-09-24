@@ -137,7 +137,7 @@ export type WorktreeDiff = {
   commits: Commit[];
   patch: string;
   truncated: boolean;
-  /** There is work not yet in a commit — a reap now would destroy it. */
+  /** There is work not yet in a commit — a discard now would destroy it. */
   uncommitted: boolean;
   /**
    * Project branches that already contain these commits, so merging into them
@@ -286,7 +286,7 @@ export const api = {
   /** An attached image's bytes, for its thumbnail. Refused for non-images. */
   attachmentPreview: (path: string) => invoke<ArrayBuffer>("attachment_preview", { path }),
   stopAgent: (agentId: string) => invoke<void>("stop_agent", { agentId }),
-  reapAgent: (agentId: string) => invoke<void>("reap_agent", { agentId }),
+  discardAgent: (agentId: string) => invoke<void>("discard_agent", { agentId }),
   agentEvents: (agentId: string) =>
     invoke<AgentEvent[]>("agent_events", { agentId }),
   agentDiff: (agentId: string) => invoke<WorktreeDiff>("agent_diff", { agentId }),

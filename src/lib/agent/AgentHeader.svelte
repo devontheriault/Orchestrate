@@ -5,31 +5,31 @@
   const drafting = $derived(store.drafting && !store.selectedAgent);
 
   /**
-   * Reap deletes the worktree, the branch, and with it the agent's session —
+   * Discard deletes the worktree, the branch, and with it the agent's session —
    * everything not merged out is gone. It used to happen only as part of an
-   * explicit Stop; now that Stop preserves work, Reap is the one destructive
+   * explicit Stop; now that Stop preserves work, Discard is the one destructive
    * button in the app, so it takes two clicks.
    */
-  let reapArmed = $state(false);
+  let discardArmed = $state(false);
   let disarm: ReturnType<typeof setTimeout> | undefined;
 
-  function armReap() {
-    reapArmed = true;
+  function armDiscard() {
+    discardArmed = true;
     clearTimeout(disarm);
-    disarm = setTimeout(() => (reapArmed = false), 4000);
+    disarm = setTimeout(() => (discardArmed = false), 4000);
   }
 
-  function reap() {
+  function discard() {
     clearTimeout(disarm);
-    reapArmed = false;
-    store.reapAgent(store.selectedAgent!.id);
+    discardArmed = false;
+    store.discardAgent(store.selectedAgent!.id);
   }
 
   // Never leave the trigger armed across a change of agent.
   $effect(() => {
     store.selectedAgentId;
     clearTimeout(disarm);
-    reapArmed = false;
+    discardArmed = false;
   });
 </script>
 
@@ -61,13 +61,13 @@
     {#if store.selectedAgent.state !== "running"}
       <div class="head-right">
         <button
-          class="reap"
-          class:armed={reapArmed}
-          onclick={() => (reapArmed ? reap() : armReap())}
-          onblur={() => (reapArmed = false)}
+          class="discard"
+          class:armed={discardArmed}
+          onclick={() => (discardArmed ? discard() : armDiscard())}
+          onblur={() => (discardArmed = false)}
           title="Delete this agent's worktree and branch — uncommitted work and its conversation go with them"
         >
-          {reapArmed ? "Reap for good?" : "Reap"}
+          {discardArmed ? "Discard for good?" : "Discard"}
         </button>
       </div>
     {/if}
@@ -149,10 +149,10 @@
     background: var(--warning);
   }
 
-  .reap:hover { border-color: var(--accent); color: var(--accent); }
+  .discard:hover { border-color: var(--accent); color: var(--accent); }
 
-  .reap.armed,
-  .reap.armed:hover {
+  .discard.armed,
+  .discard.armed:hover {
     border-color: var(--danger);
     background: var(--danger);
     color: var(--on-danger);

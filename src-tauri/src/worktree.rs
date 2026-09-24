@@ -98,7 +98,7 @@ async fn prune(project_path: &Path) {
 
 /// Remove a worktree and its directory, leaving its branch alone.
 ///
-/// This is [`reap`] without the destruction: it is what a Merge does with the
+/// This is [`discard`] without the destruction: it is what a Merge does with the
 /// throwaway worktree it borrowed a branch into, where deleting the branch
 /// would throw away the merge that just happened on it. Best-effort throughout.
 pub async fn release(project_path: &Path, worktree_path: &Path) -> Result<()> {
@@ -107,9 +107,9 @@ pub async fn release(project_path: &Path, worktree_path: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Reap a worktree: remove it via git, delete its directory, and delete its
-/// branch. Errors from any individual step are swallowed — reap is best-effort.
-pub async fn reap(project_path: &Path, worktree_path: &Path, branch: &str) -> Result<()> {
+/// Discard a worktree: remove it via git, delete its directory, and delete its
+/// branch. Errors from any individual step are swallowed — discard is best-effort.
+pub async fn discard(project_path: &Path, worktree_path: &Path, branch: &str) -> Result<()> {
     remove(project_path, worktree_path).await;
     let _ = git(project_path)
         .args(["branch", "-D", branch])
@@ -149,7 +149,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn create_then_reap() {
+    async fn create_then_discard() {
         let repo = init_repo().await;
         let wt = TempDir::new().unwrap();
         let wt_path = wt.path().join("agent-abcd");
@@ -162,7 +162,7 @@ mod tests {
             "worktree should have a .git file"
         );
 
-        reap(repo.path(), &wt_path, branch).await.unwrap();
+        discard(repo.path(), &wt_path, branch).await.unwrap();
         assert!(!wt_path.exists(), "worktree dir should be gone");
     }
 }
