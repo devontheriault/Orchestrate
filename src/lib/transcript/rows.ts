@@ -44,6 +44,7 @@ const SYSTEM_LABELS: Record<string, string> = {
   "": "Session update",
   init: "Session started",
   compact_boundary: "Conversation compacted to free up context",
+  conversation_reset: "Context cleared — the conversation starts afresh from here",
 };
 
 /** `compact_boundary` -> `Compact boundary`. */
@@ -80,6 +81,9 @@ function classify(ev: AgentEvent): Kind[] {
   // Also ours: something the app did on the agent's behalf, like finishing
   // the merge a resolver was spawned for.
   if (e.type === "cw_notice") return [{ kind: "notice", text: e.text ?? "" }];
+  // What `/clear` leaves behind: Claude Code moves on to a new session, and the
+  // runtime follows it there, so the next Turn really does start empty.
+  if (e.type === "conversation_reset") return [{ kind: "system", subtype: e.type }];
   if (e.type === "system") {
     if (SILENT_SYSTEM_SUBTYPES.has(e.subtype ?? "")) return [];
     return [{ kind: "system", subtype: e.subtype ?? "" }];

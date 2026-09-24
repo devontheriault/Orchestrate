@@ -24,13 +24,17 @@
   import { getCurrentWebview } from "@tauri-apps/api/webview";
   import { open } from "@tauri-apps/plugin-dialog";
   import { store } from "$lib/state/store.svelte";
+  import { slash } from "$lib/state/slash.svelte";
   import { api } from "$lib/api";
   import { DEFAULT_EFFORT, DEFAULT_MODE, DEFAULT_MODEL } from "$lib/picks";
+  import { stepActive } from "$lib/menus/menu";
   import Attachments from "./Attachments.svelte";
   import ModelPicker from "$lib/menus/ModelPicker.svelte";
   import ModePicker from "$lib/menus/ModePicker.svelte";
   import AgentQueue from "./AgentQueue.svelte";
   import TurnStats from "./TurnStats.svelte";
+  import SlashMenu from "./SlashMenu.svelte";
+  import { completeCommand, matchCommands, namesCommand, slashQuery, typedCommand } from "./slash";
 
   const agent = $derived(store.selectedAgent);
   /** No agent yet: this composer is holding the opening prompt for a new one. */
@@ -61,6 +65,60 @@
   /** What this turn may do without asking: YOLO, or plan and write nothing. */
   let mode = $state(DEFAULT_MODE);
   let textarea: HTMLTextAreaElement | undefined = $state();
+  let box: HTMLElement | undefined = $state();
+
+  const uid = $props.id();
+  /** Where the caret sits in the prompt: the `/` menu completes the word it's in. */
+  let caret = $state(0);
+  /** The prompt as it stood when Esc put the `/` menu away, until it changes. */
+  let dismissed = $state<string | null>(null);
+  /** The row the keyboard is on in the `/` menu. */
+  let active = $state(0);
+
+  /**
+   * Where `claude` would run this prompt, which decides the commands it takes:
+   * a Project's own commands and skills live in its tree.
+   */
+  const commandsDir = $derived(
+    agent
+      ? agent.worktree_path
+      : store.projects.find((p) => p.id === store.selectedProjectId)?.path,
+  );
+  const commands = $derived(slash.for(commandsDir));
+  /** What's typed of a command at the head of the prompt, or null. */
+  const query = $derived(slashQuery(prompt, caret));
+  const matches = $derived(query === null ? [] : matchCommands(commands.list, query));
+  const menuOpen = $derived(query !== null && !inFlight && dismissed !== prompt);
+  /** The command being given arguments, so what it takes can be shown. */
+  const usage = $derived(typedCommand(commands.list, prompt));
+
+  // Ask afresh each time the menu comes up: skills get added mid-session, and
+  // the list shown meanwhile is the last one, so reopening never blanks it.
+  $effect(() => {
+    if (menuOpen && commandsDir) {
+      const dir = commandsDir;
+      untrack(() => slash.load(dir));
+    }
+  });
+
+  // A narrower list starts back at its best match.
+  $effect(() => {
+    query;
+    active = 0;
+  });
+
+  function trackCaret() {
+    if (textarea) caret = textarea.selectionStart;
+  }
+
+  /** Put `/name ` at the head of the prompt, ready for its arguments. */
+  function pickCommand(name: string) {
+    const done = completeCommand(prompt, name);
+    prompt = done.text;
+    caret = done.caret;
+    textarea?.focus();
+    requestAnimationFrame(() => textarea?.setSelectionRange(done.caret, done.caret));
+  }
 
   // Grow with the text, up to a ceiling — a long follow-up shouldn't need
   // scrolling, but it shouldn't swallow the transcript either. scrollHeight is
@@ -250,7 +308,39 @@
     };
   });
 
+  /**
+   * The `/` menu's keys, while it's up. The textarea keeps the keyboard, so it
+   * walks the menu itself. Returns whether the key was the menu's.
+   */
+  function menuKey(e: KeyboardEvent): boolean {
+    if (!menuOpen || e.isComposing) return false;
+    if ((e.key === "ArrowDown" || e.key === "ArrowUp") && matches.length) {
+      active = stepActive(e.key, active, matches.length) ?? active;
+      return true;
+    }
+    if (e.key === "Escape") {
+      dismissed = prompt;
+      return true;
+    }
+    if (e.key === "Tab" && !e.shiftKey && matches.length) {
+      pickCommand(matches[active].name);
+      return true;
+    }
+    // Enter completes what's highlighted — unless the command is already typed
+    // in full, when it goes out as it is: `/compact` then Enter just compacts.
+    if (e.key === "Enter" && !e.shiftKey && !e.altKey && matches.length) {
+      if (namesCommand(commands.list, query ?? "")) return false;
+      pickCommand(matches[active].name);
+      return true;
+    }
+    return false;
+  }
+
   function onKeydown(e: KeyboardEvent) {
+    if (menuKey(e)) {
+      e.preventDefault();
+      return;
+    }
     // Esc on an untouched blank page walks back out of it.
     if (
       e.key === "Escape" &&
@@ -283,7 +373,7 @@
       <TurnStats />
     {/if}
     {#if drafting || store.canContinue || working}
-      <div class="box" class:dropping>
+      <div class="box" class:dropping bind:this={box}>
         {#if attachments.length}
           <div class="files">
             <Attachments paths={attachments} onremove={inFlight ? undefined : detach} />
@@ -293,15 +383,37 @@
           bind:this={textarea}
           bind:value={prompt}
           onkeydown={onKeydown}
+          onkeyup={trackCaret}
+          oninput={trackCaret}
+          onclick={trackCaret}
           onpaste={onPaste}
           rows="1"
+          role="combobox"
+          aria-expanded={menuOpen}
+          aria-controls={`${uid}-slash`}
+          aria-autocomplete="list"
+          aria-activedescendant={menuOpen && matches.length ? `${uid}-slash-${active}` : undefined}
           disabled={inFlight}
           placeholder={attachments.length && !prompt
             ? "Say what to do with the attached files…"
             : drafting
-              ? "What should the agent do?"
-              : "Reply to this agent…"}
+              ? "What should the agent do? Type / for commands"
+              : "Reply to this agent, or type / for commands"}
         ></textarea>
+        {#if menuOpen && box}
+          <SlashMenu
+            id={`${uid}-slash`}
+            anchor={box}
+            commands={matches}
+            {active}
+            query={query ?? ""}
+            loading={commands.loading}
+            error={commands.error}
+            onpick={(c) => pickCommand(c.name)}
+            onhover={(i) => (active = i)}
+            onclose={() => (dismissed = prompt)}
+          />
+        {/if}
         {#if dropping}
           <!-- Over the whole box, so while a drag is on the window the eye is
                told where the files will land. -->
@@ -374,6 +486,10 @@
             Spawning…
           {:else if store.sending}
             Sending…
+          {:else if usage?.argument_hint}
+            <!-- What the command at the head of the prompt takes, while its
+                 arguments are being typed. -->
+            /{usage.name} {usage.argument_hint}
           {/if}
         </span>
         <div class="picks">

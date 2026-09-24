@@ -1,8 +1,8 @@
 /**
  * What every drop-down menu in the app shares: where it sits, what dismisses
  * it, and how the keyboard walks it. The menus themselves — the model, mode
- * and branch pickers and the settings menu — keep their own rows and their own
- * rules about what a pick does.
+ * and branch pickers, the settings menu and the composer's `/` menu — keep
+ * their own rows and their own rules about what a pick does.
  *
  * They are ours rather than a native `<select>` because the OS draws its list
  * in the desktop theme's colours, ignores the stylesheet, and has no submenu.
@@ -94,11 +94,16 @@ export function menuStyle(p: Placement): string {
  * elements that count as the menu — its trigger, its list, any submenu — and is
  * asked at the moment of each event, since they bind after the menu opens.
  *
+ * `scroll: false` is for a menu whose trigger no scroll can move — the
+ * composer's `/` menu sits on the input box, while the transcript above it
+ * scrolls on its own every time a working agent says something.
+ *
  * Returns the cleanup, for the `$effect` that calls it to hand back.
  */
 export function dismissOnMove(
   inside: () => (Element | undefined)[],
   close: () => void,
+  { scroll = true }: { scroll?: boolean } = {},
 ): () => void {
   const ours = (t: Node | null) => !!t && inside().some((el) => !!el?.contains(t));
   const onDown = (e: PointerEvent) => {
@@ -107,7 +112,7 @@ export function dismissOnMove(
   };
   const onScroll = (e: Event) => {
     // A menu scrolling inside itself isn't the page moving under it.
-    if (ours(e.target as Node)) return;
+    if (!scroll || ours(e.target as Node)) return;
     close();
   };
   const onResize = () => close();

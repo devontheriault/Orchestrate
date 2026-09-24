@@ -49,7 +49,7 @@ Conventions the directory tree won't tell you:
 
 - `src/lib` is grouped by feature. Import across folders with `$lib/...`, within a folder with `./`.
 - `src/lib/api.ts` is the IPC boundary only. Its types mirror the Rust structs (`domain.rs`, `git/`, `usage/`); change both together.
-- App state lives in `src/lib/state/store.svelte.ts`. Slices that need the agents or the selection hang off it as `store.review`, `store.queue` and `store.prefs`, each in its own file. Standalone stores (`models`, `usage`, `panes`, `theme`) are their own singletons.
+- App state lives in `src/lib/state/store.svelte.ts`. Slices that need the agents or the selection hang off it as `store.review`, `store.queue` and `store.prefs`, each in its own file. Standalone stores (`models`, `slash`, `usage`, `panes`, `theme`) are their own singletons.
 - Pure logic sits in `.ts` beside the component that renders it (`transcript/rows.ts`, `agent/patch.ts`, `menus/menu.ts`). Put new pure logic there too, not in the component's script.
 - Every drop-down menu uses `menus/menu.ts` for placement, dismissal and keyboard walking.
 - Backend: `runtime/` owns live agents (`turn.rs` is one `claude` process), `git/` is split by user action, and `domain.rs` holds the persisted records. Tests for a directory module live in its `tests.rs`.

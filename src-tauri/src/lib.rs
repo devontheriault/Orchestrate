@@ -7,6 +7,7 @@ pub mod merging;
 pub mod models;
 pub mod paths;
 pub mod runtime;
+pub mod slash;
 pub mod storage;
 pub mod title;
 pub mod usage;
@@ -185,6 +186,7 @@ pub fn run() {
             commands::startup_orphans,
             commands::dismiss_orphans,
             commands::list_models,
+            commands::slash_commands,
             commands::usage_summary,
         ])
         .run(tauri::generate_context!())
