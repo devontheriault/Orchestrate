@@ -53,6 +53,9 @@
       </span>
     {:else if drafting}
       <span class="name" data-tauri-drag-region={dragRegion}>New agent</span>
+      <!-- Up here rather than in a pane header of its own, which would have
+           held nothing else. -->
+      <button class="cancel" onclick={() => store.cancelDraft()}>Cancel</button>
     {:else}
       <span class="idle" data-tauri-drag-region={dragRegion}>No agent selected</span>
     {/if}
@@ -164,6 +167,22 @@
   .name .sep {
     margin: 0 0.1rem;
   }
+
+  .cancel {
+    flex: none;
+    margin-left: auto;
+    white-space: nowrap;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--surface);
+    padding: 0.2rem 0.75rem;
+    font-size: var(--text-md);
+    font-family: inherit;
+    color: var(--fg);
+    cursor: pointer;
+  }
+
+  .cancel:hover { border-color: var(--accent); color: var(--accent); }
 
   .idle {
     font-size: var(--text-xl);
