@@ -73,7 +73,12 @@
     ...dark,
   ];
 
-  const SUB_WIDTH = 222;
+  /**
+   * The themes submenu's width, in rem: the UI's type grows with the window,
+   * so a width in pixels that fits at the smallest size cuts the names off at
+   * the largest.
+   */
+  const SUB_WIDTH_REM = 17;
 
   let open = $state(false);
   /** Index the keyboard is on while the menu is up. */
@@ -124,7 +129,8 @@
         themes.findIndex((t) => t.id === theme.pref),
       );
     }
-    subPlacement = placeSubmenu(row, menuEl, SUB_WIDTH);
+    const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
+    subPlacement = placeSubmenu(row, menuEl, SUB_WIDTH_REM * rem);
     subOpen = true;
   }
 
@@ -314,7 +320,7 @@
 {#if open && placement}
   <div
     bind:this={menuEl}
-    class="popover menu"
+    class="popover menu fit"
     role="menu"
     aria-label="Settings"
     aria-activedescendant={inSub ? `${uid}-theme-${subActive}` : `${uid}-item-${active}`}
@@ -476,6 +482,12 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  /* The rows are fixed wording, not a list of names to ellipsize: the menu
+     grows to fit them rather than cutting them off as the type scales up. */
+  .fit {
+    min-width: max-content;
   }
 
   /* The Theme row stays lit while the pointer is off in its submenu. */
