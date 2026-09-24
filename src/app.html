@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <link rel="icon" href="%sveltekit.assets%/favicon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Claude Wrapper</title>
+    <title>Orchestrate</title>
     <!-- Resolves the theme before the first paint, so the window never flashes
          the wrong one on launch. Deliberately duplicates the two lines of
          logic in src/lib/theme/theme.svelte.ts rather than waiting on the module —
@@ -15,7 +15,7 @@
          before the module replaces it, and every known one is already right. -->
     <script>
       (() => {
-        const pref = localStorage.getItem("devcode:theme");
+        const pref = localStorage.getItem("orchestrate:theme");
         document.documentElement.dataset.theme =
           pref || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
       })();

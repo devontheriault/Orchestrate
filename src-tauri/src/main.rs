@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    claudewrapper_lib::run()
+    orchestrate_lib::run()
 }

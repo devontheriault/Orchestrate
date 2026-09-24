@@ -4,7 +4,7 @@
 //! Installed builds hand it to the OS's service manager, so it starts at login
 //! and outlives every window. Only systemd is supported so far; another OS adds
 //! its own branch to [`start`]. Development builds, and any window with its own
-//! `CLAUDEWRAPPER_STATE_DIR`, start it as a plain detached process instead, so
+//! `ORCHESTRATE_STATE_DIR`, start it as a plain detached process instead, so
 //! a build under test never replaces the user's real service.
 
 use std::io;
@@ -75,9 +75,9 @@ pub fn set_keeps_running(on: bool) -> io::Result<()> {
 pub fn unit(exe: &Path, env_file: &Path) -> String {
     format!(
         "\
-# Written by Claude Wrapper, and rewritten whenever it starts its Host.
+# Written by Orchestrate, and rewritten whenever it starts its Host.
 [Unit]
-Description=Claude Wrapper Host: keeps agents running with no window open
+Description=Orchestrate Host: keeps agents running with no window open
 
 [Service]
 ExecStart=\"{exe}\" --host
@@ -178,7 +178,9 @@ mod systemd {
 
     use crate::paths;
 
-    const UNIT: &str = "claudewrapper-host.service";
+    const UNIT: &str = "orchestrate-host.service";
+    /// The unit's name from before the app was renamed.
+    const LEGACY_UNIT: &str = "claudewrapper-host.service";
 
     /// Whether the user's systemd instance, and so this Host, outlives their
     /// last session. Only asked of a Host that systemd runs: one started any
@@ -227,7 +229,7 @@ mod systemd {
     /// the default state directory, on a machine running a user manager.
     pub fn manages_host() -> bool {
         !cfg!(debug_assertions)
-            && std::env::var_os("CLAUDEWRAPPER_STATE_DIR").is_none()
+            && std::env::var_os("ORCHESTRATE_STATE_DIR").is_none()
             && Command::new("systemctl")
                 .args(["--user", "show-environment"])
                 .stdout(Stdio::null())
@@ -254,10 +256,17 @@ mod systemd {
             &super::environment(std::env::vars(), appdir.as_deref()),
         )?;
 
-        let unit_file = dirs::config_dir()
+        let unit_dir = dirs::config_dir()
             .ok_or_else(|| io::Error::other("no config directory"))?
-            .join("systemd/user")
-            .join(UNIT);
+            .join("systemd/user");
+        // Left enabled, it would race this one for the Host lock at every login.
+        let legacy = unit_dir.join(LEGACY_UNIT);
+        if legacy.exists() {
+            let _ = systemctl(&["disable", LEGACY_UNIT]);
+            let _ = std::fs::remove_file(&legacy);
+            systemctl(&["daemon-reload"])?;
+        }
+        let unit_file = unit_dir.join(UNIT);
         if write_if_changed(&unit_file, &super::unit(&exe, &env_file))? {
             systemctl(&["daemon-reload"])?;
         }
@@ -316,7 +325,7 @@ mod tests {
                 ("CLAUDE_CONFIG_DIR", "/home/u/.claude"),
                 ("LC_ALL", "C"),
                 ("WAYLAND_DISPLAY", "wayland-1"),
-                ("CLAUDEWRAPPER_STATE_DIR", "/tmp/x"),
+                ("ORCHESTRATE_STATE_DIR", "/tmp/x"),
                 ("TERM", "xterm"),
             ]),
             None,
@@ -348,11 +357,11 @@ mod tests {
     #[test]
     fn unit_runs_the_binary_as_a_host_and_escapes_specifiers() {
         let unit = unit(
-            Path::new("/opt/Claude Wrapper/app%1"),
-            Path::new("/home/u/.local/state/claudewrapper/host.env"),
+            Path::new("/opt/Orchestrate/app%1"),
+            Path::new("/home/u/.local/state/orchestrate/host.env"),
         );
-        assert!(unit.contains("ExecStart=\"/opt/Claude Wrapper/app%%1\" --host\n"));
-        assert!(unit.contains("EnvironmentFile=-/home/u/.local/state/claudewrapper/host.env\n"));
+        assert!(unit.contains("ExecStart=\"/opt/Orchestrate/app%%1\" --host\n"));
+        assert!(unit.contains("EnvironmentFile=-/home/u/.local/state/orchestrate/host.env\n"));
         assert!(unit.contains("KillMode=mixed\n"));
         assert!(unit.contains("WantedBy=default.target\n"));
     }

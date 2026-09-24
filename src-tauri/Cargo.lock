@@ -541,30 +541,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "claudewrapper"
-version = "0.1.0"
-dependencies = [
- "arboard",
- "base64 0.22.1",
- "dirs",
- "image",
- "libc",
- "rand 0.9.5",
- "reqwest",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-notification",
- "tauri-plugin-opener",
- "tempfile",
- "thiserror 2.0.20",
- "time",
- "tokio",
-]
-
-[[package]]
 name = "clipboard-win"
 version = "5.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2790,6 +2766,30 @@ name = "option-ext"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
+
+[[package]]
+name = "orchestrate"
+version = "0.1.0"
+dependencies = [
+ "arboard",
+ "base64 0.22.1",
+ "dirs",
+ "image",
+ "libc",
+ "rand 0.9.5",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-notification",
+ "tauri-plugin-opener",
+ "tempfile",
+ "thiserror 2.0.20",
+ "time",
+ "tokio",
+]
 
 [[package]]
 name = "ordered-stream"

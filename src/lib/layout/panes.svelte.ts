@@ -9,7 +9,7 @@
 
 import { viewport } from "./viewport.svelte";
 
-const STORAGE_KEY = "devcode:panes";
+const STORAGE_KEY = "orchestrate:panes";
 
 /** Below this the project list is drawn as a rail of initials, not a tree. */
 export const MIN_PROJECTS = 150;
