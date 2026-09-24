@@ -36,6 +36,7 @@ import {
   defaultHost,
   groupKey,
   groupProjects,
+  orderProjects,
   type ProjectGroup,
 } from "./projects";
 import { TurnPrefs } from "./prefs.svelte";
@@ -106,6 +107,18 @@ function readHostCache(): Record<string, HostData> {
   }
 }
 
+/** The order the user dragged the projects into, as project ids. */
+const PROJECT_ORDER_KEY = "cw:project-order";
+
+function readProjectOrder(): string[] {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(PROJECT_ORDER_KEY) ?? "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 function takeResumeSelection(): Selection | null {
   try {
     const raw = sessionStorage.getItem(RESUME_KEY);
@@ -139,6 +152,13 @@ export class AppStore {
    * only ever holds the lists the user asked to see.
    */
   expandedProjects = $state<Record<string, boolean>>({});
+
+  /**
+   * The order the user dragged the projects into. Kept in the window rather
+   * than on a Host: a project can span several Hosts, and the list is the
+   * window's. Empty until the first drag, so the Hosts' order stands till then.
+   */
+  private projectOrder: string[] = readProjectOrder();
 
   /**
    * Buckets the user has opened or folded in the sidebar, by project and then
@@ -441,9 +461,12 @@ export class AppStore {
   /** Put the Hosts' lists together into what the window shows. */
   private rebuild() {
     const all = Object.values(this.perHost);
-    this.projects = groupProjects(
-      all.flatMap((d) => d.projects),
-      LOCAL,
+    this.projects = orderProjects(
+      groupProjects(
+        all.flatMap((d) => d.projects),
+        LOCAL,
+      ),
+      this.projectOrder,
     );
     this.groupOf = new Map(
       this.projects.flatMap((g) => g.checkouts.map((c) => [`${c.host}/${c.id}`, g.id])),
@@ -586,6 +609,17 @@ export class AppStore {
       this.selectProject(groupKey(p));
     } catch (e) {
       this.error = String(e);
+    }
+  }
+
+  /** Put the projects in the order given, as ids, and remember it. */
+  reorderProjects(ids: string[]) {
+    this.projectOrder = ids;
+    this.projects = orderProjects(this.projects, ids);
+    try {
+      localStorage.setItem(PROJECT_ORDER_KEY, JSON.stringify(ids));
+    } catch {
+      // The order still holds for this window.
     }
   }
 
