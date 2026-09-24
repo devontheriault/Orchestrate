@@ -5,7 +5,7 @@
 //! counter kept in memory. `claude` reports a Turn's per-model usage on its
 //! `result` event and the account's limit windows on `rate_limit_event`, so
 //! the logs are the record: reading them means the totals survive a restart,
-//! and they cover Agents this window never opened — Reaped ones included,
+//! and they cover Agents this window never opened — Discarded ones included,
 //! whose logs outlive them. The account's numbers come from Claude Code's own
 //! session transcripts instead; see `account`.
 

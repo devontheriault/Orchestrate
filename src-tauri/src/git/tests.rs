@@ -198,10 +198,10 @@ async fn resolve_base_falls_back_to_merge_base() {
 }
 
 #[tokio::test]
-async fn diff_and_commit_report_a_reaped_worktree() {
+async fn diff_and_commit_report_a_discarded_worktree() {
     let f = Fixture::new().await;
     let path = f.wt_path();
-    crate::worktree::reap(f.repo.path(), &path, Fixture::BRANCH)
+    crate::worktree::discard(f.repo.path(), &path, Fixture::BRANCH)
         .await
         .unwrap();
 

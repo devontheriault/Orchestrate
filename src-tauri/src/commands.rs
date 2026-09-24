@@ -157,17 +157,17 @@ pub async fn stop_agent(state: State<'_, AppState>, agent_id: String) -> Result<
 }
 
 #[tauri::command]
-pub async fn reap_agent(agent_id: String) -> Result<(), String> {
+pub async fn discard_agent(agent_id: String) -> Result<(), String> {
     let agent = storage::load_agent(&agent_id).map_err(err)?;
     if agent.state == AgentState::Running {
-        return Err("cannot reap a running agent; stop it first".into());
+        return Err("cannot discard a running agent; stop it first".into());
     }
 
     // Best-effort worktree removal. If the Project has been unregistered we
     // fall back to a plain directory delete.
     let reg = storage::Registry::load().map_err(err)?;
     if let Some(project) = reg.project(&agent.project_id) {
-        let _ = worktree::reap(&project.path, &agent.worktree_path, &agent.branch).await;
+        let _ = worktree::discard(&project.path, &agent.worktree_path, &agent.branch).await;
     } else if agent.worktree_path.exists() {
         let _ = std::fs::remove_dir_all(&agent.worktree_path);
     }
@@ -244,7 +244,7 @@ pub enum MergeOutcome {
 /// the app writes to the Project, and only ever because the user asked.
 ///
 /// Refused while the Agent is running — the merge would capture a tree the Agent
-/// is still writing. The Agent survives a Merge: only Reap destroys anything, so
+/// is still writing. The Agent survives a Merge: only Discard destroys anything, so
 /// the Merge is recorded on the Agent and nothing is cleaned up.
 #[tauri::command]
 pub async fn agent_merge(agent_id: String, target: String) -> Result<MergeOutcome, String> {
@@ -347,7 +347,7 @@ pub async fn usage_summary() -> Result<UsageSummary, String> {
 }
 
 /// The launch-time Orphans that are still Orphaned. Read fresh from disk, so
-/// one the user has since Resumed or Reaped drops out: a reload of the window
+/// one the user has since Resumed or Discarded drops out: a reload of the window
 /// asks again, but this process kept its launch-time list.
 #[tauri::command]
 pub async fn startup_orphans(state: State<'_, AppState>) -> Result<Vec<Agent>, String> {

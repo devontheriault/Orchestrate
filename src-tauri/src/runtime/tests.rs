@@ -242,7 +242,7 @@ async fn stop_preserves_the_worktree_for_review() {
     }
     assert!(
         agent.worktree_path.exists(),
-        "Stop leaves the worktree; Reap is the explicit action that removes it"
+        "Stop leaves the worktree; Discard is the explicit action that removes it"
     );
 }
 
@@ -817,7 +817,7 @@ async fn resume_is_refused_when_the_worktree_is_gone() {
         .await
         .unwrap();
     wait_for_exit(&mut rx).await;
-    worktree::reap(&project.path, &agent.worktree_path, &agent.branch)
+    worktree::discard(&project.path, &agent.worktree_path, &agent.branch)
         .await
         .unwrap();
 

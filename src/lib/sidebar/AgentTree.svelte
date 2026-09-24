@@ -77,7 +77,7 @@
 
   /**
    * An agent changing heading glides there instead of jumping, and the rows it
-   * passes make room. Only a change of heading does it: a spawn, a reap or a
+   * passes make room. Only a change of heading does it: a spawn, a discard or a
    * fold just lands, so the list isn't forever in motion. Positions are taken
    * before the list re-renders and played back after.
    */
@@ -115,8 +115,8 @@
   function toggle(bucket: Bucket) {
     const opening = !isOpen(bucket);
     (store.openBuckets[projectId] ??= {})[bucket] = opening;
-    // Reap-all only shows while Delivered is open, so folding it backs out.
-    if (bucket === "delivered" && !opening) confirmingReap = false;
+    // Clear only shows while Delivered is open, so folding it backs out.
+    if (bucket === "delivered" && !opening) confirmingClear = false;
   }
 
   /**
@@ -184,23 +184,23 @@
 
   /**
    * Clearing out the Delivered pile in one go. Their work is already in the
-   * project, but a reap still deletes branches and conversations, so the
+   * project, but clearing still deletes branches and conversations, so the
    * button opens a confirmation under the heading that says so, and marks the
    * rows it would take, before anything is deleted.
    */
-  let confirmingReap = $state(false);
-  let cancelReapEl: HTMLButtonElement | undefined = $state();
+  let confirmingClear = $state(false);
+  let cancelClearEl: HTMLButtonElement | undefined = $state();
 
-  const bulkReap = $derived(store.bulkReaps[projectId]);
+  const bulkClear = $derived(store.bulkClears[projectId]);
 
   // Focus lands on Cancel, so a stray Enter backs out rather than deletes.
   $effect(() => {
-    if (confirmingReap) cancelReapEl?.focus();
+    if (confirmingClear) cancelClearEl?.focus();
   });
 
-  function reapAll() {
-    confirmingReap = false;
-    store.reapDelivered(projectId);
+  function clearAll() {
+    confirmingClear = false;
+    store.clearDelivered(projectId);
   }
 
   function plural(n: number, word: string): string {
@@ -223,7 +223,7 @@
     <div class="group">
       <div
         class="group-label"
-        class:reapable={bucket === "delivered" && open && !bulkReap}
+        class:clearable={bucket === "delivered" && open && !bulkClear}
         data-flip={`bucket:${bucket}`}
       >
         <button
@@ -238,14 +238,14 @@
           <span class="chevron" class:open aria-hidden="true">›</span>
         </button>
         {#if bucket === "delivered" && open}
-          {#if !bulkReap}
+          {#if !bulkClear}
             <button
-              class="reap-all"
-              class:open={confirmingReap}
-              onclick={() => (confirmingReap = !confirmingReap)}
-              title="Reap all delivered agents"
-              aria-label="Reap all delivered agents"
-              aria-expanded={confirmingReap}
+              class="clear-all"
+              class:open={confirmingClear}
+              onclick={() => (confirmingClear = !confirmingClear)}
+              title="Clear all delivered agents"
+              aria-label="Clear all delivered agents"
+              aria-expanded={confirmingClear}
             >
               <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
                 <path
@@ -261,43 +261,43 @@
           {/if}
         {/if}
       </div>
-      {#if bucket === "delivered" && bulkReap}
-        <div class="reap-panel" role="status">
-          <p class="reap-title">
-            {#if bulkReap.total === 0}
+      {#if bucket === "delivered" && bulkClear}
+        <div class="clear-panel" role="status">
+          <p class="clear-title">
+            {#if bulkClear.total === 0}
               Checking for unmerged work…
             {:else}
-              Reaping {Math.min(bulkReap.done + 1, bulkReap.total)} of {bulkReap.total}…
+              Clearing {Math.min(bulkClear.done + 1, bulkClear.total)} of {bulkClear.total}…
             {/if}
           </p>
-          <div class="reap-progress">
+          <div class="clear-progress">
             <div
-              class="reap-progress-fill"
-              style={`width: ${bulkReap.total ? (bulkReap.done / bulkReap.total) * 100 : 0}%`}
+              class="clear-progress-fill"
+              style={`width: ${bulkClear.total ? (bulkClear.done / bulkClear.total) * 100 : 0}%`}
             ></div>
           </div>
         </div>
-      {:else if bucket === "delivered" && confirmingReap}
+      {:else if bucket === "delivered" && confirmingClear}
         <div
-          class="reap-panel"
+          class="clear-panel"
           role="alertdialog"
-          aria-labelledby={`reap-title-${projectId}`}
+          aria-labelledby={`clear-title-${projectId}`}
           tabindex="-1"
-          onkeydown={(e) => e.key === "Escape" && (confirmingReap = false)}
+          onkeydown={(e) => e.key === "Escape" && (confirmingClear = false)}
         >
-          <p class="reap-title" id={`reap-title-${projectId}`}>
-            Reap {plural(group.length, "agent")}?
+          <p class="clear-title" id={`clear-title-${projectId}`}>
+            Clear {plural(group.length, "agent")}?
           </p>
-          <p class="reap-sub">
+          <p class="clear-sub">
             Merged work will be deleted.
           </p>
-          <div class="reap-actions">
+          <div class="clear-actions">
             <button
-              bind:this={cancelReapEl}
+              bind:this={cancelClearEl}
               class="btn btn-ghost btn-sm"
-              onclick={() => (confirmingReap = false)}>Cancel</button
+              onclick={() => (confirmingClear = false)}>Cancel</button
             >
-            <button class="btn btn-danger btn-sm" onclick={reapAll}>Reap</button>
+            <button class="btn btn-danger btn-sm" onclick={clearAll}>Clear</button>
           </div>
         </div>
       {/if}
@@ -307,7 +307,7 @@
           data-flip={`agent:${a.id}`}
           class:selected={store.selectedAgentId === a.id}
           class:running={a.state === "running"}
-          class:doomed={bucket === "delivered" && (confirmingReap || !!bulkReap)}
+          class:doomed={bucket === "delivered" && (confirmingClear || !!bulkClear)}
           onclick={() => pick(a.id)}
           role="button"
           tabindex="0"
@@ -386,7 +386,7 @@
     margin-top: var(--space-2);
   }
 
-  /* One cell: the fold spans the row, and the reap button is laid over it
+  /* One cell: the fold spans the row, and the clear button is laid over it
      just left of the chevron. */
   .group-label {
     display: grid;
@@ -435,8 +435,8 @@
     grid-area: 1 / 1;
   }
 
-  /* Stops short of the reap button, a gap clear of it. */
-  .reapable .rule {
+  /* Stops short of the clear button, a gap clear of it. */
+  .clearable .rule {
     margin-right: calc(1.3rem + var(--space-2));
   }
 
@@ -458,7 +458,7 @@
 
   /* Pulled back in by its own size so the Delivered heading sits at the same
      height as the others, and in from the right by the chevron and a gap. */
-  .reap-all {
+  .clear-all {
     display: grid;
     place-items: center;
     justify-self: end;
@@ -478,24 +478,24 @@
       opacity var(--transition-fast);
   }
 
-  .group:hover .reap-all,
-  .reap-all:focus-visible {
+  .group:hover .clear-all,
+  .clear-all:focus-visible {
     opacity: 1;
   }
 
-  .reap-all:hover,
-  .reap-all.open {
+  .clear-all:hover,
+  .clear-all.open {
     opacity: 1;
     background: var(--danger-soft-bg);
     color: var(--danger-text);
   }
 
-  .reap-all:focus-visible {
+  .clear-all:focus-visible {
     outline: none;
     box-shadow: var(--focus-ring);
   }
 
-  .reap-panel {
+  .clear-panel {
     display: flex;
     flex-direction: column;
     gap: var(--space-3);
@@ -507,38 +507,38 @@
     outline: none;
   }
 
-  .reap-panel p {
+  .clear-panel p {
     margin: 0;
   }
 
-  .reap-title {
+  .clear-title {
     font-size: var(--text-sm);
     font-weight: var(--weight-semibold);
     color: var(--fg);
     font-variant-numeric: tabular-nums;
   }
 
-  .reap-sub {
+  .clear-sub {
     font-size: var(--text-xs);
     line-height: var(--leading-snug);
     color: var(--fg-muted);
   }
 
-  .reap-actions {
+  .clear-actions {
     display: flex;
     justify-content: flex-end;
     gap: var(--space-2);
     margin-top: var(--space-1);
   }
 
-  .reap-progress {
+  .clear-progress {
     height: 3px;
     border-radius: var(--radius-pill);
     background: var(--danger-soft-border);
     overflow: hidden;
   }
 
-  .reap-progress-fill {
+  .clear-progress-fill {
     height: 100%;
     background: var(--danger);
     transition: width var(--duration-slow) var(--ease);
@@ -615,7 +615,7 @@
     background: color-mix(in srgb, var(--accent) 15%, transparent);
   }
 
-  /* The rows a reap-all would take, marked while it is being confirmed and
+  /* The rows a clear would take, marked while it is being confirmed and
      while it runs, so it is plain which ones go. */
   .agent.doomed .name,
   .agent.doomed .age,

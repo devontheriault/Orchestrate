@@ -113,7 +113,7 @@ export class Review {
 
   /**
    * Merge the selected agent's branch onto `target`. The agent survives — only
-   * a reap destroys anything — so this refreshes rather than clears.
+   * a discard destroys anything — so this refreshes rather than clears.
    */
   async merge(target: string) {
     const app = this.#app;

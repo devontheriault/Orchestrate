@@ -36,7 +36,7 @@ pub struct WorktreeDiff {
     /// The patch was cut off at [`MAX_PATCH_BYTES`].
     pub truncated: bool,
     /// There are changes not yet in a commit — i.e. [`commit`] has something to
-    /// capture, and a Reap right now would destroy work.
+    /// capture, and a Discard right now would destroy work.
     pub uncommitted: bool,
     /// Project branches that already contain the Agent's tip, so a Merge into
     /// them would have nothing left to do. Empty until the work is merged, and
