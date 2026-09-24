@@ -39,7 +39,6 @@
   import HostPicker from "$lib/menus/HostPicker.svelte";
   import { hostChoices } from "$lib/menus/hostChoices";
   import { hosts } from "$lib/state/hosts.svelte";
-  import OptionsPicker from "$lib/menus/OptionsPicker.svelte";
   import AgentQueue from "./AgentQueue.svelte";
   import TurnStats from "./TurnStats.svelte";
   import SlashMenu from "./SlashMenu.svelte";
@@ -687,15 +686,6 @@
             disabled={inFlight}
             compact
             label={drafting ? "Mode for the new agent" : "Mode for this prompt"}
-          />
-          <!-- Last: what it picks is the agent's, not just this prompt's. -->
-          <OptionsPicker
-            {options}
-            styles={commands.styles}
-            onchange={setOptions}
-            onopen={() => commandsDir && slash.load(commandsHost, commandsDir)}
-            disabled={inFlight}
-            label={drafting ? "Options for the new agent" : "Options for this agent"}
           />
         </div>
       </div>
