@@ -121,7 +121,7 @@
     overflow: hidden;
     /* Sizes the logo: the name, not a caption, so it fills the bar the way a
        heading would. */
-    font-size: 1.5rem;
+    font-size: 1.75rem;
   }
 
   /* Over the rail, the mark sits where the rail's own rows and "+" start. */
