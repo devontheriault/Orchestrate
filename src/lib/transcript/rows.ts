@@ -57,7 +57,19 @@ export function systemLabel(subtype: string): string {
   return SYSTEM_LABELS[subtype] ?? humanize(subtype);
 }
 
+/**
+ * Each event's blocks, worked out once: the log is rebuilt into Rows on every
+ * event that arrives, and an event never changes after it has.
+ */
+const classified = new WeakMap<AgentEvent, Kind[]>();
+
 function classify(ev: AgentEvent): Kind[] {
+  let ks = classified.get(ev);
+  if (!ks) classified.set(ev, (ks = classifyEvent(ev)));
+  return ks;
+}
+
+function classifyEvent(ev: AgentEvent): Kind[] {
   const e = ev.event as {
     type?: string;
     message?: any;
@@ -268,4 +280,48 @@ export function buildRows(evs: AgentEvent[]): Row[] {
     }
   }
   return out;
+}
+
+/**
+ * `next`, with every Row and call that came out the same as last time swapped
+ * back for last time's object — and `prev` itself when nothing changed at
+ * all. `buildRows` makes everything anew, and a new object reads as a change
+ * to whatever renders it: without this, each event re-rendered every Row in
+ * the transcript, Markdown and highlighted code included.
+ */
+export function keepUnchanged(prev: Row[], next: Row[]): Row[] {
+  const before = new Map(prev.map((r) => [r.key, r]));
+  let changed = prev.length !== next.length;
+  const out = next.map((row, i) => {
+    const old = before.get(row.key);
+    let kept: Row = row;
+    if (old && same(old, row)) kept = old;
+    else if (old?.kind === "tools" && row.kind === "tools") {
+      const calls = new Map(old.calls.map((c) => [c.key, c]));
+      kept = {
+        ...row,
+        calls: row.calls.map((c) => {
+          const was = calls.get(c.key);
+          return was && same(was, c) ? was : c;
+        }),
+      };
+    }
+    if (kept !== prev[i]) changed = true;
+    return kept;
+  });
+  return changed ? out : prev;
+}
+
+/**
+ * Equal field by field, looking `depth` levels into arrays and objects.
+ * Anything deeper is compared by identity, which is enough: it comes straight
+ * from an event, and an event's objects are the same ones every time.
+ */
+function same(a: unknown, b: unknown, depth = 3): boolean {
+  if (a === b) return true;
+  if (depth === 0 || typeof a !== "object" || typeof b !== "object" || !a || !b) return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  const ka = Object.keys(a);
+  if (ka.length !== Object.keys(b).length) return false;
+  return ka.every((k) => same((a as any)[k], (b as any)[k], depth - 1));
 }

@@ -136,7 +136,7 @@
   }
 
   function detail(a: Agent): string {
-    return rowDetail(a, store.eventsByAgent[a.id] ?? [], {
+    return rowDetail(a, store.eventsByAgent.get(a.id) ?? [], {
       delivered: store.isDelivered(a),
       holdingWork: store.isHoldingWork(a.id),
       modelName: a.model ? models.name(a.model) : "",

@@ -11,6 +11,17 @@
   const FOLLOW_SLACK = 120;
 
   /**
+   * How many Rows are on the page while following, and how many more come in
+   * each time the user scrolls near the top. A long transcript is thousands
+   * of Rows, and building them all made opening an agent slow and every
+   * layout after it slower.
+   */
+  const PAGE = 100;
+
+  /** How near the top, in pixels, brings in the Rows before it. */
+  const EARLIER_SLACK = 600;
+
+  /**
    * Whether the transcript is following the newest output. Only the user
    * scrolling up lets go of it — new output never does. Measuring the distance
    * from the bottom once output arrives can't tell the two apart: by then the
@@ -29,6 +40,7 @@
 </script>
 
 <script lang="ts">
+  import { tick } from "svelte";
   import { store } from "$lib/state/store.svelte";
   import { formatDuration, formatTokens } from "$lib/format";
   import Markdown from "$lib/markdown/Markdown.svelte";
@@ -36,7 +48,7 @@
   import HighlightedCode from "$lib/code/HighlightedCode.svelte";
   import NumberedCode from "$lib/code/NumberedCode.svelte";
   import ShellCommand from "./ShellCommand.svelte";
-  import { buildRows, humanize, systemLabel, type Row, type ToolCall } from "./rows";
+  import { buildRows, humanize, keepUnchanged, systemLabel, type Row, type ToolCall } from "./rows";
   import {
     bashCommand,
     bashOutputLanguage,
@@ -55,14 +67,57 @@
 
   let streamEl: HTMLDivElement | undefined = $state();
 
+  /**
+   * Rebuilt on every event, but keeping last time's Row wherever it came out
+   * the same, so only what the event changed re-renders.
+   */
+  let lastRows: Row[] = [];
+  const rows: Row[] = $derived.by(
+    () => (lastRows = keepUnchanged(lastRows, buildRows(store.eventsForSelected))),
+  );
+
+  /**
+   * The first Row on the page. Infinity while following, so the page slides
+   * along with the newest PAGE Rows. Letting go of the stream pins it where
+   * it is, so nothing leaves the top of the page under the user's eyes.
+   */
+  let start = $state(Infinity);
+  const shownFrom = $derived(Math.max(0, Math.min(start, rows.length - PAGE)));
+  const shown = $derived(shownFrom > 0 ? rows.slice(shownFrom) : rows);
+
+  function follow(on: boolean) {
+    if (on === following) return;
+    following = on;
+    start = on ? Infinity : shownFrom;
+  }
+
   function onScroll() {
     const el = streamEl;
     if (!el) return;
-    if (el.scrollHeight - el.scrollTop - el.clientHeight < FOLLOW_SLACK) following = true;
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < FOLLOW_SLACK) follow(true);
     // Our own scrolls only ever go down, and content growing below doesn't
     // move scrollTop at all, so a scroll upward is the user's doing.
-    else if (el.scrollTop < lastScrollTop) following = false;
+    else if (el.scrollTop < lastScrollTop) follow(false);
     lastScrollTop = el.scrollTop;
+    if (!following && el.scrollTop < EARLIER_SLACK) void showEarlier();
+  }
+
+  /**
+   * Puts the PAGE Rows before the page's first on it, keeping what's on
+   * screen where it is: the new Rows would otherwise push it down by their
+   * height. Done by hand because WebKit doesn't anchor scrolling itself.
+   */
+  let addingEarlier = false;
+  async function showEarlier() {
+    const el = streamEl;
+    if (!el || addingEarlier || shownFrom === 0) return;
+    addingEarlier = true;
+    const fromBottom = el.scrollHeight - el.scrollTop;
+    start = Math.max(0, shownFrom - PAGE);
+    await tick();
+    el.scrollTop = el.scrollHeight - fromBottom;
+    lastScrollTop = el.scrollTop;
+    addingEarlier = false;
   }
 
   function stickToBottom() {
@@ -71,18 +126,21 @@
     });
   }
 
-  function jumpToBottom() {
+  async function jumpToBottom() {
     const el = streamEl;
     if (!el) return;
-    following = true;
+    follow(true);
+    // Scroll to where the bottom is once the page has dropped its older Rows.
+    await tick();
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     el.scrollTo({ top: el.scrollHeight, behavior: reduced ? "auto" : "smooth" });
   }
 
   // New output scrolls itself into view unless the user has scrolled up.
+  // Keyed on the Rows rather than the events: most events change nothing on
+  // screen, and those shouldn't cost a scroll.
   $effect(() => {
-    const len = store.eventsForSelected.length;
-    if (!streamEl || len === 0) return;
+    if (!streamEl || rows.length === 0) return;
     if (following) stickToBottom();
   });
 
@@ -101,10 +159,9 @@
     const id = store.selectedAgentId;
     if (!streamEl || !id) return;
     following = true;
+    start = Infinity;
     stickToBottom();
   });
-
-  const rows: Row[] = $derived(buildRows(store.eventsForSelected));
 
   /**
    * The newest Bash call in the transcript. It opens itself, so the command
@@ -219,7 +276,7 @@
           : "No events on record."}
       </div>
     {:else}
-      {#each rows as row (row.key)}
+      {#each shown as row (row.key)}
         {#if row.kind === "prompt"}
           <!-- One line on purpose: the block is pre-wrap, so any whitespace
                between these tags would show up as blank space. -->
@@ -339,6 +396,9 @@
     min-height: 0;
     overflow-y: auto;
     overflow-x: hidden;
+    /* Adding earlier Rows keeps the view still by hand (`showEarlier`); the
+       browser's own anchoring, where there is any, would move it twice. */
+    overflow-anchor: none;
     padding: 1rem var(--pad-x) 2rem;
     display: flex;
     flex-direction: column;

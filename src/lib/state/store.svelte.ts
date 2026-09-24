@@ -27,6 +27,7 @@ import {
 import { notify } from "$lib/notify/notify";
 import { turnNotice } from "$lib/notify/turnNotice";
 import type { UnlistenFn } from "@tauri-apps/api/event";
+import { SvelteMap } from "svelte/reactivity";
 import { hosts } from "./hosts.svelte";
 import { models } from "./models.svelte";
 import {
@@ -117,7 +118,13 @@ export class AppStore {
   projects = $state<ProjectGroup[]>([]);
   agents = $state<Agent[]>([]);
   orphans = $state<Agent[]>([]);
-  eventsByAgent = $state<Record<string, AgentEvent[]>>({});
+  /**
+   * Each Agent's log, as it arrived. Events are never changed once they're
+   * in, so they're held as plain objects rather than deep state: proxying
+   * every tool result made each new event cost a walk of the whole log. A
+   * new event replaces its Agent's array, so readers see it as a change.
+   */
+  eventsByAgent = new SvelteMap<string, AgentEvent[]>();
 
   selectedProjectId = $state<string | null>(null);
   selectedAgentId = $state<string | null>(null);
@@ -294,7 +301,7 @@ export class AppStore {
   });
 
   eventsForSelected = $derived(
-    this.selectedAgentId ? this.eventsByAgent[this.selectedAgentId] ?? [] : [],
+    this.selectedAgentId ? this.eventsByAgent.get(this.selectedAgentId) ?? [] : [],
   );
 
   /**
@@ -313,8 +320,7 @@ export class AppStore {
 
     this.unlisteners.push(
       await events.onAgentEvent(({ agent_id, event }) => {
-        if (!this.eventsByAgent[agent_id]) this.eventsByAgent[agent_id] = [];
-        this.eventsByAgent[agent_id].push(event);
+        this.eventsByAgent.set(agent_id, [...(this.eventsByAgent.get(agent_id) ?? []), event]);
       }),
     );
 
@@ -678,7 +684,7 @@ export class AppStore {
     this.hydrated.add(id);
     try {
       const logged = await api.agentEvents(id);
-      this.eventsByAgent[id] = mergeEvents(logged, this.eventsByAgent[id] ?? []);
+      this.eventsByAgent.set(id, mergeEvents(logged, this.eventsByAgent.get(id) ?? []));
     } catch (e) {
       // Leave it unhydrated so re-selecting the Agent tries again.
       this.hydrated.delete(id);
@@ -936,7 +942,7 @@ export class AppStore {
     try {
       await api.discardAgent(id);
       this.agents = this.agents.filter((a) => a.id !== id);
-      delete this.eventsByAgent[id];
+      this.eventsByAgent.delete(id);
       this.hydrated.delete(id);
       if (this.selectedAgentId === id) {
         this.selectedAgentId = null;
