@@ -45,13 +45,14 @@
     white-space: nowrap;
   }
 
-  /* 64 grid units to the kit's 69px type, sitting 14 units below the
-     baseline — the lockup's own proportions, taken from its SVG. */
+  /* 64 grid units to the kit's 69px type. The box's bottom edge sits on the
+     baseline, so it drops by the 5 empty units under the bars to set the "O"
+     on the same line as the letters after it. */
   .mark {
     flex: none;
     width: 0.93em;
     height: 0.93em;
-    transform: translateY(0.203em);
+    transform: translateY(calc(0.93em * 5 / 64));
     fill: currentColor;
     /* Clicks fall through to the span, which is a window drag handle. */
     pointer-events: none;
