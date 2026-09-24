@@ -25,7 +25,7 @@ use crate::domain::{
 use crate::error::{Error, Result};
 use crate::{attachments, git, merging, paths, storage, worktree};
 
-use events::{prompt_event, Emitter};
+use events::{notice_event, prompt_event, Emitter};
 pub use events::{RuntimeEvent, NOTICE_EVENT_TYPE, PROMPT_EVENT_TYPE};
 use turn::Continuity;
 
@@ -133,9 +133,15 @@ impl AgentRuntime {
         agent.options = options;
         // Record the commit we branched from before the Agent can move HEAD, so
         // the diff view has a fixed base even if the Project advances later.
-        agent.base_commit = git::head_commit(&project.path).await.ok();
+        // Brought up to date with the remote first, where there is one.
+        let start = git::spawn_start(&project.path).await.ok();
+        agent.base_commit = start.as_ref().map(|s| s.commit.clone());
         let from = agent.base_commit.clone().unwrap_or_else(|| "HEAD".into());
-        self.start(project, &from, agent).await
+        let agent = self.start(project, &from, agent).await?;
+        if let Some(note) = start.and_then(|s| s.note) {
+            self.emitter.record(&agent.id, notice_event(&note));
+        }
+        Ok(agent)
     }
 
     /// Spawn a Resolver for a Merge of `conflicted` into `target` that hit
@@ -535,6 +541,7 @@ fn new_agent(
         // Nothing has merged yet; a Merge records itself here when it does.
         merged_branch: None,
         merged_at: None,
+        push_error: None,
         resolves: None,
         queue: vec![],
     })

@@ -1038,6 +1038,7 @@ async fn resume_is_refused_for_an_agent_with_no_session() {
         fail_reason: None,
         merged_branch: None,
         merged_at: None,
+        push_error: None,
         resolves: None,
         queue: vec![],
     };
@@ -1126,6 +1127,7 @@ async fn adopt_orphans_transitions_running() {
         fail_reason: None,
         merged_branch: None,
         merged_at: None,
+        push_error: None,
         resolves: None,
         queue: vec![],
     };

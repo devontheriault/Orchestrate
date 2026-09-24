@@ -181,6 +181,11 @@ pub struct Agent {
     pub merged_branch: Option<String>,
     #[serde(default, alias = "landed_at", with = "time::serde::rfc3339::option")]
     pub merged_at: Option<OffsetDateTime>,
+    /// Why the last Merge didn't reach the Project's remote, while it hasn't.
+    /// The Merge itself stands; the push is offered again. `None` once it's
+    /// pushed, and for a target with no remote to push to.
+    #[serde(default)]
+    pub push_error: Option<String>,
     /// Set on a Resolver: the Agent whose Merge conflicted, and the branch that
     /// Merge was headed for. `None` on every other Agent.
     #[serde(default)]
@@ -324,6 +329,7 @@ mod tests {
                 fail_reason: None,
                 merged_branch: None,
                 merged_at: None,
+                push_error: None,
                 resolves: Some(Resolution {
                     agent_id: "b4e0d2ef".into(),
                     target: "main".into(),

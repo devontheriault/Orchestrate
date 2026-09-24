@@ -210,6 +210,27 @@
         </div>
       {/if}
 
+      {#if store.selectedAgent?.push_error}
+        <!-- The merge landed here but not on the remote, which is where other
+             machines look for it. -->
+        <div class="merge-box unpushed">
+          <div class="merge-box-head">
+            <strong>Not pushed</strong>
+            <span class="sub">
+              merged into <code>{store.selectedAgent.merged_branch}</code> on this machine only
+            </span>
+          </div>
+          <div class="merge-box-foot">
+            <span class="sub why">{store.selectedAgent.push_error}</span>
+            <div class="merge-controls">
+              <button class="primary" disabled={review.pushing} onclick={() => review.pushAgain()}>
+                {review.pushing ? "Pushing…" : "Push"}
+              </button>
+            </div>
+          </div>
+        </div>
+      {/if}
+
       {#if diff.commits.length > 0}
         {#if conflict}
           <!-- The merge aborted, so the project is as it was. Offer the one
@@ -639,6 +660,15 @@
   /* Quieter still once there is nothing to do but read where it went. */
   .merge-box.merged {
     padding: 0.55rem 0.85rem;
+  }
+
+  .merge-box.unpushed {
+    border-color: var(--warning-soft-border);
+    background: var(--warning-soft-bg);
+  }
+
+  .merge-box.unpushed .why {
+    overflow-wrap: anywhere;
   }
 
   .merge-box-head {

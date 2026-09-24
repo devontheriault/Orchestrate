@@ -10,12 +10,14 @@
 //!
 //! Split by what the user is doing: `diff.rs` reads a Worktree, `commit.rs`
 //! captures its work, `merge.rs` brings that work into the Project, and
-//! `setup.rs` makes a folder something Agents can branch from. What they share —
+//! `setup.rs` makes a folder something Agents can branch from, and `remote.rs`
+//! keeps a Project in step with its remote. What they share —
 //! running git and resolving revisions — lives here.
 
 mod commit;
 mod diff;
 mod merge;
+mod remote;
 mod setup;
 
 #[cfg(test)]
@@ -30,6 +32,7 @@ use crate::error::{Error, Result};
 pub use commit::{commit, Commit};
 pub use diff::{diff, holds_unmerged_work, resolve_base, ChangedFile, WorktreeDiff};
 pub use merge::{branches, merge, Branches, Merged};
+pub use remote::{catch_up, push, spawn_start, Pushed, Start};
 pub use setup::{has_commits, set_up};
 
 /// Run git in `dir`, optionally against a scratch index instead of the

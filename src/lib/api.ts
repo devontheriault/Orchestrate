@@ -79,6 +79,11 @@ export type Agent = {
   merged_branch?: string | null;
   merged_at?: string | null;
   /**
+   * Why the last merge didn't reach the project's remote, while it hasn't. The
+   * merge itself stands. Null once pushed, or when there's no remote.
+   */
+  push_error?: string | null;
+  /**
    * Set on a resolver: the agent whose merge conflicted, and the branch it was
    * headed for. When the resolver's turn completes cleanly the app finishes
    * that merge and records it on both.
@@ -402,6 +407,8 @@ export const api = {
     host<Commit>("agent_commit", { agentId, message }),
   agentMerge: (agentId: string, target: string) =>
     host<MergeOutcome>("agent_merge", { agentId, target }),
+  /** Push the last merge again, after its push failed. */
+  pushMerge: (agentId: string) => host<Agent>("push_merge", { agentId }),
   /** Spawn a resolver for a merge of `agentId` into `target` that conflicted. */
   resolveConflict: (
     agentId: string,

@@ -132,6 +132,10 @@ pub enum Call {
         agent_id: String,
         target: String,
     },
+    /// Push a Merge whose push failed, again.
+    PushMerge {
+        agent_id: String,
+    },
     /// Spawn a Resolver for a Merge of the Agent into `target` that conflicted.
     ResolveConflict {
         agent_id: String,
@@ -366,6 +370,18 @@ async fn handle(host: &Host, call: Call) -> Result<Value, String> {
                 }
                 Err(e) => Err(err(e)),
             }
+        }
+
+        Call::PushMerge { agent_id } => {
+            let agent = storage::load_agent(&agent_id).map_err(err)?;
+            let project = project_of(&agent, "push")?;
+            let why = merging::push_again(&project.path, &agent)
+                .await
+                .map_err(err)?;
+            ok(runtime
+                .edit(&agent_id, |a| a.push_error = why)
+                .await
+                .map_err(err)?)
         }
 
         Call::ResolveConflict {

@@ -80,6 +80,16 @@ pub enum Error {
 
     #[error("the Host is restarting to update; try again in a moment")]
     HostClosing,
+
+    #[error(
+        "`{target}` has diverged from `{upstream}`, which has {behind} commit(s) it doesn't; \
+         bring them together before merging"
+    )]
+    TargetDiverged {
+        target: String,
+        upstream: String,
+        behind: usize,
+    },
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
