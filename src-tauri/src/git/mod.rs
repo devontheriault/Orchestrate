@@ -32,7 +32,10 @@ use crate::error::{Error, Result};
 pub use commit::{commit, Commit};
 pub use diff::{diff, holds_unmerged_work, resolve_base, ChangedFile, WorktreeDiff};
 pub use merge::{branches, merge, Branches, Merged};
-pub use remote::{catch_up, clone, push, remote_url, spawn_start, Pushed, Start};
+pub use remote::{
+    catch_up, clone, fetch_published, handoff_branch, publish, push, remote_url, spawn_start,
+    unpublish, Pushed, Start,
+};
 pub use setup::{has_commits, set_up};
 
 /// Run git in `dir`, optionally against a scratch index instead of the
@@ -96,4 +99,12 @@ pub async fn is_ancestor(repo: &Path, ancestor: &str, rev: &str) -> Result<bool>
             stderr: String::from_utf8_lossy(&out.stderr).trim().to_owned(),
         }),
     }
+}
+
+/// Whether a Worktree holds anything uncommitted, untracked files included.
+pub async fn is_dirty(worktree_path: &Path) -> Result<bool> {
+    Ok(!stdout(worktree_path, &["status", "--porcelain"])
+        .await?
+        .trim()
+        .is_empty())
 }

@@ -3,6 +3,7 @@ pub mod commands;
 pub mod domain;
 pub mod error;
 pub mod git;
+pub mod handoff;
 pub mod host;
 pub mod merging;
 pub mod models;

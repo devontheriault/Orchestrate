@@ -280,6 +280,11 @@ export class AppStore {
       : null,
   );
 
+  /** The project an agent is filed under. */
+  projectOf(agent: Agent): ProjectGroup | null {
+    return this.projects.find((p) => p.id === agent.project_id) ?? null;
+  }
+
   /** Where a new agent in the selected project would start. */
   draftHost = $derived.by(() => {
     const group = this.selectedProject;
@@ -752,6 +757,53 @@ export class AppStore {
           effort || null,
           mode || null,
           this.prefs.options,
+        ),
+      );
+      this.prefs.remember(model, effort, mode);
+      this.prefs.rememberHost(group.id, host);
+      this.upsert(agent);
+      this.selectAgent(agent.id);
+      return true;
+    } catch (e) {
+      this.error = String(e);
+      return false;
+    } finally {
+      this.spawning = false;
+    }
+  }
+
+  /**
+   * Take the selected agent's work to `host` (ADR 0013): its own Host puts
+   * what it committed on the project's remote, and a new agent on `host` picks
+   * it up with `prompt`. Returns whether it started, and opens it if it did.
+   */
+  async handOff(
+    host: string,
+    prompt: string,
+    attachments: string[],
+    model: string,
+    effort: string,
+    mode: string,
+  ): Promise<boolean> {
+    const from = this.selectedAgent;
+    const group = from && this.projectOf(from);
+    if (!from || !group || !prompt.trim() || this.spawning) return false;
+    this.spawning = true;
+    this.error = null;
+    try {
+      const checkout = checkoutOn(group, host) ?? (await this.cloneOnto(group, host));
+      const handoff = await api.handOff(from.id);
+      const agent = this.ingest(
+        await api.spawnAgent(
+          host,
+          checkout.id,
+          prompt,
+          await api.sendAttachments(host, attachments),
+          model || null,
+          effort || null,
+          mode || null,
+          from.options ?? this.prefs.options,
+          handoff,
         ),
       );
       this.prefs.remember(model, effort, mode);

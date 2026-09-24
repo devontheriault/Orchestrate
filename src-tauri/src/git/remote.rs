@@ -124,6 +124,13 @@ async fn network_for(
 /// whichever there is. It is what makes checkouts of one repository on
 /// several Hosts one Project (ADR 0011).
 pub async fn remote_url(repo: &Path) -> Option<String> {
+    let name = remote_name(repo).await?;
+    let url = stdout(repo, &["remote", "get-url", &name]).await.ok()?;
+    Some(url.trim().to_owned()).filter(|u| !u.is_empty())
+}
+
+/// Which of `repo`'s remotes is its remote, as [`remote_url`] picks it.
+async fn remote_name(repo: &Path) -> Option<String> {
     let branch = stdout(repo, &["branch", "--show-current"]).await.ok()?;
     let tracked = match branch.trim() {
         "" => None,
@@ -143,8 +150,7 @@ pub async fn remote_url(repo: &Path) -> Option<String> {
                 .map(|n| n.to_string())
         })
         .or_else(|| names.first().map(|n| n.to_string()))?;
-    let url = stdout(repo, &["remote", "get-url", &name]).await.ok()?;
-    Some(url.trim().to_owned()).filter(|u| !u.is_empty())
+    Some(name)
 }
 
 /// Clone `url` into `dest`, for a Host that has no checkout of a Project an
@@ -316,5 +322,69 @@ pub async fn push(repo: &Path, target: &str) -> Pushed {
         } else {
             why
         }),
+    }
+}
+
+/// Where Handoffs travel through the remote: a ref of their own, so taking one
+/// down afterwards can never touch a branch the user pushed.
+const HANDOFF_PREFIX: &str = "cw/handoff/";
+
+/// The remote branch a Handoff named `id` travels on.
+pub fn handoff_branch(id: &str) -> String {
+    format!("{HANDOFF_PREFIX}{id}")
+}
+
+/// `repo`'s remote, or the error for a Handoff from or to a repository that
+/// has none.
+async fn handoff_remote(repo: &Path) -> Result<String> {
+    remote_name(repo).await.ok_or_else(|| Error::Git {
+        command: "remote".into(),
+        stderr: "this project has no remote, so its work can only be picked up on this machine"
+            .into(),
+    })
+}
+
+/// Push `branch` to `repo`'s remote as `to`, for another Host to pick the work
+/// up from (ADR 0013). Unlike a Merge's push, an unreachable remote is a
+/// refusal: there is no other way for the work to get there.
+pub async fn publish(repo: &Path, branch: &str, to: &str) -> Result<()> {
+    let remote = handoff_remote(repo).await?;
+    let refspec = format!("refs/heads/{branch}:refs/heads/{to}");
+    network(repo, &["push", "--quiet", &remote, &refspec])
+        .await
+        .map_err(|stderr| Error::Git {
+            command: format!("push {remote} {refspec}"),
+            stderr,
+        })
+}
+
+/// Fetch the branch `from` off `repo`'s remote and return the commit it is at.
+pub async fn fetch_published(repo: &Path, from: &str) -> Result<String> {
+    let remote = handoff_remote(repo).await?;
+    let tracking = format!("refs/remotes/{remote}/{from}");
+    let refspec = format!("+refs/heads/{from}:{tracking}");
+    network(repo, &["fetch", "--quiet", &remote, &refspec])
+        .await
+        .map_err(|stderr| Error::Git {
+            command: format!("fetch {remote} {from}"),
+            stderr,
+        })?;
+    rev_parse(repo, &tracking).await
+}
+
+/// Take a branch [`publish`] put on the remote down again, once it has been
+/// fetched. Best-effort: one left behind is clutter, not harm.
+pub async fn unpublish(repo: &Path, branch: &str) {
+    if let Some(remote) = remote_name(repo).await {
+        let _ = network(repo, &["push", "--quiet", "--delete", &remote, branch]).await;
+        let _ = stdout(
+            repo,
+            &[
+                "update-ref",
+                "-d",
+                &format!("refs/remotes/{remote}/{branch}"),
+            ],
+        )
+        .await;
     }
 }

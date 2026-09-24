@@ -23,6 +23,7 @@ use crate::domain::{
     Resolution, Task,
 };
 use crate::error::{Error, Result};
+use crate::handoff::{self, Handoff};
 use crate::{attachments, git, merging, paths, storage, worktree};
 
 use events::{notice_event, prompt_event, Emitter};
@@ -127,10 +128,15 @@ impl AgentRuntime {
         permission_mode: Option<String>,
         options: AgentOptions,
     ) -> Result<Agent> {
-        attachments::check(&attachments)?;
-        let mut agent = new_agent(project, prompt, model, effort, permission_mode)?;
-        agent.task.attachments = attachments;
-        agent.options = options;
+        let mut agent = opening(
+            project,
+            prompt,
+            attachments,
+            model,
+            effort,
+            permission_mode,
+            options,
+        )?;
         // Record the commit we branched from before the Agent can move HEAD, so
         // the diff view has a fixed base even if the Project advances later.
         // Brought up to date with the remote first, where there is one.
@@ -141,6 +147,53 @@ impl AgentRuntime {
         if let Some(note) = start.and_then(|s| s.note) {
             self.emitter.record(&agent.id, notice_event(&note));
         }
+        Ok(agent)
+    }
+
+    /// Spawn an Agent that picks up another Host's Agent's work from
+    /// `handoff` (see [`handoff`]): its branch is cut from the one the other
+    /// Host put on the remote, and its Task is the brief followed by `prompt`.
+    /// Otherwise a Spawn like any other, taking the same picks.
+    ///
+    /// Its Base is the other Agent's where this Host has it in the fetched
+    /// history, so its diff reads as the whole of the work; else the tip. It
+    /// goes by the other Agent's Title until its own first Turn names it.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn spawn_handoff(
+        &self,
+        project: &Project,
+        handoff: &Handoff,
+        prompt: String,
+        attachments: Vec<PathBuf>,
+        model: Option<String>,
+        effort: Option<String>,
+        permission_mode: Option<String>,
+        options: AgentOptions,
+    ) -> Result<Agent> {
+        let mut agent = opening(
+            project,
+            handoff::task(handoff, &prompt),
+            attachments,
+            model,
+            effort,
+            permission_mode,
+            options,
+        )?;
+        let tip = git::fetch_published(&project.path, &handoff.branch).await?;
+        let base = match &handoff.base_commit {
+            Some(b)
+                if git::is_ancestor(&project.path, b, &tip)
+                    .await
+                    .unwrap_or(false) =>
+            {
+                b.clone()
+            }
+            _ => tip.clone(),
+        };
+        agent.base_commit = Some(base);
+        agent.title = handoff.title.clone();
+        let agent = self.start(project, &tip, agent).await?;
+        git::unpublish(&project.path, &handoff.branch).await;
         Ok(agent)
     }
 
@@ -501,6 +554,24 @@ impl AgentRuntime {
             let _ = tokio::time::timeout(SHUTDOWN_TIMEOUT_PER_AGENT, h.task).await;
         }
     }
+}
+
+/// The record for an Agent the user is Spawning with `prompt`, and the picks
+/// and files that go with it. Callers fill in where it branches from.
+fn opening(
+    project: &Project,
+    prompt: String,
+    attachments: Vec<PathBuf>,
+    model: Option<String>,
+    effort: Option<String>,
+    permission_mode: Option<String>,
+    options: AgentOptions,
+) -> Result<Agent> {
+    attachments::check(&attachments)?;
+    let mut agent = new_agent(project, prompt, model, effort, permission_mode)?;
+    agent.task.attachments = attachments;
+    agent.options = options;
+    Ok(agent)
 }
 
 /// The record for an Agent about to be Spawned into `project`, before its
