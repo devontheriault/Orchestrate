@@ -25,6 +25,9 @@ pub enum Error {
     #[error("cannot attach {path}: it is not a file, or no longer exists")]
     AttachmentMissing { path: PathBuf },
 
+    #[error("could not read the clipboard: {0}")]
+    Clipboard(String),
+
     #[error("agent not found: {0}")]
     AgentNotFound(String),
 
