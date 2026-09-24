@@ -1,6 +1,6 @@
 <script lang="ts">
   import { getCurrentWindow } from "@tauri-apps/api/window";
-  import { isMac, ownsWindowFrame, watchMaximized } from "./platform";
+  import { dragRegion, isMac, ownsWindowFrame, watchMaximized } from "./platform";
   import { panes } from "./panes.svelte";
   import Logo from "./Logo.svelte";
   import { store } from "$lib/state/store.svelte";
@@ -24,9 +24,10 @@
   });
 </script>
 
-<!-- The whole bar is a drag handle; the controls below opt out by not carrying
-     the attribute, so a click on a button never starts a window drag. -->
-<header class="chrome" class:mac={isMac} data-tauri-drag-region>
+<!-- The whole bar is a drag handle, except under a tiling compositor (see
+     `dragRegion`). The controls below opt out by not carrying the attribute, so
+     a click on a button never starts a window drag. -->
+<header class="chrome" class:mac={isMac} data-tauri-drag-region={dragRegion}>
   <!-- The title sits in a segment as wide as the project pane and painted like
        it, so the bar reads as the top of the two panes below rather than as a
        band laid across them. -->
@@ -34,16 +35,16 @@
     class="lead"
     class:railed={panes.railed}
     style="width: {panes.cssWidth}"
-    data-tauri-drag-region
+    data-tauri-drag-region={dragRegion}
   >
     <Logo markOnly={panes.railed} />
   </div>
 
   <!-- The detail pane's heading, in the bar that continues it: the name Claude
        gave the work, with the prompt behind it a hover away. -->
-  <div class="title" data-tauri-drag-region>
+  <div class="title" data-tauri-drag-region={dragRegion}>
     {#if agent}
-      <span class="name" title={agent.task.prompt} data-tauri-drag-region>
+      <span class="name" title={agent.task.prompt} data-tauri-drag-region={dragRegion}>
         {#if projectName}
           <span class="project">{projectName}</span>
           <span class="sep">/</span>
@@ -51,9 +52,9 @@
         {store.agentName(agent)}
       </span>
     {:else if drafting}
-      <span class="name" data-tauri-drag-region>New agent</span>
+      <span class="name" data-tauri-drag-region={dragRegion}>New agent</span>
     {:else}
-      <span class="idle" data-tauri-drag-region>No agent selected</span>
+      <span class="idle" data-tauri-drag-region={dragRegion}>No agent selected</span>
     {/if}
   </div>
 

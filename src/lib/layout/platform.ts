@@ -26,6 +26,14 @@ const compositorOwnsFrame =
 export const ownsWindowFrame = !isMac && !compositorOwnsFrame;
 
 /**
+ * The header's `data-tauri-drag-region` value. Pressing on it starts a move (or
+ * a maximize on double-click) everywhere except under a tiling compositor. There
+ * a window goes where the layout puts it, and a drag pulls it out of the tile.
+ * Tauri reads `"false"` as "no drag region", so the attribute stays on the element.
+ */
+export const dragRegion = compositorOwnsFrame ? "false" : "true";
+
+/**
  * Keep `set` told whether `win` is maximized: now, and after every resize.
  * Only asked where the app draws the frame — the maximize glyph and the resize
  * edges both depend on it. Returns the cleanup, for the `$effect` that calls it

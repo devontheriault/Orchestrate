@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { dragRegion } from "./platform";
+
   /** The mark alone, for when there is no room for the name beside it. */
   let { markOnly = false }: { markOnly?: boolean } = $props();
 </script>
@@ -12,7 +14,7 @@
   class:mark-only={markOnly}
   role="img"
   aria-label="Orchestrate"
-  data-tauri-drag-region
+  data-tauri-drag-region={dragRegion}
 >
   <svg class="mark" viewBox="0 0 64 64" aria-hidden="true">
     <rect x="5.8" y="22.35" width="4.4" height="19.3" rx="2.2" />
@@ -28,7 +30,7 @@
     <rect x="47.8" y="13.49" width="4.4" height="37.03" rx="2.2" />
     <rect x="53.8" y="22.35" width="4.4" height="19.3" rx="2.2" />
   </svg>
-  {#if !markOnly}<span class="word" aria-hidden="true" data-tauri-drag-region>rchestrate</span>{/if}
+  {#if !markOnly}<span class="word" aria-hidden="true" data-tauri-drag-region={dragRegion}>rchestrate</span>{/if}
 </span>
 
 <style>
