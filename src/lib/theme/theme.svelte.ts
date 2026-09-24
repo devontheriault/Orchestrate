@@ -27,7 +27,7 @@ export const STORAGE_KEY = "orchestrate:theme";
  * honour and alphabetical is the one order a reader can predict.
  *
  * `mode` is what the theme is, not what it resolves to — the menu groups by
- * it, and System picks the app's own Light or Dark. A theme's colours live in
+ * it, and System picks Orchestrate or Orchestrate Light. A theme's colours live in
  * `themes.css`; nothing but its name and its mode is needed here.
  */
 export const THEMES = [
@@ -91,7 +91,7 @@ class Theme {
    * be, so the System row can say what picking it would get you rather than
    * describing the theme already on.
    */
-  system = $derived<ThemeId>(this.#systemDark ? "dark" : "light");
+  system = $derived<ThemeId>(this.#systemDark ? "orchestrate" : "orchestrate-light");
 
   systemName = $derived(BY_ID.get(this.system)!.name);
 

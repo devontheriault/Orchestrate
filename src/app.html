@@ -17,7 +17,7 @@
       (() => {
         const pref = localStorage.getItem("orchestrate:theme");
         document.documentElement.dataset.theme =
-          pref || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+          pref || (matchMedia("(prefers-color-scheme: dark)").matches ? "orchestrate" : "orchestrate-light");
       })();
     </script>
     %sveltekit.head%
