@@ -43,7 +43,7 @@ fn host_on(socket: &Path, claude: &str) -> (Arc<Host>, JoinHandle<()>) {
     let (rt, rx) = AgentRuntime::with_bin(claude);
     let host = Host::new(rt, rx, vec![]);
     let listener = UnixListener::bind(socket).unwrap();
-    let serving = tokio::spawn(serve(host.clone(), listener, None));
+    let serving = tokio::spawn(serve(host.clone(), listener, std::future::ready(None)));
     (host, serving)
 }
 
@@ -419,7 +419,11 @@ async fn host_on_tcp(socket: &Path, claude: &str, vet: Vet) -> (Arc<Host>, std::
     let local = UnixListener::bind(socket).unwrap();
     let tcp = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = tcp.local_addr().unwrap();
-    tokio::spawn(serve(host.clone(), local, Some((tcp, vet))));
+    tokio::spawn(serve(
+        host.clone(),
+        local,
+        std::future::ready(Some((tcp, vet))),
+    ));
     (host, addr)
 }
 
@@ -487,6 +491,32 @@ async fn a_window_the_vet_refuses_is_told_why_and_served_nothing() {
     assert!(refused.contains("stranger@example.com"));
     let call = link.call("list_agents", json!({})).await.unwrap_err();
     assert!(call.contains("refused"), "{call}");
+}
+
+#[tokio::test]
+async fn a_host_that_can_only_listen_on_the_tailnet_later_serves_it_from_then() {
+    let _env = StateEnv::new();
+    let socket = paths::host_socket().unwrap();
+    let (rt, rx) = AgentRuntime::with_bin(&fake_claude_ok());
+    let host = Host::new(rt, rx, vec![]);
+    let local = UnixListener::bind(&socket).unwrap();
+    // As when Tailscale comes up after the Host has started.
+    let (up, tailscale_up) = tokio::sync::oneshot::channel::<()>();
+    let tcp = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = tcp.local_addr().unwrap();
+    let open: Vet = Arc::new(|_| Box::pin(async { Ok(()) }));
+    tokio::spawn(serve(host.clone(), local, async move {
+        tailscale_up.await.ok()?;
+        Some((tcp, open))
+    }));
+
+    // This machine's windows are served meanwhile.
+    let (mut window, _) = Window::open(&socket).await;
+    assert_eq!(window.call("list_agents", json!({})).await, Ok(json!([])));
+
+    up.send(()).unwrap();
+    let link = remote_link(addr);
+    assert_eq!(link.call("list_agents", json!({})).await, Ok(json!([])));
 }
 
 #[tokio::test]
