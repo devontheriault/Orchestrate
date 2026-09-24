@@ -47,6 +47,14 @@
   let inputEl: HTMLInputElement | undefined = $state();
   $effect(() => inputEl?.focus());
 
+  /** Where the About note sits while the info icon is hovered or focused. */
+  let tipAt = $state<Placement | null>(null);
+  let infoEl: HTMLElement | undefined = $state();
+  const showTip = () => {
+    if (infoEl) tipAt = placeMenu(infoEl, { minWidth: 320, maxHeight: 320, align: "left" });
+  };
+  const hideTip = () => (tipAt = null);
+
   function openMenu() {
     if (!boxEl || !machines.length) return;
     placement = placeMenu(boxEl, { minWidth: 240, maxHeight: 240, align: "left" });
@@ -143,11 +151,49 @@
   }}
 >
   <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="hosts-title">
-    <h2 id="hosts-title">Hosts</h2>
-    <p class="lede">
-      Each of your machines with this app runs a Host, which keeps its agents working whether or
-      not a window is open. Add another machine to see and start agents on it from here.
-    </p>
+    <header>
+      <h2 id="hosts-title">Hosts</h2>
+      <!-- The how and why, kept out of the way until asked for. -->
+      <span
+        class="info"
+        bind:this={infoEl}
+        role="presentation"
+        onpointerenter={showTip}
+        onpointerleave={hideTip}
+        onfocusin={showTip}
+        onfocusout={hideTip}
+      >
+        <button
+          type="button"
+          class="info-btn"
+          aria-label="About Hosts"
+          aria-describedby={`${uid}-about`}
+        >
+          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+            <circle cx="8" cy="8" r="6.75" fill="none" stroke="currentColor" stroke-width="1.5" />
+            <path d="M8 7.25v4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+            <circle cx="8" cy="4.9" r="0.9" fill="currentColor" />
+          </svg>
+        </button>
+        <!-- Fixed, like the menus, so the dialog's scrolling can't clip it. -->
+        <span
+          class="popover tip"
+          class:shown={tipAt}
+          role="tooltip"
+          id={`${uid}-about`}
+          style={tipAt ? menuStyle(tipAt) : undefined}
+        >
+          <span>
+            Each of your machines with this app runs a Host, which keeps its agents working whether
+            or not a window is open. Add another machine to see and start agents on it from here.
+          </span>
+          <span>
+            The machine needs this app installed, and Tailscale running and logged in as you. Only
+            your own Tailscale user's machines are let in.
+          </span>
+        </span>
+      </span>
+    </header>
 
     <ul class="list">
       {#each hosts.list as h (h.id)}
@@ -177,7 +223,7 @@
           bind:this={inputEl}
           bind:value={name}
           placeholder={machines.length
-            ? "Pick a machine, or type its Tailscale name"
+            ? "Pick a machine"
             : "Tailscale name, like desktop"}
           aria-label="Tailscale name of the machine to add"
           role="combobox"
@@ -268,10 +314,6 @@
       </div>
     {/if}
     {#if error}<p class="error">{error}</p>{/if}
-    <p class="hint">
-      The machine needs this app installed, and Tailscale running and logged in as you. Only your
-      own Tailscale user's machines are let in.
-    </p>
 
     <footer>
       <button class="btn" onclick={onclose}>Done</button>
@@ -312,16 +354,43 @@
     margin: 0;
   }
 
-  .lede,
-  .hint {
-    margin: 0;
-    font-size: var(--text-md);
-    line-height: var(--leading-normal);
+  header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
   }
 
-  .hint {
+  .info {
+    display: inline-flex;
+  }
+
+  .info-btn {
+    display: flex;
+    padding: 0.2rem;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: none;
     color: var(--fg-muted);
+    cursor: help;
+  }
+
+  .info-btn:hover,
+  .info-btn:focus-visible {
+    color: var(--fg);
+  }
+
+  .tip {
+    padding: 0.6rem 0.75rem;
+    display: none;
+    flex-direction: column;
+    gap: var(--space-3);
     font-size: var(--text-sm);
+    line-height: var(--leading-normal);
+    color: var(--fg);
+  }
+
+  .tip.shown {
+    display: flex;
   }
 
   .list {
