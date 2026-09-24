@@ -74,6 +74,9 @@ pub enum Error {
 
     #[error("could not ask Anthropic which models are available: {0}")]
     Models(String),
+
+    #[error("could not ask Claude Code which slash commands it offers: {0}")]
+    SlashCommands(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

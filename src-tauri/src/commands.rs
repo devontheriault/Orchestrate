@@ -14,6 +14,7 @@ use crate::error::Error;
 use crate::git::{self, Branches, Commit, Merged, WorktreeDiff};
 use crate::models::ModelInfo;
 use crate::runtime::AgentRuntime;
+use crate::slash::SlashCommand;
 use crate::usage::UsageSummary;
 use crate::{merging, paths, storage, worktree};
 
@@ -342,6 +343,19 @@ pub async fn agents_holding_work() -> Result<Vec<String>, String> {
 #[tauri::command]
 pub async fn list_models() -> Result<Vec<ModelInfo>, String> {
     crate::models::list().await.map_err(err)
+}
+
+/// The slash commands `claude` would accept from a Turn started in `dir`, for
+/// the composer's `/` menu: its built-ins, the user's skills and plugins, and
+/// whatever the Project in `dir` defines for itself.
+#[tauri::command]
+pub async fn slash_commands(
+    state: State<'_, AppState>,
+    dir: PathBuf,
+) -> Result<Vec<SlashCommand>, String> {
+    crate::slash::list(state.runtime.claude_bin(), &dir)
+        .await
+        .map_err(err)
 }
 
 /// What the account and every Agent have spent — tokens and money per Model —

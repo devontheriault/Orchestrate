@@ -92,6 +92,12 @@ impl AgentRuntime {
         (Self { naming: true, ..rt }, rx)
     }
 
+    /// The `claude` binary every Turn runs, for anything else that has to ask
+    /// the same install a question.
+    pub fn claude_bin(&self) -> &str {
+        &self.claude_bin
+    }
+
     /// Spawn a new Agent for the given Project and opening prompt, with any
     /// files attached to it, on the model and effort the user picked (`None`
     /// leaves either choice to Claude Code) and in the Permission Mode they

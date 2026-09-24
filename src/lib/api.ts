@@ -94,6 +94,21 @@ export type ModelInfo = {
   display_name: string;
 };
 
+/**
+ * One slash command the composer's `/` menu offers, as `claude` itself lists
+ * it for a directory: its built-ins, the user's skills and plugins, and the
+ * Project's own commands.
+ */
+export type SlashCommand = {
+  /** What follows the `/`, e.g. "compact" or "mattpocock-skills:tdd". */
+  name: string;
+  description: string;
+  /** What it takes after its name, e.g. "[interval] [prompt]"; empty if unsaid. */
+  argument_hint: string;
+  /** Other names `claude` accepts for it, e.g. "tdd". */
+  aliases: string[];
+};
+
 export type ChangedFile = {
   path: string;
   /** Git status vs the base: A, M, D, T, … */
@@ -309,6 +324,7 @@ export const api = {
     invoke<Branches>("project_branches", { projectId }),
 
   listModels: () => invoke<ModelInfo[]>("list_models"),
+  slashCommands: (dir: string) => invoke<SlashCommand[]>("slash_commands", { dir }),
 
   usageSummary: () => invoke<UsageSummary>("usage_summary"),
 
