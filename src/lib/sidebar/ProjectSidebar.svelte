@@ -1,8 +1,13 @@
 <script lang="ts">
   import { open } from "@tauri-apps/plugin-dialog";
+  import { tick } from "svelte";
+  import { flip } from "svelte/animate";
+  import { cubicOut } from "svelte/easing";
   import { api } from "$lib/api";
+  import { orderProjects } from "$lib/state/projects";
   import { store } from "$lib/state/store.svelte";
   import AgentTree from "./AgentTree.svelte";
+  import { moveTo, slotFor } from "./reorder";
   import SettingsMenu from "./SettingsMenu.svelte";
   import TrustProject from "./TrustProject.svelte";
 
@@ -38,8 +43,119 @@
     trusting = null;
   }
 
+  /**
+   * A project being dragged to a new place: the order it would drop into, and
+   * how far the row sits from its slot, so it stays under the pointer.
+   */
+  let drag = $state<{ id: string; order: string[]; offset: number } | null>(null);
+  let listEl: HTMLUListElement | undefined = $state();
+
+  /** A drag just ended, so the click it ends in doesn't also open the row. */
+  let dropped = false;
+
+  /** How far the pointer moves before a press on a row becomes a drag. */
+  const DRAG_THRESHOLD = 4;
+  /** How near the list's edge the pointer scrolls it, and by how much a move. */
+  const EDGE = 28;
+  const EDGE_STEP = 10;
+
+  const shown = $derived(drag ? orderProjects(store.projects, drag.order) : store.projects);
+
+  function pressRow(e: PointerEvent, id: string) {
+    dropped = false;
+    if (e.button !== 0) return;
+    const li = (e.currentTarget as HTMLElement).closest("li")!;
+    const startY = e.clientY;
+    const grab = e.clientY - li.getBoundingClientRect().top;
+    let pointerY = startY;
+
+    // Rows are placed by layout, not their on-screen boxes, so neighbours
+    // mid-glide don't throw the sums off.
+    const place = async () => {
+      if (!drag || !listEl) return;
+      const rows = [...listEl.querySelectorAll<HTMLElement>(":scope > li")];
+      const self = rows.find((r) => r.dataset.project === id);
+      if (!self) return;
+      const at = pointerY - listEl.getBoundingClientRect().top + listEl.scrollTop - grab;
+      const others = rows.filter((r) => r !== self).map((r) => r.offsetHeight);
+      const top = Math.min(...rows.map((r) => r.offsetTop));
+      const slot = slotFor(others, top, at);
+      const order = moveTo(drag.order, id, slot);
+      if (order.some((x, i) => x !== drag!.order[i])) {
+        drag.order = order;
+        await tick();
+      }
+      if (drag) drag.offset = at - self.offsetTop;
+    };
+
+    const onMove = (ev: PointerEvent) => {
+      pointerY = ev.clientY;
+      if (!drag) {
+        if (Math.abs(pointerY - startY) < DRAG_THRESHOLD) return;
+        drag = { id, order: store.projects.map((p) => p.id), offset: 0 };
+        flyout = null;
+      }
+      if (listEl) {
+        const box = listEl.getBoundingClientRect();
+        if (pointerY < box.top + EDGE) listEl.scrollTop -= EDGE_STEP;
+        else if (pointerY > box.bottom - EDGE) listEl.scrollTop += EDGE_STEP;
+      }
+      void place();
+    };
+    const end = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onCancel);
+      window.removeEventListener("keydown", onKey, true);
+    };
+    const onUp = () => {
+      end();
+      if (!drag) return;
+      dropped = true;
+      // Settle into the slot rather than snapping to it.
+      const row = listEl?.querySelector<HTMLElement>(`:scope > li[data-project="${CSS.escape(id)}"]`);
+      row?.animate([{ transform: `translateY(${drag.offset}px)` }, { transform: "none" }], {
+        duration: 150,
+        easing: "cubic-bezier(0.2, 0, 0, 1)",
+      });
+      store.reorderProjects(drag.order);
+      drag = null;
+    };
+    const onCancel = () => {
+      end();
+      if (drag) dropped = true;
+      drag = null;
+    };
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key !== "Escape" || !drag) return;
+      ev.stopPropagation();
+      onCancel();
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onCancel);
+    window.addEventListener("keydown", onKey, true);
+  }
+
+  /** Alt+↑ / Alt+↓ on a row: the keyboard's way to drag it. */
+  async function nudge(e: KeyboardEvent, id: string) {
+    if (!e.altKey || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
+    e.preventDefault();
+    const row = e.currentTarget as HTMLElement;
+    const ids = store.projects.map((p) => p.id);
+    const to = ids.indexOf(id) + (e.key === "ArrowUp" ? -1 : 1);
+    if (to < 0 || to >= ids.length) return;
+    store.reorderProjects(moveTo(ids, id, to));
+    await tick();
+    row.focus();
+  }
+
   /** Select the project, and show its agents wherever there's room for them. */
   function openProject(e: MouseEvent, id: string) {
+    if (dropped) {
+      dropped = false;
+      return;
+    }
     if (!collapsed) {
       store.toggleProject(id);
       return;
@@ -107,7 +223,7 @@
   }
 </script>
 
-<aside bind:this={asideEl} class:collapsed>
+<aside bind:this={asideEl} class:collapsed class:dragging={!!drag}>
   <header>
     {#if !collapsed}<span class="title">Projects</span>{/if}
     <button class="btn btn-icon add" onclick={pickAndAdd} title="Add project" aria-label="Add project"
@@ -127,16 +243,26 @@
       </div>
     {/if}
   {:else}
-    <ul onscroll={() => (flyout = null)}>
-      {#each store.projects as p (p.id)}
+    <ul bind:this={listEl} onscroll={() => (flyout = null)}>
+      {#each shown as p (p.id)}
         {@const activity = store.activityFor(p.id)}
         {@const expanded = !collapsed && !!store.expandedProjects[p.id]}
-        <li class:selected={store.selectedProjectId === p.id} class:open={expanded}>
+        {@const lifted = drag?.id === p.id}
+        <li
+          data-project={p.id}
+          class:selected={store.selectedProjectId === p.id}
+          class:open={expanded}
+          class:lifted
+          style:transform={lifted ? `translateY(${drag!.offset}px)` : undefined}
+          animate:flip={{ duration: lifted ? 0 : 180, easing: cubicOut }}
+        >
           <div class="head">
             <button
               class="row"
               class:active={activity.running > 0}
+              onpointerdown={(e) => pressRow(e, p.id)}
               onclick={(e) => openProject(e, p.id)}
+              onkeydown={(e) => nudge(e, p.id)}
               aria-current={store.selectedProjectId === p.id ? "true" : undefined}
               aria-expanded={collapsed ? undefined : expanded}
               title={collapsed ? `${p.name} — ${p.path}` : p.path}
@@ -337,6 +463,8 @@
   }
 
   ul {
+    /* Rows measure their place against the list, for dragging. */
+    position: relative;
     list-style: none;
     padding: 0.25rem 0;
     margin: 0;
@@ -569,5 +697,40 @@
   .flyout-body {
     overflow-y: auto;
     min-height: 0;
+  }
+
+  /* The row being dragged is picked up off the list: raised like a popover,
+     and opaque so the rows it passes don't show through. The border is a ring
+     so it doesn't change the row's height mid-drag. */
+  li.lifted {
+    z-index: 1;
+    background: var(--surface);
+    box-shadow:
+      0 0 0 var(--border-width) var(--border),
+      var(--shadow-popover);
+    border-radius: var(--radius-md);
+  }
+
+  aside.dragging,
+  aside.dragging * {
+    cursor: grabbing !important;
+    user-select: none;
+  }
+
+  /* Nothing under the pointer is a click target while it drags. */
+  aside.dragging .head:hover {
+    background: none;
+  }
+
+  aside:not(.collapsed).dragging .head:hover .badge {
+    visibility: visible;
+  }
+
+  aside.dragging li.selected .head {
+    background: color-mix(in srgb, var(--selected) 35%, transparent);
+  }
+
+  aside.dragging .head .remove {
+    opacity: 0;
   }
 </style>

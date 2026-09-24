@@ -111,3 +111,16 @@ export function defaultHost(
 export function hostsOf(group: ProjectGroup): string[] {
   return [...new Set(group.checkouts.map((c) => c.host))];
 }
+
+/**
+ * Projects in the order the user dragged them into. Ones the order doesn't
+ * know — added since, or from a Host added since — follow in the order they
+ * came.
+ */
+export function orderProjects(groups: ProjectGroup[], order: string[]): ProjectGroup[] {
+  if (order.length === 0) return groups;
+  const rank = new Map(order.map((id, i) => [id, i]));
+  const known = groups.filter((g) => rank.has(g.id));
+  known.sort((a, b) => rank.get(a.id)! - rank.get(b.id)!);
+  return [...known, ...groups.filter((g) => !rank.has(g.id))];
+}
