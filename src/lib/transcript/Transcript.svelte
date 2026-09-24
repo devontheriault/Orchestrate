@@ -117,6 +117,14 @@
   });
 
   /**
+   * Calls that open without a click: the newest Bash call, and every Write,
+   * so a file's new contents are in view as soon as it's written.
+   */
+  function opensItself(c: ToolCall): boolean {
+    return c.key === lastBashKey || c.name === "Write";
+  }
+
+  /**
    * Keeps a `<details>` following `want`, but only touches it when `want`
    * flips. Rows are rebuilt on every event, and a plain `open={…}` would be
    * re-applied each time — folding up whatever the user had opened by hand.
@@ -156,10 +164,10 @@
   </div>
 {/snippet}
 
-<!-- A call's input and result, once there's been a reason to show them. The
-     newest Bash call opens itself, so it's built straight away. -->
+<!-- A call's input and result, once there's been a reason to show them. A
+     call that opens itself is built straight away. -->
 {#snippet callBody(c: ToolCall)}
-  {#if opened.has(c.key) || c.key === lastBashKey}
+  {#if opened.has(c.key) || opensItself(c)}
     {@render callInput(c)}
     {#if c.hasResult}
       {@render callResult(c)}
@@ -221,7 +229,7 @@
         {:else if row.kind === "tools"}
           <details
             class="block tool"
-            {@attach autoOpen(row.calls.some((c) => c.key === lastBashKey))}
+            {@attach autoOpen(row.calls.some(opensItself))}
             ontoggle={row.calls.length === 1 ? noteOpened(row.calls[0].key) : undefined}
           >
             <summary>
@@ -245,7 +253,7 @@
               {#each row.calls as c (c.key)}
                 <details
                   class="call"
-                  {@attach autoOpen(c.key === lastBashKey)}
+                  {@attach autoOpen(opensItself(c))}
                   ontoggle={noteOpened(c.key)}
                 >
                   <summary>
