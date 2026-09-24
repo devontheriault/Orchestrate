@@ -234,13 +234,14 @@
     color: var(--fg-muted);
   }
 
-  /* The list stops growing where the textarea does: the transcript above it
-     stays the biggest thing on the page. */
+  /* Shorter than the textarea's cap, so the two together stay under half the
+     pane: the transcript above them stays the biggest thing on it. `--pane-h`
+     is set by AgentPane. */
   ul {
     margin: 0;
     padding: 0 0.35rem 0.35rem;
     list-style: none;
-    max-height: 30vh;
+    max-height: calc(0.2 * var(--pane-h, 100vh));
     overflow-y: auto;
     display: flex;
     flex-direction: column;
