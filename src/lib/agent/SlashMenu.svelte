@@ -47,8 +47,10 @@
    */
   let hovered = false;
 
+  // About six rows and half a seventh, over the key hints: enough to pick
+  // from, small enough not to bury the transcript.
   $effect(() => {
-    placement = placeMenu(anchor, { minWidth: 280, maxHeight: 340, align: "left" });
+    placement = placeMenu(anchor, { minWidth: 280, maxHeight: 240, align: "left" });
   });
 
   // The box it sits on is the trigger: pressing there is still typing.
@@ -151,8 +153,8 @@
   }
 
   /* One line a command: its name, then what it does, cut off before it wraps.
-     A list of ninety is scanned, not read, and one line a row keeps ten in
-     view at once. */
+     A list of ninety is scanned, not read, and one line a row keeps about six
+     in view, the next cut off so it's plain the list scrolls. */
   .row {
     display: grid;
     grid-column: 1 / -1;
