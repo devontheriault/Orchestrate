@@ -3,6 +3,8 @@
   // system install. Upright and italic, variable weight.
   import "@fontsource-variable/jetbrains-mono";
   import "@fontsource-variable/jetbrains-mono/wght-italic.css";
+  // Geist, for the wordmark alone.
+  import "@fontsource-variable/geist";
   // The app's theme — colour, type, spacing, radii, motion, and the shared
   // button and input classes. Imported here because it is the one place every
   // page passes through. See src/lib/theme/theme.css.
