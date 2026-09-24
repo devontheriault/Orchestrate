@@ -434,8 +434,12 @@
     border-style: dashed;
   }
 
+  /* A long list of files wraps into rows; past a few, it scrolls rather than
+     pushing the textarea off the pane. */
   .files {
     padding: 0.6rem 0.7rem 0;
+    max-height: calc(0.15 * var(--pane-h, 100vh));
+    overflow-y: auto;
   }
 
   .drop {
@@ -455,14 +459,14 @@
 
   /* No flex-grow here: as a flex item with flex: 1 the textarea sizes to its
      one row and ignores the height fit() sets. It grows by a line per line,
-     up to 16 lines or 30% of the window, whichever comes first, then scrolls.
+     up to 16 lines or 30% of the pane, whichever comes first, then scrolls.
      The box grows upward because it sits at the foot of the pane, so the line
      being typed on stays where it was. */
   textarea {
     min-width: 0;
     resize: none;
     max-height: min(
-      30vh,
+      calc(0.3 * var(--pane-h, 100vh)),
       calc(16 * var(--text-lg) * var(--leading-normal) + 1.9rem)
     );
     overflow-y: auto;
