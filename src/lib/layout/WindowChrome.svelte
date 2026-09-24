@@ -54,8 +54,8 @@
     {:else if drafting}
       <span class="name" data-tauri-drag-region={dragRegion}>New agent</span>
       <!-- Up here rather than in a pane header of its own, which would have
-           held nothing else — and beside the title it dismisses, not off at
-           the far end by the window controls. -->
+           held nothing else. It sits at the pane's right edge, centred on the
+           title's row like the rest of the bar. -->
       <button class="cancel" onclick={() => store.cancelDraft()}>Cancel</button>
     {:else}
       <span class="idle" data-tauri-drag-region={dragRegion}>No agent selected</span>
@@ -171,7 +171,7 @@
 
   .cancel {
     flex: none;
-    margin-left: var(--space-6);
+    margin-left: auto;
     white-space: nowrap;
     border-radius: var(--radius-sm);
     border: 1px solid var(--border);
