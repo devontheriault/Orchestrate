@@ -9,12 +9,7 @@
   const review = store.review;
 
   // Suggested commit message: the conversation's name, as a subject line.
-  const suggested = $derived.by(() => {
-    const agent = store.selectedAgent;
-    const name = agent ? store.agentName(agent) : "";
-    const subject = name.replace(/\s+/g, " ").trim();
-    return subject.length > 72 ? subject.slice(0, 72).trimEnd() : subject;
-  });
+  const suggested = $derived(review.suggestedMessage);
 
   let message = $state("");
   let messageEdited = $state(false);
@@ -77,25 +72,15 @@
     review.loadBranches();
   });
 
-  /** Branches that already have this work: merging into them would do nothing. */
-  const mergedInto = $derived(review.diff?.merged_into ?? []);
+  const mergedInto = $derived(review.mergedInto);
 
   /** What is left to merge into, which is what the picker offers. */
-  const targets = $derived(
-    (review.branches?.names ?? []).filter((n) => !mergedInto.includes(n)),
-  );
+  const targets = $derived(review.targets);
 
-  // Point at main — where work usually lands — whatever the project happens to
-  // be checked out on, and follow the list rather than leaving a name in the
-  // picker that no longer exists.
+  // Point at the default target, and follow the list rather than leaving a name
+  // in the picker that no longer exists.
   $effect(() => {
-    if (targets.length === 0) {
-      target = "";
-    } else if (!targets.includes(target)) {
-      const current = review.branches?.current ?? null;
-      target =
-        ["main", "master", current].find((b) => b && targets.includes(b)) ?? targets[0];
-    }
+    if (!targets.includes(target)) target = review.defaultTarget ?? "";
   });
 
   // Only committed work merges, and not out from under a working agent.

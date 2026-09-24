@@ -40,7 +40,7 @@
   import TurnStats from "./TurnStats.svelte";
   import SlashMenu from "./SlashMenu.svelte";
   import { completeCommand, matchCommands, namesCommand, slashQuery, typedCommand } from "./slash";
-  import { interpret, menuCommands, type Action } from "./appCommands";
+  import { interpret, menuCommands, mergeTarget, type Action } from "./appCommands";
 
   const agent = $derived(store.selectedAgent);
   /** No agent yet: this composer is holding the opening prompt for a new one. */
@@ -308,7 +308,51 @@
         if (await store.renameAgent(agent.id, action.name))
           say(action.name ? `Renamed to “${action.name}”.` : "Back to Claude's name for it.");
         return;
+      case "commit":
+        return commit(action.message);
+      case "merge":
+        return merge(action.branch);
     }
+  }
+
+  const review = store.review;
+
+  /** `/commit`: the Diff tab's Commit, under the agent's name unless told otherwise. */
+  async function commit(message: string | null) {
+    if (!agent) return say("Spawn the agent first, then commit its work.", true);
+    if (working) return say("The agent is still writing. Commit once it has finished.", true);
+    if (review.committing) return;
+    const subject = message ?? review.suggestedMessage;
+    if (!subject) return say("Give the commit a message: /commit <message>.", true);
+    const made = await review.commit(subject);
+    if (made) say(`Committed ${made.sha}: ${made.subject}`);
+    else say(review.error ?? "The commit didn't go through.", true);
+  }
+
+  /**
+   * `/merge`: the Diff tab's Merge. The diff and branches are read afresh
+   * first — the tab may not have been opened since the worktree last moved.
+   */
+  async function merge(branch: string | null) {
+    if (!agent) return say("Spawn the agent first, then merge its work.", true);
+    if (working) return say("The agent is still writing. Merge once it has finished.", true);
+    if (review.merging) return;
+    const id = agent.id;
+    await Promise.all([review.load(), review.loadBranches()]);
+    if (store.selectedAgentId !== id) return;
+    if (!review.diff) return say(review.error ?? "Couldn't read the agent's work.", true);
+    if (review.diff.uncommitted) return say("Commit first: /commit, then /merge.", true);
+    if (!review.diff.commits.length) return say("There's nothing committed to merge yet.", true);
+    const pick = mergeTarget(branch, {
+      targets: review.targets,
+      mergedInto: review.mergedInto,
+      fallback: review.defaultTarget,
+    });
+    if ("why" in pick) return say(pick.why, true);
+    if (await review.merge(pick.branch)) return say(`Merged into ${pick.branch}.`);
+    // A conflict is shown where it can be handed to a resolver.
+    if (review.conflicts[id]) return store.showTab("diff");
+    say(review.error ?? "The merge didn't go through.", true);
   }
 
   /** The box is up and taking input — the only time a file has somewhere to go. */

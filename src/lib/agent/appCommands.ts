@@ -6,7 +6,8 @@
  * session (`/model`, `/effort`) would reach a process that exits once it has
  * replied, and the next Turn would start without it. So the composer catches
  * those and does the app's version of each: `/model` moves the model picker,
- * `/color` tags the agent in the sidebar. The commands with no version here and
+ * `/color` tags the agent in the sidebar. `/commit` and `/merge` take the Diff
+ * tab's Commit and Merge from the keyboard. The commands with no version here and
  * no use through the app are kept out of the menu, and turned back with the
  * reason if they are typed anyway.
  *
@@ -28,12 +29,17 @@ function ours(name: string, description: string, argument_hint = ""): MenuComman
 /**
  * The app's commands, under the names Claude Code gives the same things so they
  * are where a Claude Code user's fingers already go — plus `/theme`, which
- * Claude Code has no need of.
+ * Claude Code has no need of, and `/commit` and `/merge`, the app's own
+ * actions. A `/commit` skill of the user's or the Project's is hidden by ours:
+ * Commit is the user's action here, and asking the agent to commit in words
+ * still works.
  */
 export const APP_COMMANDS: MenuCommand[] = [
   ours("advisor", "Let this agent consult a stronger model at key moments", "<off|fable|opus|sonnet|default>"),
   ours("color", "Tag this agent with a colour in the sidebar", `<${TAGS.join("|")}|default>`),
+  ours("commit", "Commit this agent's work to its branch — with no message, its name", "[message]"),
   ours("effort", "Set the effort this agent's next prompts run at", `<${EFFORTS.join("|")}|default>`),
+  ours("merge", "Merge this agent's commits into a project branch — main unless named", "[branch]"),
   ours("model", "Set the model this agent's next prompts run on", "<model>"),
   ours("output-style", "Set how this agent writes its replies", "<style>"),
   ours("rename", "Rename this agent — with no name, Claude names it again", "[name]"),
@@ -84,6 +90,10 @@ export type Action =
   /** Null asks for the theme list rather than naming a theme. */
   | { do: "theme"; theme: ThemePref | null }
   | { do: "usage" }
+  /** Null commits under the agent's name, as the Diff tab offers to. */
+  | { do: "commit"; message: string | null }
+  /** Null merges into the default target, as the Diff tab's picker points. */
+  | { do: "merge"; branch: string | null }
   /** Not done, and why — a withheld command, or a choice there's no such thing as. */
   | { do: "refuse"; why: string };
 
@@ -150,8 +160,37 @@ export function interpret(prompt: string, choices: Choices): Action | null {
     }
     case "usage":
       return { do: "usage" };
+    case "commit":
+      return { do: "commit", message: arg || null };
+    case "merge":
+      return { do: "merge", branch: arg || null };
   }
   return null;
+}
+
+/** Where the selected agent's work could go, as the Review slice knows it. */
+export type MergeChoices = { targets: string[]; mergedInto: string[]; fallback: string | null };
+
+/**
+ * The branch a `/merge` goes into: the one named, or the default target. Only
+ * branches still without the work count — naming one that has it says so
+ * rather than claiming there's no such branch.
+ */
+export function mergeTarget(
+  branch: string | null,
+  { targets, mergedInto, fallback }: MergeChoices,
+): { branch: string } | { why: string } {
+  if (!targets.length) {
+    return {
+      why: mergedInto.length
+        ? `Already merged into ${oneOf(mergedInto)}. Commit something new to merge again.`
+        : "There's no branch to merge into.",
+    };
+  }
+  if (branch === null) return fallback ? { branch: fallback } : { why: "There's no branch to merge into." };
+  if (targets.includes(branch)) return { branch };
+  if (mergedInto.includes(branch)) return { why: `${branch} already has this work.` };
+  return { why: `No branch called “${branch}”. Try ${oneOf(targets)}.` };
 }
 
 /**
