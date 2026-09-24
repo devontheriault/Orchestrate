@@ -132,7 +132,7 @@ fn parse_answer(line: &str) -> Option<Result<Offered>> {
         Ok(commands) => offered(commands),
         Err(e) => return Some(Err(Error::Json(e))),
     };
-    // Only a nicety for the options menu, so a shape we don't recognise
+    // Only a nicety for `/output-style`, so a shape we don't recognise
     // leaves it empty rather than failing the commands too.
     let output_styles =
         serde_json::from_value(field("available_output_styles")).unwrap_or_default();

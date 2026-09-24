@@ -51,7 +51,7 @@ Every Turn is a new `claude` that exits when it's done. So a command that change
 _Avoid_: Command on its own (too close to a Tauri command), Macro, Action.
 
 **Options**:
-The Claude Code settings an Agent runs every Turn with: its advisor (the model Claude consults at key moments) and its output style. They are set for the Agent, not picked per prompt. You set them from the Options menu beside the Mode picker, or with `/advisor` and `/output-style`. They are handed to each Turn as `claude --settings`, layered over the user's own settings. Each one is optional, and an unset one is left to Claude Code's own configuration. A new Agent spawns with the Options last set on any Agent, because they are meant to stick. They can be changed while a Turn runs, like the Title and the Tag, and take effect from the next Turn.
+The Claude Code settings an Agent runs every Turn with: its advisor (the model Claude consults at key moments) and its output style. They are set for the Agent, not picked per prompt. You set them with `/advisor` and `/output-style`. They are handed to each Turn as `claude --settings`, layered over the user's own settings. Each one is optional, and an unset one is left to Claude Code's own configuration. A new Agent spawns with the Options last set on any Agent, because they are meant to stick. They can be changed while a Turn runs, like the Title and the Tag, and take effect from the next Turn.
 _Avoid_: Settings (that's Claude Code's own file), Preferences, Config.
 
 **Host**:
