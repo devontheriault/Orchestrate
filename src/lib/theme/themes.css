@@ -22,6 +22,62 @@
 
 /* ------------------------------------------------------------------- DARK */
 
+/* The one palette with no upstream: the logo's own. Its bars are near-white
+   on near-black and its centre bar is the signal green, so the page is a
+   green-tinted black, the text that near-white, and the accent the signal
+   itself — the same value as `--brand-signal` on a dark page. Completed
+   moves to a cool blue so it doesn't read as running. */
+[data-theme="orchestrate"] {
+  color-scheme: dark;
+
+  --fg: #e8ede9;
+  --fg-muted: #8a978f;
+  --surface: #0e110f;
+  --panel-bg: #0a0c0b;
+  --border: #1f2622;
+  --hover: #171c19;
+  --selected: #183322;
+  --code-bg: #161b18;
+  --scrollbar-thumb: rgba(255, 255, 255, 0.16);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.28);
+
+  --accent: #3df58a;
+  --on-accent: #04200f;
+
+  --danger: #ff5c6c;
+  --danger-text: #ff7a86;
+  --danger-bg: #3a1519;
+  --danger-border: #6e2029;
+  --danger-fg: #ffb3ba;
+  --on-danger: #2a0a0e;
+  --danger-soft-bg: rgba(255, 92, 108, 0.12);
+  --danger-soft-border: rgba(255, 92, 108, 0.35);
+
+  --success: #3df58a;
+  --on-success: #04200f;
+  --warning: #f5c542;
+  --warning-text: #ffd666;
+  --on-warning: #261d05;
+  --warning-soft-bg: rgba(245, 197, 66, 0.12);
+  --warning-soft-border: rgba(245, 197, 66, 0.4);
+
+  --diff-add-fg: #7dfab0;
+  --diff-add-bg: rgba(61, 245, 138, 0.13);
+  --diff-del-fg: #ff8f99;
+  --diff-del-bg: rgba(255, 92, 108, 0.13);
+
+  --running-bg: color-mix(in srgb, var(--accent) 16%, transparent);
+  --attention-bg: rgba(245, 197, 66, 0.2);
+  --completed: #7cc4ff;
+  --completed-bg: rgba(124, 196, 255, 0.18);
+  --delivered: #b69cff;
+
+  --scrim: rgba(0, 0, 0, 0.65);
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.5);
+  --shadow-popover: 0 10px 30px rgba(0, 0, 0, 0.6);
+  --shadow-modal: 0 20px 60px rgba(0, 0, 0, 0.7);
+}
+
 [data-theme="catppuccin-mocha"] {
   color-scheme: dark;
 

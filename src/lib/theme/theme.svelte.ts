@@ -21,9 +21,10 @@ export type ThemePref = "system" | ThemeId;
 export const STORAGE_KEY = "devcode:theme";
 
 /**
- * The themes, in the order the menu lists them: the app's own first, then the
- * named palettes alphabetically, because after the first two there is no
- * ranking to honour and alphabetical is the one order a reader can predict.
+ * The themes, in the order the menu lists them: the app's own first — Light,
+ * Dark, and Orchestrate, the logo's palette — then the named palettes
+ * alphabetically, because after the app's own there is no ranking to honour
+ * and alphabetical is the one order a reader can predict.
  *
  * `mode` is what the theme is, not what it resolves to — the menu groups by
  * it, and System picks the app's own Light or Dark. A theme's colours live in
@@ -32,6 +33,7 @@ export const STORAGE_KEY = "devcode:theme";
 export const THEMES = [
   { id: "light", name: "Light", mode: "light" },
   { id: "dark", name: "Dark", mode: "dark" },
+  { id: "orchestrate", name: "Orchestrate", mode: "dark" },
   { id: "catppuccin-latte", name: "Catppuccin Latte", mode: "light" },
   { id: "catppuccin-mocha", name: "Catppuccin Mocha", mode: "dark" },
   { id: "dracula", name: "Dracula", mode: "dark" },
