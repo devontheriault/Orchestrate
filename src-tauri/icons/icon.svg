@@ -1,0 +1,18 @@
+<!-- The app icon: the logo's mark (src/lib/layout/Logo.svelte) alone, with no
+     tile behind it, in the dark theme's colours. The viewBox hugs the mark so it
+     fills the icon. Every other file in this folder is generated from it:
+     npx tauri icon src-tauri/icons/icon.svg -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="4 4 56 56" width="1024" height="1024" fill="#e5e7eb">
+  <rect x="5.8" y="22.35" width="4.4" height="19.3" rx="2.2" />
+  <rect x="11.8" y="13.49" width="4.4" height="37.03" rx="2.2" />
+  <rect x="17.8" y="7.81" width="4.4" height="48.37" rx="2.2" />
+  <rect x="23.8" y="7.25" width="4.4" height="13.35" rx="2.2" />
+  <rect x="23.8" y="43.39" width="4.4" height="13.35" rx="2.2" />
+  <rect x="29.8" y="5" width="4.4" height="14" rx="2.2" fill="#3df58a" />
+  <rect x="29.8" y="45" width="4.4" height="14" rx="2.2" fill="#3df58a" />
+  <rect x="35.8" y="7.25" width="4.4" height="13.35" rx="2.2" />
+  <rect x="35.8" y="43.39" width="4.4" height="13.35" rx="2.2" />
+  <rect x="41.8" y="7.81" width="4.4" height="48.37" rx="2.2" />
+  <rect x="47.8" y="13.49" width="4.4" height="37.03" rx="2.2" />
+  <rect x="53.8" y="22.35" width="4.4" height="19.3" rx="2.2" />
+</svg>
