@@ -45,7 +45,7 @@ struct AgentEventPayload {
 /// GTK3 only asks for server-side decorations over KDE's protocol, Hyprland
 /// doesn't speak it, and GTK falls back to drawing its own titlebar. So the
 /// window stays undecorated and the UI is told, before its first frame, to
-/// leave the controls and resize edges off (see `platform.ts`).
+/// leave the controls, resize edges and drag handle off (see `platform.ts`).
 ///
 /// It gets no minimum size there either. A tile is whatever size the layout
 /// makes it, and one smaller than the minimum doesn't grow to fit — GTK draws
