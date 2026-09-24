@@ -3,7 +3,7 @@
  * Commit, Merge and Resolve the user can take from there.
  */
 
-import { api, type Agent, type Branches, type WorktreeDiff } from "$lib/api";
+import { api, type Agent, type Branches, type Commit, type WorktreeDiff } from "$lib/api";
 import type { AppStore } from "./store.svelte";
 
 /** A Merge that hit conflicts: where it was headed and which files collided. */
@@ -41,6 +41,34 @@ export class Review {
     this.#app = app;
   }
 
+  /** The selected agent's name as a commit subject: what Commit offers to write. */
+  get suggestedMessage(): string {
+    const agent = this.#app.selectedAgent;
+    const subject = (agent ? this.#app.agentName(agent) : "").replace(/\s+/g, " ").trim();
+    return subject.length > 72 ? subject.slice(0, 72).trimEnd() : subject;
+  }
+
+  /** Branches that already have this work: merging into them would do nothing. */
+  get mergedInto(): string[] {
+    return this.diff?.merged_into ?? [];
+  }
+
+  /** What is left to merge into. */
+  get targets(): string[] {
+    const merged = this.mergedInto;
+    return (this.branches?.names ?? []).filter((n) => !merged.includes(n));
+  }
+
+  /**
+   * Where a Merge goes unless told otherwise: main — where work usually lands —
+   * whatever the project happens to be checked out on. Null with nowhere left.
+   */
+  get defaultTarget(): string | null {
+    const targets = this.targets;
+    const current = this.branches?.current ?? null;
+    return ["main", "master", current].find((b) => b && targets.includes(b)) ?? targets[0] ?? null;
+  }
+
   clear() {
     this.diff = null;
     this.error = null;
@@ -70,23 +98,26 @@ export class Review {
     }
   }
 
-  /** Commit everything in the selected agent's worktree, then refresh the diff. */
-  async commit(message: string) {
+  /**
+   * Commit everything in the selected agent's worktree, then refresh the diff.
+   * The commit made, or null if it wasn't — and then `error` says why.
+   */
+  async commit(message: string): Promise<Commit | null> {
     const app = this.#app;
     const id = app.selectedAgentId;
-    if (!id) return false;
+    if (!id) return null;
     this.committing = true;
     this.error = null;
     try {
-      await api.agentCommit(id, message);
+      const made = await api.agentCommit(id, message);
       // Committing is the other way a merged agent starts holding work the
       // project hasn't got — git status goes quiet but the tip moves.
       await app.loadHoldingWork();
       if (app.selectedAgentId === id) await this.load();
-      return true;
+      return made;
     } catch (e) {
       if (app.selectedAgentId === id) this.error = String(e);
-      return false;
+      return null;
     } finally {
       if (app.selectedAgentId === id) this.committing = false;
     }
