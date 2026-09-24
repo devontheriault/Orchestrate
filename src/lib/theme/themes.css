@@ -22,7 +22,7 @@
 
 /* ------------------------------------------------------------------- DARK */
 
-/* The one palette with no upstream: the logo's own. Its bars are near-white
+/* One of the two palettes with no upstream: the logo's own. Its bars are near-white
    on near-black and its centre bar is the signal green, so the page is a
    green-tinted black, the text that near-white, and the accent the signal
    itself — the same value as `--brand-signal` on a dark page. Completed
@@ -589,6 +589,59 @@
 }
 
 /* ------------------------------------------------------------------ LIGHT */
+
+/* Orchestrate turned over: the logo's near-black bars become the text and the
+   page a green-tinted white. The accent is the signal green deepened past
+   `--brand-signal`'s light value, which is right for a mark but too faint
+   for text on this page; the logo keeps the brighter one. Completed is a
+   blue here too, so it doesn't read as running. */
+[data-theme="orchestrate-light"] {
+  color-scheme: light;
+
+  --fg: #0e110f;
+  --fg-muted: #5b6961;
+  --surface: #fbfcfb;
+  --panel-bg: #f1f4f2;
+  --border: #dbe2dd;
+  --hover: #e7ece8;
+  --selected: #d5efdf;
+  --code-bg: #e9eeea;
+  --scrollbar-thumb: rgba(0, 0, 0, 0.22);
+  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.36);
+
+  --accent: #0a8043;
+  --on-accent: #ffffff;
+
+  --danger: #dc3b44;
+  --danger-text: #c8303a;
+  --danger-bg: #fde4e5;
+  --danger-border: #f3a3a8;
+  --danger-fg: #7f1d24;
+  --on-danger: #ffffff;
+  --danger-soft-bg: rgba(220, 59, 68, 0.08);
+  --danger-soft-border: rgba(220, 59, 68, 0.3);
+
+  --success: #0a8043;
+  --on-success: #ffffff;
+  --warning: #e0a10a;
+  --warning-text: #9a6400;
+  --on-warning: #261d05;
+  --warning-soft-bg: rgba(224, 161, 10, 0.1);
+  --warning-soft-border: rgba(224, 161, 10, 0.38);
+
+  --diff-add-fg: #0a7039;
+  --diff-add-bg: rgba(14, 159, 78, 0.12);
+  --diff-del-fg: #ad1f2a;
+  --diff-del-bg: rgba(220, 59, 68, 0.1);
+
+  --running-bg: color-mix(in srgb, var(--accent) 14%, transparent);
+  --attention-bg: rgba(224, 161, 10, 0.16);
+  --completed: #1d6ad0;
+  --completed-bg: rgba(29, 106, 208, 0.12);
+  --delivered: #7c3aed;
+
+  --scrim: rgba(0, 0, 0, 0.4);
+}
 
 [data-theme="catppuccin-latte"] {
   color-scheme: light;
