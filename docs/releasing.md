@@ -9,6 +9,15 @@ dev machine.
 3. When the Linux, macOS and Windows jobs finish, review the draft release on
    GitHub and publish it.
 
+To try a build without releasing it, run the `release` workflow by hand from the
+Actions tab on any branch. Each platform's installers are kept as an artifact of
+the run instead.
+
+The macOS and Windows builds aren't signed, so the first launch is stopped by
+Gatekeeper (right-click the app and choose Open, or
+`xattr -dr com.apple.quarantine /Applications/Orchestrate.app`) and SmartScreen
+(More info → Run anyway).
+
 ## Why Linux doesn't ship from a laptop
 
 An AppImage bundles its libraries but not glibc, and the `.deb`/`.rpm` link

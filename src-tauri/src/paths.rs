@@ -2,14 +2,18 @@ use std::path::{Path, PathBuf};
 
 use crate::error::{Error, Result};
 
-/// Root state directory. Defaults to `dirs::state_dir()/orchestrate` (usually
-/// `~/.local/state/orchestrate` on Linux), overridable via `ORCHESTRATE_STATE_DIR`
-/// for tests and portable installations.
+/// Root state directory. Defaults to `dirs::state_dir()/orchestrate`
+/// (`~/.local/state/orchestrate` on Linux), or on macOS and Windows, which
+/// have no state directory, `dirs::data_local_dir()/orchestrate`
+/// (`~/Library/Application Support` and `%LOCALAPPDATA%`). Overridable via
+/// `ORCHESTRATE_STATE_DIR` for tests and portable installations.
 pub fn state_dir() -> Result<PathBuf> {
     if let Ok(override_) = std::env::var("ORCHESTRATE_STATE_DIR") {
         return Ok(PathBuf::from(override_));
     }
-    let root = dirs::state_dir().ok_or(Error::NoStateDir)?;
+    let root = dirs::state_dir()
+        .or_else(dirs::data_local_dir)
+        .ok_or(Error::NoStateDir)?;
     let dir = root.join("orchestrate");
     // Installs from before the app was renamed keep their old directory: its
     // worktrees are recorded by absolute path, in git and in Claude's sessions.
@@ -57,8 +61,18 @@ pub fn attachments_dir() -> Result<PathBuf> {
 
 /// The socket this state directory's Host listens on. Windows find their
 /// Host here, so a state directory and its Host are always a pair.
+#[cfg(unix)]
 pub fn host_socket() -> Result<PathBuf> {
     Ok(state_dir()?.join("host.sock"))
+}
+
+/// The named pipe this state directory's Host listens on: Windows has no
+/// socket files, so the pipe is named after the directory instead. Pipe names
+/// can't hold a backslash, and are case-insensitive as the path is.
+#[cfg(windows)]
+pub fn host_socket() -> Result<PathBuf> {
+    let dir = state_dir()?.to_string_lossy().replace('\\', "/");
+    Ok(PathBuf::from(format!(r"\\.\pipe\orchestrate-host/{dir}")))
 }
 
 /// Held locked by the running Host, so a second one for the same state

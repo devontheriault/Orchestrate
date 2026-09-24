@@ -17,9 +17,10 @@ use std::time::{Duration, Instant};
 use serde::Serialize;
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
-use tokio::net::{TcpStream, UnixStream};
+use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot, watch};
 
+use super::local;
 use super::protocol::{build_id, Frame, Hello, Request, PROTOCOL};
 
 /// How long a call waits for a Host to connect before giving up.
@@ -78,7 +79,7 @@ impl Target {
 
 /// A connection to either kind of Host.
 enum Stream {
-    Unix(UnixStream),
+    Local(local::Stream),
     Tcp(TcpStream),
 }
 
@@ -197,7 +198,7 @@ impl HostLink {
                 Ok(stream) => {
                     backoff = Duration::from_millis(200);
                     match stream {
-                        Stream::Unix(s) => self.session(s).await,
+                        Stream::Local(s) => self.session(s).await,
                         Stream::Tcp(s) => self.session(s).await,
                     }
                     // A refusal or a version mismatch stands until something
@@ -292,8 +293,8 @@ impl HostLink {
                 };
             }
         };
-        if let Ok(stream) = UnixStream::connect(socket).await {
-            return Ok(Stream::Unix(stream));
+        if let Ok(stream) = local::connect(socket).await {
+            return Ok(Stream::Local(stream));
         }
         tokio::task::spawn_blocking(move || start())
             .await
@@ -303,8 +304,8 @@ impl HostLink {
         let deadline = Instant::now() + START_TIMEOUT;
         loop {
             tokio::time::sleep(Duration::from_millis(100)).await;
-            match UnixStream::connect(socket).await {
-                Ok(stream) => return Ok(Stream::Unix(stream)),
+            match local::connect(socket).await {
+                Ok(stream) => return Ok(Stream::Local(stream)),
                 Err(e) if Instant::now() >= deadline => {
                     return Err(format!("the Host didn't start listening: {e}"))
                 }

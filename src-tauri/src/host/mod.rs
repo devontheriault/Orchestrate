@@ -2,10 +2,11 @@
 //! keep working whether or not a window is open (ADR 0009). It is this same
 //! binary run with `--host`, and it never opens a window.
 //!
-//! Windows reach it over a Unix socket in the state directory — the same
-//! directory, and so the same Host, as long as they agree on the state
-//! directory. A connection carries calls one way and replies and events the
-//! other (see [`protocol`]); every connection hears every Agent's events.
+//! Windows reach it over a Unix socket in the state directory, or a named
+//! pipe named after it on Windows (see [`local`]) — the same one, and so the
+//! same Host, as long as they agree on the state directory. A connection
+//! carries calls one way and replies and events the other (see [`protocol`]);
+//! every connection hears every Agent's events.
 //!
 //! The window's half lives here too: [`client`] is how a window talks to a
 //! Host, and [`service`] is how it starts one that isn't running.
@@ -13,6 +14,7 @@
 mod calls;
 pub mod client;
 pub mod hosts;
+pub mod local;
 pub mod protocol;
 pub mod service;
 pub mod tailnet;
@@ -21,14 +23,13 @@ pub mod tailnet;
 mod tests;
 
 use std::future::Future;
-use std::os::unix::fs::PermissionsExt;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde_json::json;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
-use tokio::net::{TcpListener, UnixListener};
+use tokio::net::TcpListener;
 use tokio::sync::{broadcast, mpsc, watch};
 
 use crate::domain::new_id;
@@ -135,7 +136,7 @@ impl Host {
 /// working, as a closing app used to: this machine's on `local`, and other
 /// machines' on the listener `remote` gives, if it gives one, each let in only
 /// if its `Vet` says so.
-pub async fn serve<R>(host: Arc<Host>, local: UnixListener, remote: R)
+pub async fn serve<R>(host: Arc<Host>, mut local: local::Listener, remote: R)
 where
     R: Future<Output = Option<(TcpListener, Vet)>> + Send + 'static,
 {
@@ -144,7 +145,7 @@ where
     loop {
         tokio::select! {
             accepted = local.accept() => match accepted {
-                Ok((stream, _)) => {
+                Ok(stream) => {
                     tokio::spawn(connection(host.clone(), stream, Peer::Local));
                 }
                 Err(e) => eprintln!("host: could not accept a window: {e}"),
@@ -296,14 +297,8 @@ async fn start() -> Result<(), String> {
     };
 
     let socket = paths::host_socket().map_err(|e| e.to_string())?;
-    // Left behind by a Host that died without cleaning up. Safe to remove:
-    // holding the lock means no live Host is listening on it.
-    let _ = std::fs::remove_file(&socket);
-    let listener = UnixListener::bind(&socket)
+    let listener = local::Listener::bind(&socket)
         .map_err(|e| format!("could not listen on {}: {e}", socket.display()))?;
-    // Anyone who can open the socket can run Agents as this user.
-    std::fs::set_permissions(&socket, std::fs::Permissions::from_mode(0o600))
-        .map_err(|e| format!("could not restrict {}: {e}", socket.display()))?;
 
     let orphans = runtime::adopt_orphans_on_launch()
         .unwrap_or_default()
@@ -315,16 +310,23 @@ async fn start() -> Result<(), String> {
 
     let on_signal = host.clone();
     tokio::spawn(async move {
-        use tokio::signal::unix::{signal, SignalKind};
-        let (Ok(mut term), Ok(mut int)) = (
-            signal(SignalKind::terminate()),
-            signal(SignalKind::interrupt()),
-        ) else {
+        #[cfg(unix)]
+        {
+            use tokio::signal::unix::{signal, SignalKind};
+            let (Ok(mut term), Ok(mut int)) = (
+                signal(SignalKind::terminate()),
+                signal(SignalKind::interrupt()),
+            ) else {
+                return;
+            };
+            tokio::select! {
+                _ = term.recv() => {},
+                _ = int.recv() => {},
+            }
+        }
+        #[cfg(windows)]
+        if tokio::signal::ctrl_c().await.is_err() {
             return;
-        };
-        tokio::select! {
-            _ = term.recv() => {},
-            _ = int.recv() => {},
         }
         on_signal.stop();
     });
@@ -380,14 +382,15 @@ async fn remote_listener() -> Option<(TcpListener, Vet)> {
 /// Take the state directory's Host lock, or `None` if another Host holds it.
 /// The lock lasts as long as the returned file stays open.
 fn lock() -> std::io::Result<Option<std::fs::File>> {
-    use std::os::fd::AsRawFd;
     let path = paths::host_lock().map_err(std::io::Error::other)?;
     let file = std::fs::OpenOptions::new()
         .create(true)
         .truncate(false)
         .write(true)
         .open(path)?;
-    // SAFETY: flock on a descriptor we own and keep open.
-    let taken = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0;
-    Ok(taken.then_some(file))
+    match file.try_lock() {
+        Ok(()) => Ok(Some(file)),
+        Err(std::fs::TryLockError::WouldBlock) => Ok(None),
+        Err(std::fs::TryLockError::Error(e)) => Err(e),
+    }
 }

@@ -26,8 +26,6 @@ pub fn start() -> io::Result<()> {
 /// Run `<this binary> --host` in its own session, so it outlives the window
 /// that started it, writing what it says to the state directory's host log.
 fn detached() -> io::Result<()> {
-    use std::os::unix::process::CommandExt;
-
     paths::ensure_dirs().map_err(io::Error::other)?;
     let log = std::fs::OpenOptions::new()
         .create(true)
@@ -38,12 +36,25 @@ fn detached() -> io::Result<()> {
         .stdin(Stdio::null())
         .stdout(log.try_clone()?)
         .stderr(log);
-    // SAFETY: setsid is async-signal-safe and touches nothing but this process.
-    unsafe {
-        cmd.pre_exec(|| {
-            libc::setsid();
-            Ok(())
-        });
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        // SAFETY: setsid is async-signal-safe and touches nothing but this process.
+        unsafe {
+            cmd.pre_exec(|| {
+                libc::setsid();
+                Ok(())
+            });
+        }
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // No console, and out of the window's process group, so a Ctrl+C
+        // meant for the window doesn't reach it.
+        const DETACHED_PROCESS: u32 = 0x0000_0008;
+        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+        cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
     }
     let mut child = cmd.spawn()?;
     // Reaped here if it exits while the window is still open, rather than
@@ -68,7 +79,10 @@ pub fn set_keeps_running(on: bool) -> io::Result<()> {
     #[cfg(target_os = "linux")]
     return systemd::set_linger(on);
     #[cfg(not(target_os = "linux"))]
-    Err(io::Error::other("not supported on this system yet"))
+    {
+        let _ = on;
+        Err(io::Error::other("not supported on this system yet"))
+    }
 }
 
 /// The systemd user unit that runs the Host.

@@ -51,6 +51,16 @@ impl Hello {
 }
 
 /// What this machine calls itself.
+#[cfg(windows)]
+pub fn machine_name() -> String {
+    std::env::var("COMPUTERNAME")
+        .ok()
+        .filter(|n| !n.trim().is_empty())
+        .unwrap_or_else(|| "this machine".into())
+}
+
+/// What this machine calls itself.
+#[cfg(unix)]
 pub fn machine_name() -> String {
     let mut buf = [0u8; 256];
     // SAFETY: gethostname writes at most `buf.len()` bytes into a buffer we own.

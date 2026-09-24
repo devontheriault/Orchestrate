@@ -106,6 +106,7 @@ pub(super) async fn supervise(
     let namer = runtime.naming.then(|| runtime.claude_bin.clone());
     let stdout = child.stdout.take().expect("stdout was piped");
     let stderr = child.stderr.take().expect("stderr was piped");
+    #[cfg(unix)]
     let pid = child.id();
 
     // Task: drain stdout as stream-json events.

@@ -1,7 +1,10 @@
-# Builds the release installers for every platform and attaches them to a
-# draft GitHub Release. Push a tag matching the app version to run it:
+# Builds the installers for every platform. Push a tag matching the app
+# version to attach them to a draft GitHub Release:
 #
 #   git tag v0.1.0 && git push origin v0.1.0
+#
+# Or run it by hand from the Actions tab, on any branch, to get them as
+# downloadable artifacts of the run without making a release.
 #
 # See docs/releasing.md for why Linux builds here and not on a dev machine.
 name: release
@@ -75,8 +78,25 @@ jobs:
           # it means the build doesn't depend on the runner having libfuse2.
           APPIMAGE_EXTRACT_AND_RUN: "1"
         with:
-          tagName: v__VERSION__
+          # Without a tag name it only builds, and releases nothing.
+          tagName: ${{ startsWith(github.ref, 'refs/tags/') && 'v__VERSION__' || '' }}
           releaseName: Orchestrate v__VERSION__
           releaseBody: Download the installer for your platform from the assets below.
           releaseDraft: true
           args: ${{ matrix.args }}
+
+      - name: Keep the installers with the run
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: orchestrate-${{ runner.os }}
+          # `**` covers both target/release and the macOS universal build's
+          # target/universal-apple-darwin/release.
+          path: |
+            src-tauri/target/**/release/bundle/appimage/*.AppImage
+            src-tauri/target/**/release/bundle/deb/*.deb
+            src-tauri/target/**/release/bundle/rpm/*.rpm
+            src-tauri/target/**/release/bundle/dmg/*.dmg
+            src-tauri/target/**/release/bundle/msi/*.msi
+            src-tauri/target/**/release/bundle/nsis/*.exe
+          if-no-files-found: error
