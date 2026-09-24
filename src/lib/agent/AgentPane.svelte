@@ -1,16 +1,13 @@
 <script lang="ts">
   /**
-   * The detail pane: the selected agent — or the blank page for a new one —
-   * with its header, then either its diff or its transcript and composer.
+   * The detail pane: the selected agent with its header, then either its diff
+   * or its transcript and composer — or the blank page for a new one.
    */
   import { store } from "$lib/state/store.svelte";
   import AgentHeader from "./AgentHeader.svelte";
   import AgentDiff from "./AgentDiff.svelte";
   import AgentComposer from "./AgentComposer.svelte";
   import Transcript from "$lib/transcript/Transcript.svelte";
-
-  /** The blank page for an agent that hasn't been spawned yet. */
-  const drafting = $derived(store.drafting && !store.selectedAgent);
 
   /**
    * The pane's own height. The composer's growing parts cap against it rather
@@ -22,7 +19,8 @@
 </script>
 
 <section bind:clientHeight={height} style:--pane-h={height ? `${height}px` : null}>
-  {#if store.selectedAgent || drafting}
+  <!-- A draft has no header: its Cancel lives in the window bar. -->
+  {#if store.selectedAgent}
     <AgentHeader />
   {/if}
 

@@ -1,9 +1,6 @@
 <script lang="ts">
   import { store } from "$lib/state/store.svelte";
 
-  /** The blank page for an agent that hasn't been spawned yet. */
-  const drafting = $derived(store.drafting && !store.selectedAgent);
-
   /**
    * Discard deletes the worktree, the branch, and with it the agent's session —
    * everything not merged out is gone. It used to happen only as part of an
@@ -71,10 +68,6 @@
         </button>
       </div>
     {/if}
-  {:else}
-    <div class="head-right">
-      <button class="cancel" onclick={() => store.cancelDraft()}>Cancel</button>
-    </div>
   {/if}
 </header>
 
@@ -88,8 +81,6 @@
     gap: 0.5rem 1rem;
     min-height: 2.7rem;
   }
-
-  .cancel:hover { border-color: var(--accent); color: var(--accent); }
 
   .head-right {
     display: flex;
