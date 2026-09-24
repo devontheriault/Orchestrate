@@ -23,6 +23,10 @@ tauri-plugin-dialog = "2"
 # Hands a URL to the OS browser, so links in an Agent's output go somewhere
 # other than this window — navigating it would replace the app with the page.
 tauri-plugin-opener = "2"
+# Tells the user when an Agent needs them: a Turn Completed with nothing
+# queued, a Fail, or a Queue held. The window may be buried or on another
+# workspace, which is exactly when it matters.
+tauri-plugin-notification = "2"
 # Reads a pasted image straight off the OS clipboard. WebKitGTK only hands a
 # paste event the clipboard's file paths, never its image data, so on Linux a
 # screenshot can't be pasted through the webview at all. `image` encodes the
@@ -39,6 +43,8 @@ dirs = "6"
 # native-tls so the app doesn't need a system OpenSSL.
 reqwest = { version = "0.13", features = ["json", "rustls"] }
 tokio = { version = "1", features = ["process", "io-util", "sync", "time", "macros", "rt-multi-thread", "net", "signal"] }
+# Attachments cross to the Host inside JSON, which has no bytes of its own.
+base64 = "0.22"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

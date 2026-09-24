@@ -25,6 +25,12 @@ pub enum Error {
     #[error("cannot attach {path}: it is not a file, or no longer exists")]
     AttachmentMissing { path: PathBuf },
 
+    #[error(
+        "cannot attach {path}: it is {megabytes} MB, and attachments are limited to {} MB",
+        crate::attachments::MAX_BYTES / (1024 * 1024)
+    )]
+    AttachmentTooLarge { path: PathBuf, megabytes: u64 },
+
     #[error("could not read the clipboard: {0}")]
     Clipboard(String),
 
@@ -80,6 +86,16 @@ pub enum Error {
 
     #[error("the Host is restarting to update; try again in a moment")]
     HostClosing,
+
+    #[error(
+        "`{target}` has diverged from `{upstream}`, which has {behind} commit(s) it doesn't; \
+         bring them together before merging"
+    )]
+    TargetDiverged {
+        target: String,
+        upstream: String,
+        behind: usize,
+    },
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

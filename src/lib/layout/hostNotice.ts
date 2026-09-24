@@ -1,8 +1,9 @@
 import type { HostStatus } from "$lib/api";
 
 /**
- * What to tell the user about the window's link to its Host, or null when
- * there's nothing to say. Reconnecting is quiet for a moment first
+ * What to tell the user about the window's link to this machine's Host, or
+ * null when there's nothing to say. (Other machines' Hosts say how they are
+ * beside their agents instead: one being off is ordinary.) Reconnecting is quiet for a moment first
  * (`HOST_NOTICE_DELAY`), since a Host restarting for an update is back
  * before anyone would read the banner.
  */
@@ -18,6 +19,10 @@ export function hostNotice(status: HostStatus): string | null {
       return `The Host is still on version ${status.version}. It will update once its running agents finish, and this window reconnects then.`;
     case "outdated":
       return `The Host runs a newer version (${status.version}). Update this app to reach your agents.`;
+    // Only another machine's Host can be behind this window or refuse it.
+    case "behind":
+    case "refused":
+      return null;
   }
 }
 

@@ -14,9 +14,12 @@ use serde_json::Value;
 /// Bumped whenever a call or an event changes shape. A window and a Host that
 /// disagree on it cannot work together, and the window asks the Host to make
 /// way instead (see `shutdown_when_idle`, the one call every version keeps).
-pub const PROTOCOL: u32 = 1;
+pub const PROTOCOL: u32 = 3;
 
 /// Who the Host is, sent as the first line of every connection.
+///
+/// Every build must be able to read every other build's Hello, or a window
+/// can't tell an old Host to make way: give any field added later a default.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Hello {
     pub protocol: u32,
@@ -29,6 +32,10 @@ pub struct Hello {
     /// New each time a Host starts, so a window can tell a reconnection to the
     /// same Host from one to its successor.
     pub instance: String,
+    /// The machine's own name, for a window to call this Host by. Empty from a
+    /// Host older than protocol 3.
+    #[serde(default)]
+    pub name: String,
 }
 
 impl Hello {
@@ -38,7 +45,22 @@ impl Hello {
             version: env!("CARGO_PKG_VERSION").to_string(),
             build: build_id(),
             instance,
+            name: machine_name(),
         }
+    }
+}
+
+/// What this machine calls itself.
+pub fn machine_name() -> String {
+    let mut buf = [0u8; 256];
+    // SAFETY: gethostname writes at most `buf.len()` bytes into a buffer we own.
+    let ok = unsafe { libc::gethostname(buf.as_mut_ptr().cast(), buf.len()) } == 0;
+    let end = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
+    let name = String::from_utf8_lossy(&buf[..end]).trim().to_owned();
+    if ok && !name.is_empty() {
+        name
+    } else {
+        "this machine".into()
     }
 }
 
@@ -68,6 +90,9 @@ pub struct Request {
 #[serde(rename_all = "snake_case")]
 pub enum Frame {
     Hello(Hello),
+    /// Sent instead of a Hello to a connection the Host won't serve, and then
+    /// it hangs up: a peer on the tailnet that isn't the user's own.
+    Refused(String),
     /// The answer to the [`Request`] with the same id.
     Reply {
         id: u64,

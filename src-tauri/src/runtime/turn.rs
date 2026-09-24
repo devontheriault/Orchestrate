@@ -13,7 +13,7 @@ use tokio::process::{Child, Command};
 use tokio::sync::Notify;
 
 use super::events::{notice_event, Emitter};
-use super::LiveMap;
+use super::AgentRuntime;
 use crate::domain::{Agent, AgentEvent, AgentState, Resolution};
 use crate::{attachments, merging, storage, title};
 
@@ -98,11 +98,12 @@ pub(super) async fn supervise(
     mut child: Child,
     mut agent: Agent,
     cancel: Arc<Notify>,
-    emitter: Emitter,
-    live: LiveMap,
-    // The binary to name the Agent with once the Turn ends, or `None` to skip.
-    namer: Option<Arc<String>>,
+    settled: tokio::sync::watch::Sender<bool>,
+    runtime: AgentRuntime,
 ) {
+    let emitter = runtime.emitter.clone();
+    // The binary to name the Agent with once the Turn ends, or `None` to skip.
+    let namer = runtime.naming.then(|| runtime.claude_bin.clone());
     let stdout = child.stdout.take().expect("stdout was piped");
     let stderr = child.stderr.take().expect("stderr was piped");
     let pid = child.id();
@@ -192,7 +193,7 @@ pub(super) async fn supervise(
 
     // Held across the write, so an edit the user made while the Turn ran (see
     // `AgentRuntime::edit`) can't land between reading it back and saving.
-    let mut live = live.write().await;
+    let mut live = runtime.inner.write().await;
     if let Ok(on_disk) = storage::load_agent(&agent.id) {
         agent.keep_edits(&on_disk);
     }
@@ -200,11 +201,32 @@ pub(super) async fn supervise(
 
     // Leave the live map *before* announcing, so a UI that reacts to the exit by
     // sending a follow-up doesn't race the removal and be told we're still busy.
-    // A no-op if stop() already took us out.
+    // A no-op if shutdown() already took us out.
     live.remove(&agent.id);
+
+    // A clean Complete is when the next queued message goes out — still under
+    // the lock, so nothing sent meanwhile can jump ahead of it. A Stop or a Fail
+    // holds the Queue: interrupting an Agent shouldn't fire the rest in.
+    let next = (agent.state == AgentState::Completed && !agent.queue.is_empty())
+        .then(|| runtime.next_turn(agent.clone(), &mut live));
     drop(live);
 
-    emitter.announce(&agent);
+    match next {
+        // Announced as it started: the Turn that just Completed is already
+        // behind the one that follows it.
+        Some(Ok(_)) => {}
+        Some(Err(e)) => {
+            emitter.record(
+                &agent.id,
+                notice_event(&format!(
+                    "The next queued message wasn't sent: {e}. It is still queued."
+                )),
+            );
+            emitter.announce(&agent);
+        }
+        None => emitter.announce(&agent),
+    }
+    settled.send_replace(true);
     if let Some(original) = resolved {
         emitter.announce(&original);
     }

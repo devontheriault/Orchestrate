@@ -46,7 +46,8 @@ pub fn new_session_id() -> String {
     )
 }
 
-/// A local Git repository the user has registered with the app.
+/// A Git repository on this Host that Agents can work in: registered by the
+/// user, or cloned by the Host for an Agent spawned onto it from elsewhere.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Project {
     pub id: Id,
@@ -54,6 +55,11 @@ pub struct Project {
     pub path: PathBuf,
     #[serde(with = "time::serde::rfc3339")]
     pub added_at: OffsetDateTime,
+    /// Cloned by the Host itself, into a folder it manages, rather than
+    /// registered by the user. A checkout the user registers on the same Host
+    /// takes over from it for new Agents.
+    #[serde(default)]
+    pub cloned: bool,
 }
 
 /// The opening prompt the user hands an Agent at Spawn. Later Turns are
@@ -65,6 +71,24 @@ pub struct Task {
     /// Tasks, and for every Task recorded before attachments existed.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub attachments: Vec<PathBuf>,
+}
+
+/// A prompt waiting in an Agent's Queue for the Agent to be free, with the
+/// picks it was queued under: they are part of what the user decided when they
+/// queued it, so they travel with it rather than being read at send time.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QueuedMessage {
+    /// So one message can be removed out of the middle.
+    pub id: Id,
+    pub prompt: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<PathBuf>,
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub effort: Option<String>,
+    #[serde(default)]
+    pub permission_mode: Option<String>,
 }
 
 /// Lifecycle state of an Agent. See CONTEXT.md for the semantics.
@@ -163,21 +187,32 @@ pub struct Agent {
     pub merged_branch: Option<String>,
     #[serde(default, alias = "landed_at", with = "time::serde::rfc3339::option")]
     pub merged_at: Option<OffsetDateTime>,
+    /// Why the last Merge didn't reach the Project's remote, while it hasn't.
+    /// The Merge itself stands; the push is offered again. `None` once it's
+    /// pushed, and for a target with no remote to push to.
+    #[serde(default)]
+    pub push_error: Option<String>,
     /// Set on a Resolver: the Agent whose Merge conflicted, and the branch that
     /// Merge was headed for. `None` on every other Agent.
     #[serde(default)]
     pub resolves: Option<Resolution>,
+    /// What the user has said to the Agent that it wasn't free to hear yet,
+    /// oldest first. Drained one message per clean Complete; held by a Stop or
+    /// a Fail. See Queue in CONTEXT.md.
+    #[serde(default)]
+    pub queue: Vec<QueuedMessage>,
 }
 
 impl Agent {
-    /// Take the fields the user may change at any moment — their Title, Tag
-    /// and options — from `edited`. A Turn's supervisor holds its own copy of the
+    /// Take the fields the user may change at any moment — their Title, Tag,
+    /// options and Queue — from `edited`. A Turn's supervisor holds its own copy of the
     /// record from before the Turn began, and writing that back as it stood
     /// would undo whatever the user changed while the Agent worked.
     pub fn keep_edits(&mut self, edited: &Agent) {
         self.user_title = edited.user_title.clone();
         self.color = edited.color.clone();
         self.options = edited.options.clone();
+        self.queue = edited.queue.clone();
     }
 }
 
@@ -255,6 +290,7 @@ mod tests {
             name: "MyProj".into(),
             path: "/home/dev/proj".into(),
             added_at: datetime!(2026-09-20 14:00:00 UTC),
+            cloned: true,
         };
         let s = serde_json::to_string(&p).unwrap();
         let back: Project = serde_json::from_str(&s).unwrap();
@@ -300,10 +336,19 @@ mod tests {
                 fail_reason: None,
                 merged_branch: None,
                 merged_at: None,
+                push_error: None,
                 resolves: Some(Resolution {
                     agent_id: "b4e0d2ef".into(),
                     target: "main".into(),
                 }),
+                queue: vec![QueuedMessage {
+                    id: "q1".into(),
+                    prompt: "then this".into(),
+                    attachments: vec![],
+                    model: None,
+                    effort: Some("high".into()),
+                    permission_mode: None,
+                }],
             };
             let s = serde_json::to_string(&a).unwrap();
             let back: Agent = serde_json::from_str(&s).unwrap();

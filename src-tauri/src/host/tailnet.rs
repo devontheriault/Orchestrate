@@ -1,0 +1,119 @@
+//! The tailnet: where a Host listens for windows on the user's other machines,
+//! and how it knows a connection is the user's own (ADR 0012).
+//!
+//! A Host listens on its Tailscale address only, never on every interface, and
+//! asks Tailscale who each peer is: only a machine logged in as the same
+//! Tailscale user as this one gets in. A node shared into the tailnet, or a
+//! tagged server, is someone else. All of it goes through the `tailscale` CLI,
+//! so a machine without Tailscale simply has no listener — its Host is
+//! reachable from this machine alone.
+
+use std::future::Future;
+use std::net::{IpAddr, SocketAddr};
+use std::pin::Pin;
+use std::process::Stdio;
+use std::sync::Arc;
+
+use serde_json::Value;
+use tokio::process::Command;
+
+/// The port a Host listens on, on its tailnet address. Windows on other
+/// machines reach a Host as `<its Tailscale name>:47300`.
+pub const DEFAULT_PORT: u16 = 47300;
+
+/// The Host port, overridable with `CLAUDEWRAPPER_HOST_PORT`.
+pub fn port() -> u16 {
+    std::env::var("CLAUDEWRAPPER_HOST_PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(DEFAULT_PORT)
+}
+
+/// Decides whether a connection from `peer` may talk to this Host, and if not,
+/// why not. [`vet`] in real use; tests stand in their own.
+pub type Vet = Arc<
+    dyn Fn(SocketAddr) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send>> + Send + Sync,
+>;
+
+/// The real [`Vet`]: the peer must be the same Tailscale user as this machine.
+pub fn tailscale_vet() -> Vet {
+    Arc::new(|peer| Box::pin(vet(peer)))
+}
+
+/// This machine's tailnet IPv4 address, or `None` when Tailscale isn't running.
+pub async fn address() -> Option<IpAddr> {
+    let out = tailscale(&["ip", "-4"]).await.ok()?;
+    out.lines().next()?.trim().parse().ok()
+}
+
+async fn vet(peer: SocketAddr) -> Result<(), String> {
+    let status = tailscale(&["status", "--json"]).await?;
+    let me = own_user(&serde_json::from_str(&status).map_err(|e| e.to_string())?)
+        .ok_or("Tailscale didn't say who this machine belongs to")?;
+    let whois = tailscale(&["whois", "--json", &peer.to_string()])
+        .await
+        .map_err(|_| format!("Tailscale doesn't know {peer}"))?;
+    let (them, login) = peer_user(&serde_json::from_str(&whois).map_err(|e| e.to_string())?)
+        .ok_or_else(|| format!("Tailscale didn't say who {peer} belongs to"))?;
+    if them == me {
+        Ok(())
+    } else {
+        Err(format!(
+            "{login} isn't the Tailscale user this machine belongs to"
+        ))
+    }
+}
+
+/// The user id this machine is logged in as, from `tailscale status --json`.
+pub fn own_user(status: &Value) -> Option<u64> {
+    status["Self"]["UserID"].as_u64()
+}
+
+/// The user id and login a peer belongs to, from `tailscale whois --json`.
+pub fn peer_user(whois: &Value) -> Option<(u64, String)> {
+    let profile = &whois["UserProfile"];
+    Some((
+        profile["ID"].as_u64()?,
+        profile["LoginName"].as_str().unwrap_or("?").to_owned(),
+    ))
+}
+
+async fn tailscale(args: &[&str]) -> Result<String, String> {
+    let out = Command::new("tailscale")
+        .args(args)
+        .stdin(Stdio::null())
+        .output()
+        .await
+        .map_err(|e| format!("couldn't run tailscale: {e}"))?;
+    if out.status.success() {
+        Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+    } else {
+        Err(String::from_utf8_lossy(&out.stderr).trim().to_owned())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn reads_who_this_machine_is() {
+        let status = json!({
+            "Self": { "HostName": "desktop", "UserID": 4242 },
+            "User": { "4242": { "ID": 4242, "LoginName": "dev@example.com" } },
+        });
+        assert_eq!(own_user(&status), Some(4242));
+        assert_eq!(own_user(&json!({ "BackendState": "Stopped" })), None);
+    }
+
+    #[test]
+    fn reads_who_a_peer_is() {
+        let whois = json!({
+            "Node": { "Name": "laptop.tail1234.ts.net." },
+            "UserProfile": { "ID": 4242, "LoginName": "dev@example.com" },
+        });
+        assert_eq!(peer_user(&whois), Some((4242, "dev@example.com".into())));
+        assert_eq!(peer_user(&json!({ "Node": {} })), None);
+    }
+}

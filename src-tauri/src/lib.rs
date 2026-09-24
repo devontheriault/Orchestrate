@@ -21,7 +21,8 @@ use std::sync::Arc;
 
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
-use host::client::HostLink;
+use host::client::Target;
+use host::hosts::Hosts;
 
 /// Build the one window the app has.
 ///
@@ -119,24 +120,31 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
         .setup(move |app| {
             build_main_window(app.handle())?;
 
             let handle = app.handle().clone();
-            let link = HostLink::new(
-                paths::host_socket()?,
-                Arc::new(host::service::start),
+            let hosts = Hosts::new(
+                Target::Local {
+                    socket: paths::host_socket()?,
+                    start: Arc::new(host::service::start),
+                },
                 Arc::new(move |name: &str, payload| {
                     let _ = handle.emit(name, payload);
                 }),
             );
-            tauri::async_runtime::spawn(link.clone().run());
-            app.manage(link);
+            let connecting = hosts.clone();
+            tauri::async_runtime::spawn(async move { connecting.connect_all() });
+            app.manage(hosts);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             commands::host,
-            commands::host_status,
+            commands::hosts,
+            commands::add_host,
+            commands::remove_host,
+            commands::send_attachments,
             commands::save_attachment,
             commands::save_clipboard_image,
             commands::attachment_preview,

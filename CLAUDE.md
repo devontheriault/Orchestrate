@@ -54,6 +54,7 @@ Conventions the directory tree won't tell you:
 - Every drop-down menu uses `menus/menu.ts` for placement, dismissal and keyboard walking.
 - Backend: `runtime/` owns live agents (`turn.rs` is one `claude` process), `git/` is split by user action, and `domain.rs` holds the persisted records. Tests for a directory module live in its `tests.rs`.
 - The agents live in the Host, the same binary run with `--host` (ADR 0009). `host/calls.rs` is every call a window can make, so a new backend call goes there and in `api.ts`'s `host()`, not in `commands.rs`. `commands.rs` only forwards calls to the Host, plus the few that touch the window's own machine (clipboard, dropped files). `host/client.rs` is the window's end of the socket, and `host/service.rs` starts a Host when none is running.
+- A window talks to several Hosts: its own machine's (`local`) and others added by Tailscale name (`host/hosts.rs`; `host/tailnet.rs` is how a Host lets them in). In `api.ts`, a call about an agent is routed to its Host; everything else names one. The store groups each Host's checkouts into one project by remote (`state/projects.ts`) and files agents under the group, keeping the Host's own id in `home_project_id`.
 
 ## Agent skills
 

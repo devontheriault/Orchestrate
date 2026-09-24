@@ -632,3 +632,247 @@ async fn set_up_handles_an_empty_folder() {
     set_up(dir.path()).await.unwrap();
     assert!(has_commits(dir.path()).await);
 }
+
+/// A bare `origin`, and a Project cloned from it with `main` tracking
+/// `origin/main` — the shape of a Project that lives on a remote.
+struct WithRemote {
+    origin: TempDir,
+    project: TempDir,
+}
+
+async fn configure(repo: &Path) {
+    for args in [
+        vec!["config", "user.email", "t@t.t"],
+        vec!["config", "user.name", "t"],
+        vec!["config", "commit.gpgsign", "false"],
+        vec!["config", "core.hooksPath", "/dev/null"],
+    ] {
+        stdout(repo, &args).await.unwrap();
+    }
+}
+
+async fn commit_file(repo: &Path, file: &str, contents: &str) -> String {
+    std::fs::write(repo.join(file), contents).unwrap();
+    stdout(repo, &["add", "-A"]).await.unwrap();
+    stdout(repo, &["commit", "-m", file]).await.unwrap();
+    head_commit(repo).await.unwrap()
+}
+
+impl WithRemote {
+    async fn new() -> Self {
+        let origin = TempDir::new().unwrap();
+        stdout(origin.path(), &["init", "--bare", "--initial-branch=main"])
+            .await
+            .unwrap();
+        let project = TempDir::new().unwrap();
+        let p = project.path().to_str().unwrap();
+        stdout(
+            origin.path(),
+            &["clone", "--quiet", origin.path().to_str().unwrap(), p],
+        )
+        .await
+        .unwrap();
+        configure(project.path()).await;
+        commit_file(project.path(), "base.txt", "base\n").await;
+        stdout(project.path(), &["push", "--quiet", "-u", "origin", "main"])
+            .await
+            .unwrap();
+        Self { origin, project }
+    }
+
+    fn path(&self) -> &Path {
+        self.project.path()
+    }
+
+    /// Someone on another machine pushes a commit to `main`.
+    async fn pushed_elsewhere(&self, file: &str) -> String {
+        let other = TempDir::new().unwrap();
+        let o = other.path().to_str().unwrap();
+        stdout(
+            self.origin.path(),
+            &["clone", "--quiet", self.origin.path().to_str().unwrap(), o],
+        )
+        .await
+        .unwrap();
+        configure(other.path()).await;
+        let sha = commit_file(other.path(), file, "from elsewhere\n").await;
+        stdout(other.path(), &["push", "--quiet", "origin", "main"])
+            .await
+            .unwrap();
+        sha
+    }
+
+    async fn origin_main(&self) -> String {
+        rev_parse(self.origin.path(), "main").await.unwrap()
+    }
+}
+
+#[tokio::test]
+async fn a_spawn_starts_from_what_was_pushed_elsewhere_without_moving_the_checkout() {
+    let r = WithRemote::new().await;
+    let before = head_commit(r.path()).await.unwrap();
+    let pushed = r.pushed_elsewhere("theirs.txt").await;
+
+    let start = spawn_start(r.path()).await.unwrap();
+    assert_eq!(start.commit, pushed);
+    assert_eq!(start.note, None);
+    assert_eq!(head_commit(r.path()).await.unwrap(), before);
+}
+
+#[tokio::test]
+async fn a_spawn_keeps_unpushed_local_work() {
+    let r = WithRemote::new().await;
+    let mine = commit_file(r.path(), "mine.txt", "unpushed\n").await;
+    let start = spawn_start(r.path()).await.unwrap();
+    assert_eq!(start.commit, mine);
+    assert_eq!(start.note, None);
+}
+
+#[tokio::test]
+async fn a_spawn_on_a_diverged_branch_starts_local_and_says_what_it_leaves_out() {
+    let r = WithRemote::new().await;
+    r.pushed_elsewhere("theirs.txt").await;
+    let mine = commit_file(r.path(), "mine.txt", "unpushed\n").await;
+
+    let start = spawn_start(r.path()).await.unwrap();
+    assert_eq!(start.commit, mine);
+    let note = start.note.expect("a diverged start says so");
+    assert!(
+        note.contains("origin/main") && note.contains("1 commit "),
+        "{note}"
+    );
+}
+
+#[tokio::test]
+async fn a_spawn_with_no_remote_starts_from_head() {
+    let f = Fixture::new().await;
+    let start = spawn_start(f.repo.path()).await.unwrap();
+    assert_eq!(start.commit, f.base().await);
+    assert_eq!(start.note, None);
+}
+
+#[tokio::test]
+async fn a_spawn_with_an_unreachable_remote_starts_local_and_says_so() {
+    let r = WithRemote::new().await;
+    stdout(
+        r.path(),
+        &["remote", "set-url", "origin", "/nonexistent/repo.git"],
+    )
+    .await
+    .unwrap();
+    let start = spawn_start(r.path()).await.unwrap();
+    assert_eq!(start.commit, head_commit(r.path()).await.unwrap());
+    assert!(start.note.unwrap().contains("Couldn't fetch"));
+}
+
+#[tokio::test]
+async fn a_merge_target_behind_its_remote_is_caught_up_then_pushed() {
+    let r = WithRemote::new().await;
+    let wt = TempDir::new().unwrap();
+    let wt_path = wt.path().join("agent");
+    crate::worktree::create(r.path(), &wt_path, Fixture::BRANCH, "HEAD")
+        .await
+        .unwrap();
+    commit_file(&wt_path, "agent.txt", "agent work\n").await;
+    let theirs = r.pushed_elsewhere("theirs.txt").await;
+
+    catch_up(r.path(), "main").await.unwrap();
+    assert_eq!(head_commit(r.path()).await.unwrap(), theirs);
+    let merged = merge(r.path(), &wt_path, Fixture::BRANCH, "main", "merge")
+        .await
+        .unwrap();
+    assert_eq!(push(r.path(), "main").await, Pushed::Yes);
+    assert_eq!(r.origin_main().await, merged.sha);
+}
+
+#[tokio::test]
+async fn a_target_not_checked_out_is_fast_forwarded_in_place() {
+    let r = WithRemote::new().await;
+    stdout(r.path(), &["checkout", "--quiet", "-b", "feature"])
+        .await
+        .unwrap();
+    let theirs = r.pushed_elsewhere("theirs.txt").await;
+
+    catch_up(r.path(), "main").await.unwrap();
+    assert_eq!(rev_parse(r.path(), "main").await.unwrap(), theirs);
+    let current = stdout(r.path(), &["branch", "--show-current"])
+        .await
+        .unwrap();
+    assert_eq!(current.trim(), "feature");
+}
+
+#[tokio::test]
+async fn a_merge_target_diverged_from_its_remote_is_refused() {
+    let r = WithRemote::new().await;
+    r.pushed_elsewhere("theirs.txt").await;
+    let mine = commit_file(r.path(), "mine.txt", "unpushed\n").await;
+
+    let refused = catch_up(r.path(), "main").await;
+    assert!(
+        matches!(refused, Err(Error::TargetDiverged { behind: 1, .. })),
+        "{refused:?}"
+    );
+    assert_eq!(head_commit(r.path()).await.unwrap(), mine);
+}
+
+#[tokio::test]
+async fn a_refused_push_says_why_and_leaves_the_merge() {
+    let r = WithRemote::new().await;
+    let hooks = TempDir::new().unwrap();
+    let hook = hooks.path().join("pre-receive");
+    std::fs::write(&hook, "#!/bin/sh\necho 'main is protected' >&2\nexit 1\n").unwrap();
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    stdout(
+        r.origin.path(),
+        &["config", "core.hooksPath", hooks.path().to_str().unwrap()],
+    )
+    .await
+    .unwrap();
+    let before = r.origin_main().await;
+    let mine = commit_file(r.path(), "mine.txt", "local\n").await;
+
+    let Pushed::No(why) = push(r.path(), "main").await else {
+        panic!("the push should have been refused");
+    };
+    assert!(!why.is_empty());
+    assert_eq!(r.origin_main().await, before);
+    assert_eq!(head_commit(r.path()).await.unwrap(), mine);
+}
+
+#[tokio::test]
+async fn a_branch_with_no_upstream_has_nothing_to_push() {
+    let f = Fixture::new().await;
+    assert_eq!(push(f.repo.path(), "main").await, Pushed::NoRemote);
+    catch_up(f.repo.path(), "main").await.unwrap();
+}
+
+#[tokio::test]
+async fn a_projects_remote_is_the_one_its_branch_tracks() {
+    let r = WithRemote::new().await;
+    assert_eq!(
+        remote_url(r.path()).await.as_deref(),
+        r.origin.path().to_str()
+    );
+    let f = Fixture::new().await;
+    assert_eq!(remote_url(f.repo.path()).await, None);
+}
+
+#[tokio::test]
+async fn a_host_clones_a_project_it_has_no_checkout_of() {
+    let r = WithRemote::new().await;
+    let pushed = r.pushed_elsewhere("theirs.txt").await;
+    let here = TempDir::new().unwrap();
+    let dest = here.path().join("checkouts").join("proj");
+
+    clone(r.origin.path().to_str().unwrap(), &dest)
+        .await
+        .unwrap();
+    assert_eq!(head_commit(&dest).await.unwrap(), pushed);
+    assert_eq!(remote_url(&dest).await.as_deref(), r.origin.path().to_str());
+
+    let failed = clone("/nonexistent/repo.git", &here.path().join("nope")).await;
+    assert!(matches!(failed, Err(Error::Git { .. })));
+}

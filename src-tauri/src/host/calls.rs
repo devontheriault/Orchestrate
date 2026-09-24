@@ -8,8 +8,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use time::OffsetDateTime;
 
-use super::Host;
-use crate::domain::{new_id, Agent, AgentOptions, AgentState, Project};
+use super::{Host, Peer};
+use crate::domain::{new_id, Agent, AgentOptions, AgentState, Project, QueuedMessage};
 use crate::error::Error;
 use crate::git::{self, Merged};
 use crate::{merging, paths, storage, worktree};
@@ -43,6 +43,13 @@ pub enum Call {
     RemoveProject {
         id: String,
     },
+    /// Clone a Project this Host has no checkout of, from its remote, so an
+    /// Agent can be spawned here. Trusted already: the user trusted the
+    /// repository when they registered it on another machine.
+    CloneProject {
+        name: String,
+        url: String,
+    },
     ListAgents {},
     SpawnAgent {
         project_id: String,
@@ -53,15 +60,46 @@ pub enum Call {
         permission_mode: Option<String>,
         options: AgentOptions,
     },
-    /// Continue a conversation with an Agent that has stopped working, on the
-    /// model, effort and Permission Mode the caller names for this Turn.
-    ResumeAgent {
+    /// Say something to an Agent, on the model, effort and Permission Mode the
+    /// caller picked for it. The Host decides whether it starts a Turn now or
+    /// waits in the Agent's Queue; the window never has to.
+    SendMessage {
         agent_id: String,
         prompt: String,
         attachments: Vec<PathBuf>,
         model: Option<String>,
         effort: Option<String>,
         permission_mode: Option<String>,
+    },
+    /// Send the head of a Queue that a Stop or a Fail held.
+    SendNext {
+        agent_id: String,
+    },
+    /// Add messages to the end of an Agent's Queue without sending any. How a
+    /// window hands over the Queues it kept itself before the Host kept them.
+    QueueMessages {
+        agent_id: String,
+        messages: Vec<QueuedMessage>,
+    },
+    RemoveQueued {
+        agent_id: String,
+        message_id: String,
+    },
+    ClearQueue {
+        agent_id: String,
+    },
+    /// Keep an attachment's bytes on this Host, and say where. The path is what
+    /// a Spawn or a message then attaches: the Agent reads the Host's copy.
+    StoreAttachment {
+        name: String,
+        /// The file's bytes, base64.
+        data: String,
+    },
+    /// Whether this Host keeps running while its user is logged out: `null`
+    /// when it isn't a service that could.
+    KeepRunning {},
+    SetKeepRunning {
+        on: bool,
     },
     /// Give an Agent the user's own Title, or with `None` hand the naming back
     /// to Claude. Allowed while it works, like the other edits.
@@ -108,6 +146,10 @@ pub enum Call {
         agent_id: String,
         target: String,
     },
+    /// Push a Merge whose push failed, again.
+    PushMerge {
+        agent_id: String,
+    },
     /// Spawn a Resolver for a Merge of the Agent into `target` that conflicted.
     ResolveConflict {
         agent_id: String,
@@ -131,6 +173,22 @@ pub enum Call {
     ShutdownWhenIdle {},
 }
 
+/// A Project as a window sees it: the record, and where its remote is. The
+/// remote is read afresh each time rather than stored, since the user can
+/// change it, and it is how a window knows that checkouts on two Hosts are one
+/// Project.
+#[derive(Debug, Serialize)]
+pub struct ListedProject {
+    #[serde(flatten)]
+    pub project: Project,
+    pub remote: Option<String>,
+}
+
+async fn listed(project: Project) -> ListedProject {
+    let remote = git::remote_url(&project.path).await;
+    ListedProject { project, remote }
+}
+
 /// How a Merge the user asked for came out. A conflict is an outcome rather
 /// than an error: the Project is untouched, and the UI offers to Resolve it.
 #[derive(Debug, Serialize)]
@@ -149,16 +207,49 @@ fn ok<T: Serialize>(value: T) -> Result<Value, String> {
 }
 
 /// Answer one call from its raw JSON.
-pub async fn answer(host: &Host, call: Value) -> Result<Value, String> {
+pub async fn answer(host: &Host, call: Value, peer: Peer) -> Result<Value, String> {
     let call: Call =
         serde_json::from_value(call).map_err(|e| format!("the Host can't read this call: {e}"))?;
+    // Only a window on this machine may restart its Host. One from another
+    // machine is running whatever build *that* machine has, and asking this
+    // Host to make way for it would bring back this machine's own build —
+    // which it would then ask to make way again.
+    if matches!(call, Call::ShutdownWhenIdle {}) && peer != Peer::Local {
+        return Err("only a window on the Host's own machine can restart it".into());
+    }
     handle(host, call).await
 }
 
 async fn handle(host: &Host, call: Call) -> Result<Value, String> {
     let runtime = &host.runtime;
     match call {
-        Call::ListProjects {} => ok(storage::Registry::load().map_err(err)?.projects),
+        Call::ListProjects {} => {
+            let mut projects = Vec::new();
+            for p in storage::Registry::load().map_err(err)?.projects {
+                projects.push(listed(p).await);
+            }
+            ok(projects)
+        }
+
+        Call::CloneProject { name, url } => {
+            let id = new_id();
+            let path = paths::checkouts_dir().map_err(err)?.join(format!(
+                "{}-{id}",
+                name.replace(|c: char| !c.is_ascii_alphanumeric() && c != '-', "_")
+            ));
+            git::clone(&url, &path).await.map_err(err)?;
+            let mut reg = storage::Registry::load().map_err(err)?;
+            let project = Project {
+                id,
+                name,
+                path,
+                added_at: OffsetDateTime::now_utc(),
+                cloned: true,
+            };
+            reg.projects.push(project.clone());
+            reg.save().map_err(err)?;
+            ok(listed(project).await)
+        }
 
         Call::ProjectNeedsSetup { path } => ok(!git::has_commits(&path).await),
 
@@ -175,10 +266,11 @@ async fn handle(host: &Host, call: Call) -> Result<Value, String> {
                 name,
                 path,
                 added_at: OffsetDateTime::now_utc(),
+                cloned: false,
             };
             reg.projects.push(project.clone());
             reg.save().map_err(err)?;
-            ok(project)
+            ok(listed(project).await)
         }
 
         Call::RemoveProject { id } => {
@@ -217,7 +309,7 @@ async fn handle(host: &Host, call: Call) -> Result<Value, String> {
             ok(agent)
         }
 
-        Call::ResumeAgent {
+        Call::SendMessage {
             agent_id,
             prompt,
             attachments,
@@ -225,18 +317,55 @@ async fn handle(host: &Host, call: Call) -> Result<Value, String> {
             effort,
             permission_mode,
         } => {
-            let agent = runtime
-                .resume(
-                    &agent_id,
-                    prompt,
-                    attachments,
-                    model,
-                    effort,
-                    permission_mode,
-                )
+            let message = QueuedMessage {
+                id: new_id(),
+                prompt: prompt.trim().to_string(),
+                attachments,
+                model,
+                effort,
+                permission_mode,
+            };
+            ok(runtime.send(&agent_id, message).await.map_err(err)?)
+        }
+
+        Call::SendNext { agent_id } => ok(runtime.send_next(&agent_id).await.map_err(err)?),
+
+        Call::QueueMessages { agent_id, messages } => ok(runtime
+            .edit(&agent_id, |a| a.queue.extend(messages))
+            .await
+            .map_err(err)?),
+
+        Call::RemoveQueued {
+            agent_id,
+            message_id,
+        } => ok(runtime
+            .edit(&agent_id, |a| a.queue.retain(|m| m.id != message_id))
+            .await
+            .map_err(err)?),
+
+        Call::ClearQueue { agent_id } => ok(runtime
+            .edit(&agent_id, |a| a.queue.clear())
+            .await
+            .map_err(err)?),
+
+        Call::StoreAttachment { name, data } => {
+            use base64::Engine;
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(data)
+                .map_err(|e| format!("the attachment {name} didn't arrive intact: {e}"))?;
+            ok(crate::attachments::save(&name, &bytes).map_err(err)?)
+        }
+
+        Call::KeepRunning {} => ok(tokio::task::spawn_blocking(super::service::keeps_running)
+            .await
+            .map_err(err)?),
+
+        Call::SetKeepRunning { on } => {
+            tokio::task::spawn_blocking(move || super::service::set_keeps_running(on))
                 .await
-                .map_err(err)?;
-            ok(agent)
+                .map_err(err)?
+                .map_err(|e| format!("could not change it: {e}"))?;
+            ok(())
         }
 
         Call::RenameAgent { agent_id, name } => {
@@ -313,6 +442,18 @@ async fn handle(host: &Host, call: Call) -> Result<Value, String> {
                 }
                 Err(e) => Err(err(e)),
             }
+        }
+
+        Call::PushMerge { agent_id } => {
+            let agent = storage::load_agent(&agent_id).map_err(err)?;
+            let project = project_of(&agent, "push")?;
+            let why = merging::push_again(&project.path, &agent)
+                .await
+                .map_err(err)?;
+            ok(runtime
+                .edit(&agent_id, |a| a.push_error = why)
+                .await
+                .map_err(err)?)
         }
 
         Call::ResolveConflict {

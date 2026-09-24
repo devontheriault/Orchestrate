@@ -2,6 +2,10 @@
   import { tick } from "svelte";
   import { theme, THEMES, type ThemePref } from "$lib/theme/theme.svelte";
   import { usage } from "$lib/usage/usage.svelte";
+  import { api } from "$lib/api";
+  import { store } from "$lib/state/store.svelte";
+  import { hosts } from "$lib/state/hosts.svelte";
+  import HostsDialog from "./HostsDialog.svelte";
   import {
     dismissOnMove,
     menuStyle,
@@ -17,10 +21,40 @@
 
   const uid = $props.id();
 
-  /** The menu's own rows: Theme, which opens the themes beside it, and Usage. */
+  /**
+   * The menu's own rows: Theme, which opens the themes beside it, Usage, the
+   * Hosts this window talks to, and — when this machine's Host runs as a
+   * service — whether it keeps the agents running while the user is logged out.
+   */
   const THEME = 0;
   const USAGE = 1;
-  const COUNT = 2;
+  const HOSTS = 2;
+  const KEEP = 3;
+
+  /** Asked of the Host each time the menu opens; null hides the row. */
+  let keepRunning = $state<boolean | null>(null);
+  const count = $derived(keepRunning === null ? 3 : 4);
+
+  /** The Hosts dialog is up. */
+  let managingHosts = $state(false);
+
+  async function loadKeepRunning() {
+    try {
+      keepRunning = await api.keepRunning();
+    } catch {
+      keepRunning = null;
+    }
+  }
+
+  async function toggleKeepRunning() {
+    if (keepRunning === null) return;
+    try {
+      await api.setKeepRunning(!keepRunning);
+    } catch (e) {
+      store.error = String(e);
+    }
+    await loadKeepRunning();
+  }
 
   /**
    * The submenu reads as three groups — System, the light themes, the dark
@@ -67,6 +101,7 @@
   }
 
   function openMenu() {
+    loadKeepRunning();
     active = THEME;
     closeSub();
     place();
@@ -102,6 +137,16 @@
     if (i === USAGE) {
       close();
       usage.show();
+      return;
+    }
+    if (i === HOSTS) {
+      close();
+      managingHosts = true;
+      return;
+    }
+    // Stays open, so the tick can be seen to move.
+    if (i === KEEP) {
+      toggleKeepRunning();
       return;
     }
     openSub();
@@ -165,7 +210,7 @@
     // the Theme row closes the submenu hanging off it.
     const next = inSub
       ? stepActive(e.key, subActive, themes.length)
-      : stepActive(e.key, active, COUNT);
+      : stepActive(e.key, active, count);
     if (next !== null) {
       e.preventDefault();
       if (inSub) subActive = next;
@@ -329,7 +374,51 @@
       <span class="menu-label">Usage</span>
       <kbd>Ctrl + Shift + U</kbd>
     </div>
+
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <div
+      id={`${uid}-item-${HOSTS}`}
+      role="menuitem"
+      tabindex="-1"
+      data-active={!inSub && active === HOSTS}
+      class="menu-item"
+      onclick={() => pick(HOSTS)}
+      onpointermove={() => {
+        active = HOSTS;
+        closeSub();
+      }}
+      title="Your other machines, whose agents this window shows too"
+    >
+      <span class="menu-tick" aria-hidden="true"></span>
+      <span class="menu-label">Hosts…</span>
+      <span class="menu-note">{hosts.list.length}</span>
+    </div>
+
+    {#if keepRunning !== null}
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <div
+        id={`${uid}-item-${KEEP}`}
+        role="menuitemcheckbox"
+        aria-checked={keepRunning}
+        tabindex="-1"
+        data-active={!inSub && active === KEEP}
+        class="menu-item"
+        onclick={() => pick(KEEP)}
+        onpointermove={() => {
+          active = KEEP;
+          closeSub();
+        }}
+        title="Agents on this machine keep working after you log out, and the Host starts at boot"
+      >
+        <span class="menu-tick" aria-hidden="true">{keepRunning ? "✓" : ""}</span>
+        <span class="menu-label">Keep agents running when logged out</span>
+      </div>
+    {/if}
   </div>
+{/if}
+
+{#if managingHosts}
+  <HostsDialog onclose={() => (managingHosts = false)} />
 {/if}
 
 {#if open && subOpen && subPlacement}

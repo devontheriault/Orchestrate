@@ -15,16 +15,17 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use time::OffsetDateTime;
-use tokio::sync::{mpsc, Notify, RwLock};
+use tokio::sync::{mpsc, watch, Notify, RwLock};
 use tokio::task::JoinHandle;
 
 use crate::domain::{
-    new_id, new_session_id, Agent, AgentOptions, AgentState, Id, Project, Resolution, Task,
+    new_id, new_session_id, Agent, AgentOptions, AgentState, Id, Project, QueuedMessage,
+    Resolution, Task,
 };
 use crate::error::{Error, Result};
 use crate::{attachments, git, merging, paths, storage, worktree};
 
-use events::{prompt_event, Emitter};
+use events::{notice_event, prompt_event, Emitter};
 pub use events::{RuntimeEvent, NOTICE_EVENT_TYPE, PROMPT_EVENT_TYPE};
 use turn::Continuity;
 
@@ -46,6 +47,9 @@ struct AgentHandle {
     cancel: Arc<Notify>,
     /// The supervisor task; drops when the Agent exits.
     task: JoinHandle<()>,
+    /// Turns `true` once the supervisor has recorded how the Turn ended and
+    /// taken the Agent out of the live map.
+    settled: watch::Receiver<bool>,
 }
 
 /// Runtime container for all live Agents. Cheap to clone (Arc inside).
@@ -129,9 +133,15 @@ impl AgentRuntime {
         agent.options = options;
         // Record the commit we branched from before the Agent can move HEAD, so
         // the diff view has a fixed base even if the Project advances later.
-        agent.base_commit = git::head_commit(&project.path).await.ok();
+        // Brought up to date with the remote first, where there is one.
+        let start = git::spawn_start(&project.path).await.ok();
+        agent.base_commit = start.as_ref().map(|s| s.commit.clone());
         let from = agent.base_commit.clone().unwrap_or_else(|| "HEAD".into());
-        self.start(project, &from, agent).await
+        let agent = self.start(project, &from, agent).await?;
+        if let Some(note) = start.and_then(|s| s.note) {
+            self.emitter.record(&agent.id, notice_event(&note));
+        }
+        Ok(agent)
     }
 
     /// Spawn a Resolver for a Merge of `conflicted` into `target` that hit
@@ -185,7 +195,11 @@ impl AgentRuntime {
         self.record_prompt(&agent, &prompt, &attachments);
 
         let mut live = self.inner.write().await;
-        self.launch(agent, &prompt, &attachments, Continuity::Fresh, &mut live)
+        let agent = self.launch(agent, &prompt, &attachments, Continuity::Fresh, &mut live)?;
+        // Every window hears of a new Agent, not only the one that spawned it:
+        // on another machine, the spawner may not be a window here at all.
+        self.emitter.announce(&agent);
+        Ok(agent)
     }
 
     /// Continue an Agent's conversation with a follow-up prompt and any files
@@ -215,15 +229,65 @@ impl AgentRuntime {
         // same Agent at once must not both get past the check and put two
         // `claude`s to work in one Worktree.
         let mut live = self.inner.write().await;
+        let agent = self.free(agent_id, &live)?;
+        let message = QueuedMessage {
+            id: new_id(),
+            prompt,
+            attachments,
+            model,
+            effort,
+            permission_mode,
+        };
+        self.begin_turn(agent, message, &mut live)
+    }
+
+    /// Say something to an Agent: a new Turn if it is free, the end of its
+    /// Queue if it is working. The one place that choice is made, under the
+    /// lock a Turn starts under, so a window never has to guess — and two
+    /// windows sending at once can't both start a Turn in one Worktree.
+    pub async fn send(&self, agent_id: &str, message: QueuedMessage) -> Result<Agent> {
+        attachments::check(&message.attachments)?;
+        let mut live = self.inner.write().await;
+        if live.contains_key(agent_id) {
+            return self.edit_locked(agent_id, |a| a.queue.push(message), &mut live);
+        }
+        let agent = self.free(agent_id, &live)?;
+        self.begin_turn(agent, message, &mut live)
+    }
+
+    /// Send the head of an Agent's Queue now: the user's go-ahead for a Queue
+    /// that a Stop or a Fail held.
+    pub async fn send_next(&self, agent_id: &str) -> Result<Agent> {
+        let mut live = self.inner.write().await;
+        let agent = self.free(agent_id, &live)?;
+        self.next_turn(agent, &mut live)
+    }
+
+    /// Start a Turn on the first message in a free Agent's Queue. Called with
+    /// the live map held, by [`Self::send_next`] and by a supervisor whose Turn
+    /// has just Completed. The message stays queued if it can't be sent.
+    fn next_turn(&self, mut agent: Agent, live: &mut Live<'_>) -> Result<Agent> {
+        let Some(next) = agent.queue.first() else {
+            return Ok(agent);
+        };
+        attachments::check(&next.attachments)?;
+        let message = agent.queue.remove(0);
+        self.begin_turn(agent, message, live)
+    }
+
+    /// The record of an Agent that may start a Turn now, or why it may not:
+    /// the Host is closing, it is already working, or it has no Session or no
+    /// Worktree left to work in.
+    fn free(&self, agent_id: &str, live: &Live<'_>) -> Result<Agent> {
         if self.closed.load(Ordering::SeqCst) {
             return Err(Error::HostClosing);
         }
         if live.contains_key(agent_id) {
             return Err(Error::AgentBusy(agent_id.to_string()));
         }
-        let mut agent = storage::load_agent(agent_id)?;
+        let agent = storage::load_agent(agent_id)?;
         // Meta says Running but no supervisor owns it: a stale record this
-        // launch never adopted. Refuse rather than run two `claude`s at once.
+        // Host never adopted. Refuse rather than run two `claude`s at once.
         if agent.state == AgentState::Running {
             return Err(Error::AgentBusy(agent_id.to_string()));
         }
@@ -237,26 +301,41 @@ impl AgentRuntime {
         if !agent.worktree_path.exists() {
             return Err(why("its worktree is gone"));
         }
+        Ok(agent)
+    }
 
+    /// Put a free Agent to work on `message`, on the picks it carries.
+    fn begin_turn(
+        &self,
+        mut agent: Agent,
+        message: QueuedMessage,
+        live: &mut Live<'_>,
+    ) -> Result<Agent> {
         agent.turns += 1;
-        agent.model = model;
-        agent.effort = effort;
-        agent.permission_mode = permission_mode;
+        agent.model = message.model;
+        agent.effort = message.effort;
+        agent.permission_mode = message.permission_mode;
         agent.state = AgentState::Running;
         agent.turn_started_at = Some(OffsetDateTime::now_utc());
         agent.exited_at = None;
         agent.exit_code = None;
         agent.fail_reason = None;
         storage::save_agent(&agent)?;
-        self.record_prompt(&agent, &prompt, &attachments);
+        self.record_prompt(&agent, &message.prompt, &message.attachments);
         self.emitter.announce(&agent);
 
-        self.launch(agent, &prompt, &attachments, Continuity::Resumed, &mut live)
+        self.launch(
+            agent,
+            &message.prompt,
+            &message.attachments,
+            Continuity::Resumed,
+            live,
+        )
     }
 
     /// Change what the user may change about an Agent at any moment — its
-    /// Title, Tag and options — whether or not it is working, and announce the
-    /// result. Options take effect from the next Turn.
+    /// Title, Tag, options and Queue — whether or not it is working, and
+    /// announce the result. Options take effect from the next Turn.
     ///
     /// A working Agent's supervisor holds its own copy of the record and saves
     /// it when the Turn ends. It carries these fields over from disk as it does
@@ -264,6 +343,15 @@ impl AgentRuntime {
     /// survives; the live handle is updated too, for a shutdown that saves it.
     pub async fn edit(&self, agent_id: &str, change: impl FnOnce(&mut Agent)) -> Result<Agent> {
         let mut live = self.inner.write().await;
+        self.edit_locked(agent_id, change, &mut live)
+    }
+
+    fn edit_locked(
+        &self,
+        agent_id: &str,
+        change: impl FnOnce(&mut Agent),
+        live: &mut Live<'_>,
+    ) -> Result<Agent> {
         let mut agent = storage::load_agent(agent_id)?;
         change(&mut agent);
         storage::save_agent(&agent)?;
@@ -319,13 +407,13 @@ impl AgentRuntime {
         };
 
         let cancel = Arc::new(Notify::new());
+        let (settled_tx, settled) = watch::channel(false);
         let task = tokio::spawn(turn::supervise(
             child,
             agent.clone(),
             cancel.clone(),
-            self.emitter.clone(),
-            self.inner.clone(),
-            self.naming.then(|| self.claude_bin.clone()),
+            settled_tx,
+            self.clone(),
         ));
 
         live.insert(
@@ -334,6 +422,7 @@ impl AgentRuntime {
                 agent: agent.clone(),
                 cancel,
                 task,
+                settled,
             },
         );
         Ok(agent)
@@ -343,16 +432,19 @@ impl AgentRuntime {
     /// finished (meta persisted, state=Stopped). The Worktree is left alone so
     /// the Turn's work survives and the Agent can be Resumed; Discard is a
     /// separate, explicit action.
+    ///
+    /// The Agent stays in the live map until its supervisor takes it out, so
+    /// nothing can start in its Worktree, and a Host waiting to be idle can't
+    /// exit, while the Stop is still being recorded.
     pub async fn stop(&self, agent_id: &str) -> Result<()> {
-        let handle = self.inner.write().await.remove(agent_id);
-        match handle {
-            Some(h) => {
-                h.cancel.notify_one();
-                let _ = h.task.await;
-                Ok(())
-            }
-            None => Err(Error::AgentNotFound(agent_id.to_string())),
-        }
+        let (cancel, mut settled) = match self.inner.read().await.get(agent_id) {
+            Some(h) => (h.cancel.clone(), h.settled.clone()),
+            None => return Err(Error::AgentNotFound(agent_id.to_string())),
+        };
+        cancel.notify_one();
+        // An error means the supervisor is gone, which is settled too.
+        let _ = settled.wait_for(|done| *done).await;
+        Ok(())
     }
 
     /// Snapshot of currently-running Agents.
@@ -453,7 +545,9 @@ fn new_agent(
         // Nothing has merged yet; a Merge records itself here when it does.
         merged_branch: None,
         merged_at: None,
+        push_error: None,
         resolves: None,
+        queue: vec![],
     })
 }
 
