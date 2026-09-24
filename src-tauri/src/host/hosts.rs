@@ -89,7 +89,7 @@ impl Hosts {
         let notify: Notify = Arc::new(move |name, payload| emit(name, stamped(payload, &stamp)));
         let link = HostLink::new(target, notify);
         let (stop, stopped) = watch::channel(false);
-        tokio::spawn(link.clone().run(stopped));
+        tauri::async_runtime::spawn(link.clone().run(stopped));
         self.links
             .lock()
             .unwrap()
