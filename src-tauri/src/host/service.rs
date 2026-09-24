@@ -1,4 +1,5 @@
-//! Starting this machine's Host when a window finds none listening.
+//! The Host as an OS service: starting it when a window finds none
+//! listening, and whether it keeps running while its user is logged out.
 //!
 //! Installed builds hand it to the OS's service manager, so it starts at login
 //! and outlives every window. Only systemd is supported so far; another OS adds
@@ -51,6 +52,23 @@ fn detached() -> io::Result<()> {
         let _ = child.wait();
     });
     Ok(())
+}
+
+/// Whether this Host keeps running while its user is logged out, or `None`
+/// when it can't be made to: it isn't running as a service.
+pub fn keeps_running() -> Option<bool> {
+    #[cfg(target_os = "linux")]
+    return systemd::lingers();
+    #[cfg(not(target_os = "linux"))]
+    None
+}
+
+/// Keep this Host running while its user is logged out, or stop doing so.
+pub fn set_keeps_running(on: bool) -> io::Result<()> {
+    #[cfg(target_os = "linux")]
+    return systemd::set_linger(on);
+    #[cfg(not(target_os = "linux"))]
+    Err(io::Error::other("not supported on this system yet"))
 }
 
 /// The systemd user unit that runs the Host.
@@ -161,6 +179,49 @@ mod systemd {
     use crate::paths;
 
     const UNIT: &str = "claudewrapper-host.service";
+
+    /// Whether the user's systemd instance, and so this Host, outlives their
+    /// last session. Only asked of a Host that systemd runs: one started any
+    /// other way ends with the session whatever this says.
+    pub fn lingers() -> Option<bool> {
+        let cgroup = std::fs::read_to_string("/proc/self/cgroup").ok()?;
+        if !cgroup.contains(UNIT) {
+            return None;
+        }
+        // SAFETY: getuid cannot fail.
+        let uid = unsafe { libc::getuid() };
+        let out = Command::new("loginctl")
+            .args([
+                "show-user",
+                &uid.to_string(),
+                "--property=Linger",
+                "--value",
+            ])
+            .output()
+            .ok()?;
+        out.status
+            .success()
+            .then(|| String::from_utf8_lossy(&out.stdout).trim() == "yes")
+    }
+
+    /// Lingering is logind's word for a user whose services run while they
+    /// are logged out. Setting it for yourself needs no password on most
+    /// systems.
+    pub fn set_linger(on: bool) -> io::Result<()> {
+        let verb = if on {
+            "enable-linger"
+        } else {
+            "disable-linger"
+        };
+        let out = Command::new("loginctl").arg(verb).output()?;
+        if out.status.success() {
+            Ok(())
+        } else {
+            Err(io::Error::other(
+                String::from_utf8_lossy(&out.stderr).trim().to_string(),
+            ))
+        }
+    }
 
     /// Whether this window's Host belongs to systemd: an installed build using
     /// the default state directory, on a machine running a user manager.

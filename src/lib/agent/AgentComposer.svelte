@@ -252,7 +252,7 @@
     // Mid-Turn, the same gesture lines the message up instead: one `claude` per
     // worktree, so it goes out as its own Turn once this one ends.
     if (working) {
-      if (queueing && store.queue.enqueue(prompt, attachments, model, effort, mode)) clear();
+      if (queueing && (await store.resume(prompt, attachments, model, effort, mode))) clear();
       return;
     }
     // Keep the text and files on failure either way, so the user can retry

@@ -14,7 +14,7 @@ use serde_json::Value;
 /// Bumped whenever a call or an event changes shape. A window and a Host that
 /// disagree on it cannot work together, and the window asks the Host to make
 /// way instead (see `shutdown_when_idle`, the one call every version keeps).
-pub const PROTOCOL: u32 = 1;
+pub const PROTOCOL: u32 = 2;
 
 /// Who the Host is, sent as the first line of every connection.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

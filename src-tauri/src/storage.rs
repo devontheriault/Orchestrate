@@ -218,6 +218,7 @@ mod tests {
             merged_branch: None,
             merged_at: None,
             resolves: None,
+            queue: vec![],
         }
     }
 

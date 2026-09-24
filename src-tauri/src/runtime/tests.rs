@@ -1039,6 +1039,7 @@ async fn resume_is_refused_for_an_agent_with_no_session() {
         merged_branch: None,
         merged_at: None,
         resolves: None,
+        queue: vec![],
     };
     storage::save_agent(&a).unwrap();
     let (rt, _rx) = AgentRuntime::with_bin(fake_claude_ok());
@@ -1126,6 +1127,7 @@ async fn adopt_orphans_transitions_running() {
         merged_branch: None,
         merged_at: None,
         resolves: None,
+        queue: vec![],
     };
     storage::save_agent(&a).unwrap();
 
@@ -1345,4 +1347,147 @@ async fn a_host_closes_only_when_idle_and_then_takes_no_turns() {
         .resume(&agent.id, "more".into(), vec![], None, None, None)
         .await;
     assert!(matches!(resumed, Err(Error::HostClosing)));
+}
+
+/// A fake `claude` that takes a moment over its answer, so a test can say
+/// something to it while it works.
+fn fake_claude_slow() -> String {
+    write_script(
+        r#"#!/bin/sh
+echo '{"type":"assistant","message":"thinking"}'
+sleep 1
+echo '{"type":"result","status":"complete"}'
+exit 0
+"#,
+    )
+}
+
+fn message(prompt: &str) -> QueuedMessage {
+    QueuedMessage {
+        id: new_id(),
+        prompt: prompt.into(),
+        attachments: vec![],
+        model: Some("claude-haiku-4-5".into()),
+        effort: None,
+        permission_mode: None,
+    }
+}
+
+async fn spawn_on(rt: &AgentRuntime, repo: &TempDir) -> Agent {
+    let project = sample_project(repo.path().to_path_buf());
+    rt.spawn(
+        &project,
+        "go".into(),
+        vec![],
+        None,
+        None,
+        None,
+        AgentOptions::default(),
+    )
+    .await
+    .unwrap()
+}
+
+/// The prompts the user sent, in the order they reached the log.
+fn prompts(agent_id: &str) -> Vec<String> {
+    storage::read_events(agent_id)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.event["type"] == PROMPT_EVENT_TYPE)
+        .map(|e| e.event["prompt"].as_str().unwrap().to_string())
+        .collect()
+}
+
+#[tokio::test]
+async fn a_message_to_a_working_agent_waits_and_goes_out_on_complete() {
+    let _env = StateEnv::new();
+    let repo = init_repo().await;
+    let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_slow());
+    let agent = spawn_on(&rt, &repo).await;
+
+    let queued = rt.send(&agent.id, message("and then this")).await.unwrap();
+    assert_eq!(queued.state, AgentState::Running);
+    assert_eq!(
+        queued.turns, 1,
+        "a working agent must not start a second Turn"
+    );
+    assert_eq!(queued.queue.len(), 1);
+
+    // The first Turn's Complete isn't announced: the queued Turn follows it.
+    let done = wait_for_exit(&mut rx).await;
+    assert_eq!(done.state, AgentState::Completed);
+    assert_eq!(done.turns, 2);
+    assert!(done.queue.is_empty());
+    assert_eq!(done.model.as_deref(), Some("claude-haiku-4-5"));
+    assert_eq!(prompts(&agent.id), ["go", "and then this"]);
+}
+
+#[tokio::test]
+async fn a_message_to_a_free_agent_starts_a_turn() {
+    let _env = StateEnv::new();
+    let repo = init_repo().await;
+    let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_ok());
+    let agent = spawn_on(&rt, &repo).await;
+    wait_for_exit(&mut rx).await;
+
+    let sent = rt.send(&agent.id, message("more")).await.unwrap();
+    assert_eq!(sent.state, AgentState::Running);
+    assert_eq!(sent.turns, 2);
+    assert!(sent.queue.is_empty());
+}
+
+#[tokio::test]
+async fn a_stop_holds_the_queue_until_the_user_sends_it() {
+    let _env = StateEnv::new();
+    let repo = init_repo().await;
+    let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_hang());
+    let agent = spawn_on(&rt, &repo).await;
+    rt.send(&agent.id, message("held")).await.unwrap();
+
+    rt.stop(&agent.id).await.unwrap();
+    let stopped = wait_for_exit(&mut rx).await;
+    assert_eq!(stopped.state, AgentState::Stopped);
+    assert_eq!(stopped.queue.len(), 1);
+
+    let sent = rt.send_next(&agent.id).await.unwrap();
+    assert_eq!(sent.state, AgentState::Running);
+    assert!(sent.queue.is_empty());
+    assert_eq!(prompts(&agent.id), ["go", "held"]);
+    rt.stop(&agent.id).await.unwrap();
+}
+
+#[tokio::test]
+async fn a_message_removed_mid_turn_is_not_sent() {
+    let _env = StateEnv::new();
+    let repo = init_repo().await;
+    let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_slow());
+    let agent = spawn_on(&rt, &repo).await;
+    let queued = rt.send(&agent.id, message("never mind")).await.unwrap();
+    let id = queued.queue[0].id.clone();
+
+    rt.edit(&agent.id, |a| a.queue.retain(|m| m.id != id))
+        .await
+        .unwrap();
+    let done = wait_for_exit(&mut rx).await;
+    assert_eq!(done.turns, 1);
+    assert_eq!(prompts(&agent.id), ["go"]);
+}
+
+#[tokio::test]
+async fn a_queued_message_that_cannot_go_stays_queued_and_says_why() {
+    let _env = StateEnv::new();
+    let repo = init_repo().await;
+    let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_slow());
+    let agent = spawn_on(&rt, &repo).await;
+    let mut gone = message("look at this");
+    gone.attachments = vec!["/nonexistent/screenshot.png".into()];
+    rt.edit(&agent.id, |a| a.queue.push(gone)).await.unwrap();
+
+    let done = wait_for_exit(&mut rx).await;
+    assert_eq!(done.state, AgentState::Completed);
+    assert_eq!(done.turns, 1);
+    assert_eq!(done.queue.len(), 1);
+    let said = storage::read_events(&agent.id).unwrap();
+    assert!(said.iter().any(|e| e.event["type"] == NOTICE_EVENT_TYPE
+        && e.event["text"].as_str().unwrap().contains("wasn't sent")));
 }

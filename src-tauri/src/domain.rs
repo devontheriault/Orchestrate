@@ -67,6 +67,24 @@ pub struct Task {
     pub attachments: Vec<PathBuf>,
 }
 
+/// A prompt waiting in an Agent's Queue for the Agent to be free, with the
+/// picks it was queued under: they are part of what the user decided when they
+/// queued it, so they travel with it rather than being read at send time.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QueuedMessage {
+    /// So one message can be removed out of the middle.
+    pub id: Id,
+    pub prompt: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<PathBuf>,
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub effort: Option<String>,
+    #[serde(default)]
+    pub permission_mode: Option<String>,
+}
+
 /// Lifecycle state of an Agent. See CONTEXT.md for the semantics.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -167,17 +185,23 @@ pub struct Agent {
     /// Merge was headed for. `None` on every other Agent.
     #[serde(default)]
     pub resolves: Option<Resolution>,
+    /// What the user has said to the Agent that it wasn't free to hear yet,
+    /// oldest first. Drained one message per clean Complete; held by a Stop or
+    /// a Fail. See Queue in CONTEXT.md.
+    #[serde(default)]
+    pub queue: Vec<QueuedMessage>,
 }
 
 impl Agent {
-    /// Take the fields the user may change at any moment — their Title, Tag
-    /// and options — from `edited`. A Turn's supervisor holds its own copy of the
+    /// Take the fields the user may change at any moment — their Title, Tag,
+    /// options and Queue — from `edited`. A Turn's supervisor holds its own copy of the
     /// record from before the Turn began, and writing that back as it stood
     /// would undo whatever the user changed while the Agent worked.
     pub fn keep_edits(&mut self, edited: &Agent) {
         self.user_title = edited.user_title.clone();
         self.color = edited.color.clone();
         self.options = edited.options.clone();
+        self.queue = edited.queue.clone();
     }
 }
 
@@ -304,6 +328,14 @@ mod tests {
                     agent_id: "b4e0d2ef".into(),
                     target: "main".into(),
                 }),
+                queue: vec![QueuedMessage {
+                    id: "q1".into(),
+                    prompt: "then this".into(),
+                    attachments: vec![],
+                    model: None,
+                    effort: Some("high".into()),
+                    permission_mode: None,
+                }],
             };
             let s = serde_json::to_string(&a).unwrap();
             let back: Agent = serde_json::from_str(&s).unwrap();

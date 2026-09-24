@@ -332,3 +332,46 @@ async fn a_link_starts_a_host_and_follows_it_to_its_successor() {
         .collect();
     assert_eq!(states, ["connected", "connecting", "connected"]);
 }
+
+#[tokio::test]
+async fn two_windows_sending_at_once_start_one_turn_and_queue_the_other() {
+    let _env = StateEnv::new();
+    let repo = init_repo().await;
+    let socket = paths::host_socket().unwrap();
+    let (_host, _serving) = host_on(&socket, &fake_claude_hang());
+
+    let (mut laptop, _) = Window::open(&socket).await;
+    let (mut desktop, _) = Window::open(&socket).await;
+    let project = add_project(&mut laptop, repo.path()).await;
+    let agent = spawn(&mut laptop, &project).await;
+    laptop
+        .call("stop_agent", json!({ "agentId": agent }))
+        .await
+        .unwrap();
+
+    let say = |prompt: &str| {
+        json!({
+            "agentId": agent, "prompt": prompt, "attachments": [],
+            "model": null, "effort": null, "permissionMode": null,
+        })
+    };
+    let (a, b) = tokio::join!(
+        laptop.call("send_message", say("from the laptop")),
+        desktop.call("send_message", say("from the desktop")),
+    );
+    let (a, b) = (a.unwrap(), b.unwrap());
+    let queued: Vec<usize> = [&a, &b]
+        .iter()
+        .map(|r| r["queue"].as_array().unwrap().len())
+        .collect();
+    assert!(queued.contains(&0) && queued.contains(&1), "{queued:?}");
+
+    let now = laptop.call("list_agents", json!({})).await.unwrap();
+    assert_eq!(now[0]["state"], "running");
+    assert_eq!(now[0]["turns"], 2, "two Turns started in one Worktree");
+    assert_eq!(now[0]["queue"].as_array().unwrap().len(), 1);
+    laptop
+        .call("stop_agent", json!({ "agentId": agent }))
+        .await
+        .unwrap();
+}
