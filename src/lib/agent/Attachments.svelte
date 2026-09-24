@@ -78,12 +78,12 @@
             aria-label={`Remove ${baseName(path)}`}
             title="Remove"
           >
-            <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
+            <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
               <path
                 d="M3.5 3.5l9 9M12.5 3.5l-9 9"
                 fill="none"
                 stroke="currentColor"
-                stroke-width="2"
+                stroke-width="2.2"
                 stroke-linecap="round"
               />
             </svg>
@@ -156,12 +156,13 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 1.25rem;
-    height: 1.25rem;
+    width: 1.5rem;
+    height: 1.5rem;
+    margin: -0.15rem 0;
     border: none;
     border-radius: var(--radius-pill);
     background: none;
-    color: var(--fg-muted);
+    color: var(--fg);
     cursor: pointer;
   }
 
