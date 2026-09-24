@@ -300,7 +300,10 @@ export class AppStore {
   draftHost = $derived.by(() => {
     const group = this.selectedProject;
     if (!group) return LOCAL;
-    if (this.pickedHost && canSpawnOn(group, this.pickedHost)) return this.pickedHost;
+    // A pick that has since gone offline gives way to the default, not least
+    // because the picker hides when only one machine is left online.
+    const picked = this.pickedHost;
+    if (picked && canSpawnOn(group, picked) && hosts.reachable(picked)) return picked;
     return defaultHost(group, this.prefs.hosts[group.id], (h) => hosts.reachable(h), LOCAL);
   });
 

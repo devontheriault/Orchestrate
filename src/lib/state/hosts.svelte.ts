@@ -9,8 +9,11 @@ import { api, LOCAL, type HostInfo, type HostStatus } from "$lib/api";
 class Hosts {
   list = $state<HostInfo[]>([]);
 
-  /** Whether the window knows of any Host but its own machine's. */
-  several = $derived(this.list.length > 1);
+  /**
+   * Whether more than one Host can be reached right now — only then is there
+   * a machine to choose between.
+   */
+  several = $derived(this.list.filter((h) => h.status.state === "connected").length > 1);
 
   async load() {
     try {

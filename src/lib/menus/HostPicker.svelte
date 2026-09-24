@@ -1,7 +1,7 @@
 <script lang="ts">
   /**
    * Which Host a new agent starts on (ADR 0011). The model picker's twin, and
-   * shown only when the window knows more than one machine. Each row says
+   * shown only when more than one machine is online. Each row says
    * whether that machine has the project or will clone it first; a machine
    * that can't be reached is listed, and says why, but can't be picked.
    */
