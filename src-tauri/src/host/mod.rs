@@ -12,8 +12,10 @@
 
 mod calls;
 pub mod client;
+pub mod hosts;
 pub mod protocol;
 pub mod service;
+pub mod tailnet;
 
 #[cfg(test)]
 mod tests;
@@ -24,14 +26,24 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde_json::json;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::{UnixListener, UnixStream};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
+use tokio::net::{TcpListener, UnixListener};
 use tokio::sync::{broadcast, mpsc, watch};
 
 use crate::domain::new_id;
 use crate::paths;
 use crate::runtime::{self, AgentRuntime, RuntimeEvent};
 use protocol::{line, Frame, Hello, Request};
+use tailnet::Vet;
+
+/// Where a connection came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Peer {
+    /// This machine, over the Host's socket.
+    Local,
+    /// Another of the user's machines, over the tailnet.
+    Remote(std::net::SocketAddr),
+}
 
 /// How many event lines a connection may fall behind before it is dropped.
 /// A window that lags this far is better off reconnecting and reading the
@@ -115,15 +127,27 @@ impl Host {
     }
 }
 
-/// Accept windows on `listener` until the Host is stopped, then Orphan any
-/// Agent still working, as a closing app used to.
-pub async fn serve(host: Arc<Host>, listener: UnixListener) {
+/// Accept windows until the Host is stopped, then Orphan any Agent still
+/// working, as a closing app used to: this machine's on `local`, and other
+/// machines' on `remote` when there is one, each let in only if `Vet` says so.
+pub async fn serve(host: Arc<Host>, local: UnixListener, remote: Option<(TcpListener, Vet)>) {
     let mut stopping = host.stopping.subscribe();
+    let (tcp, vet) = match remote {
+        Some((tcp, vet)) => (Some(tcp), Some(vet)),
+        None => (None, None),
+    };
     loop {
         tokio::select! {
-            accepted = listener.accept() => match accepted {
+            accepted = local.accept() => match accepted {
                 Ok((stream, _)) => {
-                    tokio::spawn(connection(host.clone(), stream));
+                    tokio::spawn(connection(host.clone(), stream, Peer::Local));
+                }
+                Err(e) => eprintln!("host: could not accept a window: {e}"),
+            },
+            accepted = accept_remote(tcp.as_ref()) => match accepted {
+                Ok((stream, peer)) => {
+                    let vet = vet.clone().expect("a remote listener comes with its Vet");
+                    tokio::spawn(admit(host.clone(), stream, peer, vet));
                 }
                 Err(e) => eprintln!("host: could not accept a window: {e}"),
             },
@@ -133,9 +157,41 @@ pub async fn serve(host: Arc<Host>, listener: UnixListener) {
     host.runtime.shutdown().await;
 }
 
+/// The next connection on the tailnet listener, or never when there isn't one.
+async fn accept_remote(
+    tcp: Option<&TcpListener>,
+) -> std::io::Result<(tokio::net::TcpStream, std::net::SocketAddr)> {
+    match tcp {
+        Some(tcp) => tcp.accept().await,
+        None => std::future::pending().await,
+    }
+}
+
+/// Let a window from another machine in, if `vet` says it's the user's own;
+/// otherwise tell it why not and hang up.
+async fn admit(
+    host: Arc<Host>,
+    mut stream: tokio::net::TcpStream,
+    peer: std::net::SocketAddr,
+    vet: Vet,
+) {
+    match vet(peer).await {
+        Ok(()) => connection(host, stream, Peer::Remote(peer)).await,
+        Err(why) => {
+            eprintln!("host: refused {peer}: {why}");
+            let _ = stream
+                .write_all(line(&Frame::Refused(why)).as_bytes())
+                .await;
+        }
+    }
+}
+
 /// One window's connection, from its Hello to its hanging up.
-async fn connection(host: Arc<Host>, stream: UnixStream) {
-    let (read, mut write) = stream.into_split();
+async fn connection<S>(host: Arc<Host>, stream: S, peer: Peer)
+where
+    S: AsyncRead + AsyncWrite + Send + 'static,
+{
+    let (read, mut write) = tokio::io::split(stream);
     let (out, mut outgoing) = mpsc::unbounded_channel::<Arc<str>>();
 
     // Subscribed before the Hello goes out, so a window that reads the Agent
@@ -188,7 +244,7 @@ async fn connection(host: Arc<Host>, stream: UnixStream) {
                 let host = host.clone();
                 let out = out.clone();
                 tokio::spawn(async move {
-                    let outcome = calls::answer(&host, req.call).await.into();
+                    let outcome = calls::answer(&host, req.call, peer).await.into();
                     let _ = out.send(Arc::from(line(&Frame::Reply {
                         id: req.id,
                         outcome,
@@ -269,9 +325,42 @@ async fn start() -> Result<(), String> {
     });
 
     eprintln!("host: listening on {}", socket.display());
-    serve(host, listener).await;
+    let remote = remote_listener().await;
+    serve(host, listener, remote).await;
     let _ = std::fs::remove_file(&socket);
     Ok(())
+}
+
+/// Where windows on the user's other machines reach this Host: its tailnet
+/// address, when Tailscale is running here.
+///
+/// A debug build can instead be given `CLAUDEWRAPPER_DEBUG_LISTEN=addr:port`,
+/// which lets in *anyone* who can reach that address. It's for trying a second
+/// Host on one machine; a release build ignores it.
+async fn remote_listener() -> Option<(TcpListener, Vet)> {
+    if cfg!(debug_assertions) {
+        if let Ok(addr) = std::env::var("CLAUDEWRAPPER_DEBUG_LISTEN") {
+            let tcp = TcpListener::bind(&addr).await.ok()?;
+            eprintln!("host: DEBUG: letting anyone in on {addr}, unchecked");
+            let open: Vet = Arc::new(|_| Box::pin(async { Ok(()) }));
+            return Some((tcp, open));
+        }
+    }
+    let Some(ip) = tailnet::address().await else {
+        eprintln!("host: Tailscale isn't running here; reachable from this machine only");
+        return None;
+    };
+    let addr = std::net::SocketAddr::new(ip, tailnet::port());
+    match TcpListener::bind(addr).await {
+        Ok(tcp) => {
+            eprintln!("host: listening for the user's other machines on {addr}");
+            Some((tcp, tailnet::tailscale_vet()))
+        }
+        Err(e) => {
+            eprintln!("host: could not listen on {addr}: {e}");
+            None
+        }
+    }
 }
 
 /// Take the state directory's Host lock, or `None` if another Host holds it.

@@ -10,6 +10,7 @@ fn sample_project(path: std::path::PathBuf) -> Project {
         name: "T".into(),
         path,
         added_at: OffsetDateTime::now_utc(),
+        cloned: false,
     }
 }
 
@@ -66,12 +67,7 @@ async fn spawn_run_to_completion() {
     assert_eq!(agent.state, AgentState::Running);
 
     // Consume events until we see StateChanged (final).
-    let final_agent = loop {
-        match rx.recv().await.expect("channel open") {
-            RuntimeEvent::AgentEvent { .. } => continue,
-            RuntimeEvent::StateChanged { agent, .. } => break *agent,
-        }
-    };
+    let final_agent = wait_for_exit(&mut rx).await;
     assert_eq!(final_agent.state, AgentState::Completed);
     assert_eq!(final_agent.exit_code, Some(0));
     assert!(rt.running().await.is_empty());
@@ -123,12 +119,7 @@ async fn spawned_agents_worktree_is_diffable_after_completion() {
         .clone()
         .expect("spawn records the commit it branched from");
 
-    let final_agent = loop {
-        match rx.recv().await.expect("channel open") {
-            RuntimeEvent::AgentEvent { .. } => continue,
-            RuntimeEvent::StateChanged { agent, .. } => break *agent,
-        }
-    };
+    let final_agent = wait_for_exit(&mut rx).await;
     assert_eq!(final_agent.state, AgentState::Completed);
     assert_eq!(final_agent.base_commit.as_deref(), Some(base.as_str()));
 
@@ -184,11 +175,7 @@ async fn spawn_run_to_failure() {
         )
         .await
         .unwrap();
-    let final_agent = loop {
-        if let RuntimeEvent::StateChanged { agent, .. } = rx.recv().await.unwrap() {
-            break *agent;
-        }
-    };
+    let final_agent = wait_for_exit(&mut rx).await;
     assert_eq!(final_agent.state, AgentState::Failed);
     assert_eq!(final_agent.exit_code, Some(42));
     assert!(
@@ -231,12 +218,7 @@ async fn stop_preserves_the_worktree_for_review() {
     rt.stop(&agent.id).await.unwrap();
 
     // Drain the final StateChanged.
-    while let Some(ev) = rx.recv().await {
-        if let RuntimeEvent::StateChanged { agent, .. } = ev {
-            assert_eq!(agent.state, AgentState::Stopped);
-            break;
-        }
-    }
+    assert_eq!(wait_for_exit(&mut rx).await.state, AgentState::Stopped);
     assert!(
         agent.worktree_path.exists(),
         "Stop leaves the worktree; Discard is the explicit action that removes it"
@@ -1038,6 +1020,7 @@ async fn resume_is_refused_for_an_agent_with_no_session() {
         fail_reason: None,
         merged_branch: None,
         merged_at: None,
+        push_error: None,
         resolves: None,
         queue: vec![],
     };
@@ -1126,6 +1109,7 @@ async fn adopt_orphans_transitions_running() {
         fail_reason: None,
         merged_branch: None,
         merged_at: None,
+        push_error: None,
         resolves: None,
         queue: vec![],
     };

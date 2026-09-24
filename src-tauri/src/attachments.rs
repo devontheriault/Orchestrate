@@ -1,11 +1,14 @@
 //! Files the user hands an Agent alongside a prompt — dropped on the window,
 //! picked from a dialog, or pasted from the clipboard.
 //!
-//! An Attachment is a path, not a copy: `claude` reads it with its own tools,
-//! which already understand code, images and PDFs, so all we do is name the
-//! files in the prompt and let the Turn read outside its Worktree. Pasted
-//! images have no path of their own, so they are written to the state
-//! directory first and attached from there.
+//! An Attachment is a copy, kept on the Agent's Host: the window reads the file
+//! and sends its bytes with the prompt ([`read_for_host`]), and the Host writes
+//! them to its own state directory ([`save`]) — the same whether the Host is
+//! across the network or this machine. From there `claude` reads it with its
+//! own tools, which already understand code, images and PDFs, so all we do is
+//! name the files in the prompt and let the Turn read outside its Worktree.
+//! Pasted images have no path of their own, so the window writes them to its
+//! state directory first and attaches them from there like any other file.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -52,6 +55,31 @@ pub fn check(attachments: &[PathBuf]) -> Result<()> {
     Ok(())
 }
 
+/// The largest file sent to a Host as an Attachment. Anything bigger is refused
+/// with a reason rather than dragged silently across the network.
+pub const MAX_BYTES: u64 = 25 * 1024 * 1024;
+
+/// An attached file's name and bytes, for sending to the Agent's Host.
+pub fn read_for_host(path: &Path) -> Result<(String, Vec<u8>)> {
+    check(&[path.to_owned()])?;
+    let io = |source| Error::Io {
+        path: path.to_owned(),
+        source,
+    };
+    let size = std::fs::metadata(path).map_err(io)?.len();
+    if size > MAX_BYTES {
+        return Err(Error::AttachmentTooLarge {
+            path: path.to_owned(),
+            megabytes: size.div_ceil(1024 * 1024),
+        });
+    }
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    Ok((name, std::fs::read(path).map_err(io)?))
+}
+
 /// The extensions the composer and transcript draw a thumbnail for, and so the
 /// only files [`preview`] will read. The webview decides whether it can
 /// actually draw them; one it can't (HEIC, often) falls back to an icon.
@@ -77,8 +105,9 @@ pub fn preview(path: &Path) -> Result<Vec<u8>> {
     })
 }
 
-/// Write pasted bytes to the state directory and return where they landed.
-/// Each paste gets its own folder, so the file keeps the name it was pasted
+/// Write an attachment's bytes to the state directory and return where they
+/// landed: a paste on the window's side, or any attachment on the Host's. Each
+/// gets its own folder, so the file keeps the name it was pasted
 /// with — which is what the Agent and the transcript will call it.
 pub fn save(name: &str, bytes: &[u8]) -> Result<PathBuf> {
     let dir = paths::attachments_dir()?.join(new_id());
@@ -142,6 +171,32 @@ fn file_name(name: &str) -> String {
 mod tests {
     use super::*;
     use crate::test_util::StateEnv;
+
+    #[test]
+    fn a_file_is_read_whole_for_its_host() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("notes.md");
+        std::fs::write(&path, "# notes\n").unwrap();
+        let (name, bytes) = read_for_host(&path).unwrap();
+        assert_eq!(name, "notes.md");
+        assert_eq!(bytes, b"# notes\n");
+    }
+
+    #[test]
+    fn a_file_over_the_limit_is_refused_by_name_and_size() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("huge.bin");
+        // Sparse: the size is what's checked, so nothing is written.
+        std::fs::File::create(&path)
+            .unwrap()
+            .set_len(MAX_BYTES + 1)
+            .unwrap();
+        let refused = read_for_host(&path).unwrap_err().to_string();
+        assert!(
+            refused.contains("huge.bin") && refused.contains("26 MB"),
+            "{refused}"
+        );
+    }
 
     #[test]
     fn no_attachments_leaves_the_prompt_alone() {

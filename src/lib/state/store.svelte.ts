@@ -17,6 +17,7 @@
 import {
   api,
   events,
+  LOCAL,
   type Agent,
   type AgentEvent,
   type AgentOptions,
@@ -26,7 +27,16 @@ import {
 import { notify } from "$lib/notify/notify";
 import { turnNotice } from "$lib/notify/turnNotice";
 import type { UnlistenFn } from "@tauri-apps/api/event";
+import { hosts } from "./hosts.svelte";
 import { models } from "./models.svelte";
+import {
+  canSpawnOn,
+  checkoutOn,
+  defaultHost,
+  groupKey,
+  groupProjects,
+  type ProjectGroup,
+} from "./projects";
 import { TurnPrefs } from "./prefs.svelte";
 import { Queue } from "./queue.svelte";
 import { Review } from "./review.svelte";
@@ -73,6 +83,24 @@ const RESUME_KEY = "cw:resume-selection";
 
 type Selection = { project: string | null; agent: string | null };
 
+/**
+ * What each other machine's Host last said it had, so its agents stay listed
+ * — dimmed, as last seen — while it's off, and across a restart of this
+ * window. The Host's own disk is the only record; this is just a cache.
+ */
+const HOST_CACHE_KEY = "cw:host-cache";
+
+type HostData = { projects: Project[]; agents: Agent[]; orphans: Agent[]; holding: string[] };
+
+function readHostCache(): Record<string, HostData> {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(HOST_CACHE_KEY) ?? "{}");
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
 function takeResumeSelection(): Selection | null {
   try {
     const raw = sessionStorage.getItem(RESUME_KEY);
@@ -85,7 +113,8 @@ function takeResumeSelection(): Selection | null {
 }
 
 export class AppStore {
-  projects = $state<Project[]>([]);
+  /** Projects as the window shows them: each one's checkouts on every Host. */
+  projects = $state<ProjectGroup[]>([]);
   agents = $state<Agent[]>([]);
   orphans = $state<Agent[]>([]);
   eventsByAgent = $state<Record<string, AgentEvent[]>>({});
@@ -144,11 +173,23 @@ export class AppStore {
   orphanBannerDismissed = $state<boolean>(false);
   error = $state<string | null>(null);
 
-  /** Where this window stands with the Host that owns the agents. */
-  host = $state<HostStatus>({ state: "connecting", error: null });
+  /**
+   * The Host a new agent in the selected project goes to, if the user picked
+   * one on the draft page; null leaves it to `draftHost`'s default.
+   */
+  pickedHost = $state<string | null>(null);
 
-  /** The Host last connected to, to tell a reconnection from a successor. */
-  private hostInstance: string | null = null;
+  /** Each Host last connected to, to tell a reconnection from a successor. */
+  private hostInstances: Record<string, string> = {};
+
+  /** What each Host last listed. See `HOST_CACHE_KEY`. */
+  private perHost: Record<string, HostData> = readHostCache();
+
+  /** Each Host's own project ids, as `host/id`, to the project they're part of. */
+  private groupOf = new Map<string, string>();
+
+  /** Projects an event mentioned before this window had heard of them. */
+  private unheardOf = new Set<string>();
 
   /** Whether `refresh` has ever succeeded. */
   private loaded = false;
@@ -233,6 +274,20 @@ export class AppStore {
       : null,
   );
 
+  selectedProject = $derived(
+    this.selectedProjectId
+      ? this.projects.find((p) => p.id === this.selectedProjectId) ?? null
+      : null,
+  );
+
+  /** Where a new agent in the selected project would start. */
+  draftHost = $derived.by(() => {
+    const group = this.selectedProject;
+    if (!group) return LOCAL;
+    if (this.pickedHost && canSpawnOn(group, this.pickedHost)) return this.pickedHost;
+    return defaultHost(group, this.prefs.hosts[group.id], (h) => hosts.reachable(h), LOCAL);
+  });
+
   eventsForSelected = $derived(
     this.selectedAgentId ? this.eventsByAgent[this.selectedAgentId] ?? [] : [],
   );
@@ -244,7 +299,7 @@ export class AppStore {
    */
   canContinue = $derived.by(() => {
     const a = this.selectedAgent;
-    return !!a && a.state !== "running" && !!a.session_id;
+    return !!a && a.state !== "running" && !!a.session_id && hosts.reachable(a.host);
   });
 
   async start() {
@@ -258,11 +313,19 @@ export class AppStore {
       }),
     );
 
-    this.unlisteners.push(await events.onHostStatus((s) => this.onHostStatus(s)));
-    api.hostStatus().then((s) => this.onHostStatus(s)).catch(() => {});
+    this.unlisteners.push(
+      await events.onHostStatus(({ host, ...status }) => {
+        hosts.update(host, status as HostStatus);
+        this.onHostStatus(host, status as HostStatus);
+      }),
+    );
+    await hosts.load();
+    for (const h of hosts.list) this.onHostStatus(h.id, h.status);
 
     this.unlisteners.push(
-      await events.onAgentStateChanged((agent) => {
+      await events.onAgentStateChanged((raw) => {
+        const agent = this.ingest(raw);
+        this.catchUpOn(agent);
         const before = this.agents.find((a) => a.id === agent.id);
         this.upsert(agent);
         const notice = turnNotice(before, agent, this.agentName(agent));
@@ -324,43 +387,107 @@ export class AppStore {
     return this.refreshing;
   }
 
+  /**
+   * Read everything from every Host that can answer. This machine's Host is
+   * always asked — it starts if it isn't running. Another machine's is asked
+   * only while connected; until then its agents stay as it last listed them.
+   */
   private async load() {
+    this.error = null;
+    const ids = new Set([LOCAL, ...hosts.list.map((h) => h.id)]);
+    await Promise.all(
+      [...ids].map(async (id) => {
+        if (id !== LOCAL && !hosts.reachable(id)) return;
+        try {
+          const [projects, agents, orphans, holding] = await Promise.all([
+            api.listProjects(id),
+            api.listAgents(id),
+            api.startupOrphans(id),
+            api.agentsHoldingWork(id),
+          ]);
+          this.perHost[id] = { projects, agents, orphans, holding };
+          if (id === LOCAL) this.loaded = true;
+        } catch (e) {
+          if (id === LOCAL) this.error = String(e);
+        }
+      }),
+    );
+    // A Host the user removed takes its agents with it.
+    for (const id of Object.keys(this.perHost)) {
+      if (!ids.has(id)) delete this.perHost[id];
+    }
+    this.rebuild();
+    this.applyInitialSelection();
+  }
+
+  /** Put the Hosts' lists together into what the window shows. */
+  private rebuild() {
+    const all = Object.values(this.perHost);
+    this.projects = groupProjects(
+      all.flatMap((d) => d.projects),
+      LOCAL,
+    );
+    this.groupOf = new Map(
+      this.projects.flatMap((g) => g.checkouts.map((c) => [`${c.host}/${c.id}`, g.id])),
+    );
+    this.agents = all.flatMap((d) => d.agents).map((a) => this.ingest(a));
+    this.orphans = all.flatMap((d) => d.orphans).map((a) => this.ingest(a));
+    this.holdingWork = all.flatMap((d) => d.holding);
+    this.saveHostCache();
+  }
+
+  private saveHostCache() {
+    const remote = Object.fromEntries(
+      Object.entries(this.perHost).filter(([id]) => id !== LOCAL),
+    );
     try {
-      this.error = null;
-      [this.projects, this.agents, this.orphans, this.holdingWork] =
-        await Promise.all([
-          api.listProjects(),
-          api.listAgents(),
-          api.startupOrphans(),
-          api.agentsHoldingWork(),
-        ]);
-      this.loaded = true;
-      this.applyInitialSelection();
-    } catch (e) {
-      this.error = String(e);
+      localStorage.setItem(HOST_CACHE_KEY, JSON.stringify(remote));
+    } catch {
+      // Only a cache.
     }
   }
 
   /**
-   * Follow the window's connection to the Host. Coming back to it, or to the
-   * one that replaced it, means re-reading everything: whatever the agents did
-   * in between reached the logs but not this window.
+   * An agent as the window keeps it: routed to its Host, and filed under the
+   * project as the window groups them rather than its Host's own project id.
    */
-  private onHostStatus(status: HostStatus) {
-    const was = this.host;
-    this.host = status;
-    if (status.state !== "connected") return;
-    if (was.state === "connected" && was.instance === status.instance) return;
+  private ingest(a: Agent): Agent {
+    api.route(a);
+    const home = a.home_project_id ?? a.project_id;
+    const group = this.groupOf.get(`${a.host}/${home}`);
+    return { ...a, home_project_id: home, project_id: group ?? `${a.host}/${home}` };
+  }
 
-    const previous = this.hostInstance;
-    this.hostInstance = status.instance;
-    // A new Host adopted its own Orphans; the banner is about those now.
-    if (previous !== null && previous !== status.instance) {
-      this.orphanBannerDismissed = false;
-    }
-    // The first connection is the one `start` is already loading from,
-    // unless that load gave up waiting for it.
-    if (previous !== null || !this.loaded) this.resync();
+  /**
+   * An event about an agent in a project this window hasn't heard of —
+   * registered from another window, or cloned onto a Host for a spawn made
+   * elsewhere — means its lists are behind: read them again, once per
+   * project. (An agent whose project was since removed is filed on its own
+   * for good, and mustn't set off a read every time.)
+   */
+  private catchUpOn(agent: Agent) {
+    const key = `${agent.host}/${agent.home_project_id}`;
+    if (this.groupOf.has(key) || this.unheardOf.has(key) || !this.loaded) return;
+    this.unheardOf.add(key);
+    this.refresh();
+  }
+
+  /**
+   * Follow the window's connection to a Host. Coming back to it, or to the
+   * one that replaced it, means re-reading everything: whatever the agents did
+   * in between reached the logs but not this window. So does reaching another
+   * machine's Host for the first time.
+   */
+  private onHostStatus(id: string, status: HostStatus) {
+    if (status.state !== "connected") return;
+    const previous = this.hostInstances[id];
+    if (previous === status.instance) return;
+    this.hostInstances[id] = status.instance;
+    // A new local Host adopted its own Orphans; the banner is about those now.
+    if (id === LOCAL && previous !== undefined) this.orphanBannerDismissed = false;
+    // The first connection to this machine's Host is the one `start` is
+    // already loading from, unless that load gave up waiting for it.
+    if (id !== LOCAL || previous !== undefined || !this.loaded) this.resync();
   }
 
   private async resync() {
@@ -375,10 +502,22 @@ export class AppStore {
    */
   async loadHoldingWork() {
     try {
-      this.holdingWork = await api.agentsHoldingWork();
+      this.holdingWork = await this.readHoldingWork();
     } catch {
       // Keep the last answer.
     }
+  }
+
+  /** Ask every reachable Host which of its merged agents hold work. */
+  private async readHoldingWork(): Promise<string[]> {
+    const reachable = [...new Set([LOCAL, ...hosts.list.map((h) => h.id)])].filter(
+      (id) => id === LOCAL || hosts.reachable(id),
+    );
+    const answers = await Promise.all(reachable.map((id) => api.agentsHoldingWork(id)));
+    for (const [i, id] of reachable.entries()) {
+      if (this.perHost[id]) this.perHost[id].holding = answers[i];
+    }
+    return Object.values(this.perHost).flatMap((d) => d.holding);
   }
 
   /**
@@ -418,30 +557,54 @@ export class AppStore {
     window.location.reload();
   }
 
+  /** Register a folder on this machine as a project, or as another checkout of one. */
   async addProject(name: string, path: string, setUp: boolean) {
     try {
       const p = await api.addProject(name, path, setUp);
-      this.projects.push(p);
-      this.selectProject(p.id);
+      (this.perHost[LOCAL] ??= { projects: [], agents: [], orphans: [], holding: [] }).projects.push(
+        p,
+      );
+      this.rebuild();
+      this.selectProject(groupKey(p));
     } catch (e) {
       this.error = String(e);
     }
   }
 
+  /**
+   * Unregister a project on every Host that can be reached, and say which
+   * couldn't be — it's still registered there until removed from there too.
+   * Its agents and checkouts stay until they're discarded.
+   */
   async removeProject(id: string) {
-    try {
-      await api.removeProject(id);
-      this.projects = this.projects.filter((p) => p.id !== id);
-      delete this.expandedProjects[id];
-      delete this.openBuckets[id];
-      if (this.selectedProjectId === id) {
-        this.selectedProjectId = null;
-        this.selectAgent(null);
-        const next = this.projects[0]?.id;
-        if (next) this.selectProject(next);
+    const group = this.projects.find((p) => p.id === id);
+    if (!group) return;
+    const missed: string[] = [];
+    for (const c of group.checkouts) {
+      if (c.host !== LOCAL && !hosts.reachable(c.host)) {
+        missed.push(hosts.label(c.host));
+        continue;
       }
-    } catch (e) {
-      this.error = String(e);
+      try {
+        await api.removeProject(c.host, c.id);
+        const data = this.perHost[c.host];
+        if (data) data.projects = data.projects.filter((p) => p.id !== c.id);
+      } catch (e) {
+        missed.push(`${hosts.label(c.host)} (${e})`);
+      }
+    }
+    this.rebuild();
+    if (missed.length) {
+      this.error = `Still registered on ${missed.join(", ")}: remove it there once it can be reached.`;
+    }
+    if (this.projects.some((p) => p.id === id)) return;
+    delete this.expandedProjects[id];
+    delete this.openBuckets[id];
+    if (this.selectedProjectId === id) {
+      this.selectedProjectId = null;
+      this.selectAgent(null);
+      const next = this.projects[0]?.id;
+      if (next) this.selectProject(next);
     }
   }
 
@@ -487,6 +650,7 @@ export class AppStore {
   startDraft(projectId?: string) {
     const project = projectId ?? this.selectedProjectId;
     if (!project) return;
+    if (project !== this.selectedProjectId) this.pickedHost = null;
     this.selectedProjectId = project;
     this.expandedProjects[project] = true;
     this.selectedAgentId = null;
@@ -550,10 +714,12 @@ export class AppStore {
     this.dismissOrphans();
   }
 
-  /** Hide the Orphan banner, and tell the backend so a reload keeps it hidden. */
+  /** Hide the Orphan banner, and tell the Hosts so a reload keeps it hidden. */
   dismissOrphans() {
     this.orphanBannerDismissed = true;
-    api.dismissOrphans().catch(() => {});
+    for (const id of new Set(this.orphans.map((o) => o.host))) {
+      api.dismissOrphans(id).catch(() => {});
+    }
   }
 
   /**
@@ -569,21 +735,28 @@ export class AppStore {
     effort: string,
     mode: string,
   ): Promise<boolean> {
-    if (!this.selectedProjectId || !prompt.trim() || this.spawning) return false;
+    const group = this.selectedProject;
+    if (!group || !prompt.trim() || this.spawning) return false;
+    const host = this.draftHost;
     this.spawning = true;
     this.error = null;
     try {
-      const agent = await api.spawnAgent(
-        this.selectedProjectId,
-        prompt,
-        attachments,
-        model || null,
-        effort || null,
-        mode || null,
-        this.prefs.options,
+      const checkout = checkoutOn(group, host) ?? (await this.cloneOnto(group, host));
+      const agent = this.ingest(
+        await api.spawnAgent(
+          host,
+          checkout.id,
+          prompt,
+          await api.sendAttachments(host, attachments),
+          model || null,
+          effort || null,
+          mode || null,
+          this.prefs.options,
+        ),
       );
       this.prefs.remember(model, effort, mode);
-      this.agents.push(agent);
+      this.prefs.rememberHost(group.id, host);
+      this.upsert(agent);
       this.selectAgent(agent.id);
       return true;
     } catch (e) {
@@ -592,6 +765,22 @@ export class AppStore {
     } finally {
       this.spawning = false;
     }
+  }
+
+  /**
+   * Have `host` clone a project it has no checkout of, so an agent can start
+   * there. Only a project with a remote can be; the rest live on one Host.
+   */
+  private async cloneOnto(group: ProjectGroup, host: string): Promise<Project> {
+    if (!group.remote) {
+      throw new Error(`${group.name} has no remote, so it can only run on ${hosts.label(group.checkouts[0]?.host ?? LOCAL)}`);
+    }
+    const cloned = await api.cloneProject(host, group.name, group.remote);
+    (this.perHost[host] ??= { projects: [], agents: [], orphans: [], holding: [] }).projects.push(
+      cloned,
+    );
+    this.rebuild();
+    return cloned;
   }
 
   /**
@@ -608,6 +797,7 @@ export class AppStore {
     mode: string,
   ) {
     const id = this.selectedAgentId;
+    const on = this.selectedAgent?.host ?? LOCAL;
     if (!id || !prompt.trim() || this.sending) return false;
     this.sending = true;
     this.error = null;
@@ -615,13 +805,13 @@ export class AppStore {
       const agent = await api.sendMessage(
         id,
         prompt,
-        attachments,
+        await api.sendAttachments(on, attachments),
         model || null,
         effort || null,
         mode || null,
       );
       this.prefs.remember(model, effort, mode);
-      this.upsert(agent);
+      this.upsert(this.ingest({ ...agent, host: on }));
       // It's working again, so it's nobody's leftover any more.
       this.orphans = this.orphans.filter((o) => o.id !== id);
       return true;
@@ -633,7 +823,10 @@ export class AppStore {
     }
   }
 
-  /** Take an agent's latest record, adding it if this window hadn't seen it. */
+  /**
+   * Take an agent's latest record, adding it if this window hadn't seen it.
+   * `agent` must already be filed as the window files them (`ingest`).
+   */
   upsert(agent: Agent) {
     const i = this.agents.findIndex((a) => a.id === agent.id);
     if (i >= 0) this.agents[i] = agent;
@@ -714,7 +907,7 @@ export class AppStore {
     if (this.bulkClears[projectId]) return;
     this.bulkClears[projectId] = { done: 0, total: 0 };
     try {
-      this.holdingWork = await api.agentsHoldingWork();
+      this.holdingWork = await this.readHoldingWork();
       const delivered = this.agentsForProject(projectId).filter((a) => this.isDelivered(a));
       this.bulkClears[projectId].total = delivered.length;
       for (const a of delivered) {

@@ -19,6 +19,10 @@ use crate::storage;
 
 /// Merge `agent`'s branch into `target` and record the Merge on it.
 ///
+/// Where `target` tracks a remote, it is caught up with it first and pushed
+/// after (ADR 0011). A push that fails leaves the Merge in place and records
+/// why on the Agent, so it can be pushed again.
+///
 /// When `agent` is a Resolver, the Agent it resolves is recorded as Merged too
 /// — but only if its branch tip really is in `target` now, so a conflicted
 /// Agent that kept working while the Resolver ran is not filed as delivered
@@ -29,6 +33,7 @@ pub async fn merge(
     agent: &mut Agent,
     target: &str,
 ) -> Result<(Merged, Option<Agent>)> {
+    git::catch_up(project_path, target).await?;
     let merged = git::merge(
         project_path,
         &agent.worktree_path,
@@ -37,10 +42,12 @@ pub async fn merge(
         &message(agent, target),
     )
     .await?;
+    let pushed = git::push(project_path, &merged.target).await;
 
     let now = OffsetDateTime::now_utc();
     agent.merged_branch = Some(merged.target.clone());
     agent.merged_at = Some(now);
+    agent.push_error = push_error(pushed);
     storage::save_agent(agent)?;
 
     let mut resolved = None;
@@ -58,6 +65,23 @@ pub async fn merge(
         }
     }
     Ok((merged, resolved))
+}
+
+/// Push the branch `agent` was last Merged into, again: the retry for a Merge
+/// whose push failed. Returns why it still didn't go, if it didn't.
+pub async fn push_again(project_path: &Path, agent: &Agent) -> Result<Option<String>> {
+    let target = agent.merged_branch.as_deref().ok_or_else(|| Error::Git {
+        command: "push".into(),
+        stderr: "this agent hasn't been merged anywhere".into(),
+    })?;
+    Ok(push_error(git::push(project_path, target).await))
+}
+
+fn push_error(pushed: git::Pushed) -> Option<String> {
+    match pushed {
+        git::Pushed::No(why) => Some(why),
+        git::Pushed::Yes | git::Pushed::NoRemote => None,
+    }
 }
 
 /// Git's own merge subject, with the Agent's name under it so the history says

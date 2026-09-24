@@ -28,11 +28,23 @@ const MODE_KEY = "cw:preferred-mode";
 /** The agent options the user set last, on any agent, as JSON. */
 const OPTIONS_KEY = "cw:preferred-options";
 
+/** The Host each project last spawned an agent on, by project, as JSON. */
+const HOSTS_KEY = "cw:preferred-hosts";
+
 function readStored(key: string): string | null {
   try {
     return localStorage.getItem(key);
   } catch {
     return null;
+  }
+}
+
+function readHosts(): Record<string, string> {
+  try {
+    const parsed = JSON.parse(readStored(HOSTS_KEY) ?? "{}");
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
   }
 }
 
@@ -63,6 +75,12 @@ export class TurnPrefs {
    * likes Concise replies shouldn't have to say so for every agent.
    */
   options = $state<AgentOptions>(readOptions());
+
+  /**
+   * The Host each project last spawned on. Remembered per project, like the
+   * Model is overall: which machine a project's work goes to is a habit too.
+   */
+  hosts = $state<Record<string, string>>(readHosts());
 
   constructor(app: AppStore) {
     this.#app = app;
@@ -108,6 +126,16 @@ export class TurnPrefs {
       localStorage.setItem(MODE_KEY, mode);
     } catch {
       // A preference isn't worth failing a turn over.
+    }
+  }
+
+  /** Remember the Host a project just spawned on, for its next Spawn. */
+  rememberHost(projectId: string, host: string) {
+    this.hosts[projectId] = host;
+    try {
+      localStorage.setItem(HOSTS_KEY, JSON.stringify(this.hosts));
+    } catch {
+      // As above.
     }
   }
 

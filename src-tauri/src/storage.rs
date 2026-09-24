@@ -217,6 +217,7 @@ mod tests {
             fail_reason: None,
             merged_branch: None,
             merged_at: None,
+            push_error: None,
             resolves: None,
             queue: vec![],
         }
@@ -238,6 +239,7 @@ mod tests {
                 name: "N".into(),
                 path: "/p".into(),
                 added_at: OffsetDateTime::now_utc(),
+                cloned: false,
             }],
         };
         r.save().unwrap();

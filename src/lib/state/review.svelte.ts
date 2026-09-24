@@ -19,6 +19,9 @@ export class Review {
   committing = $state<boolean>(false);
   merging = $state<boolean>(false);
 
+  /** A retried push of the selected agent's last merge is out. */
+  pushing = $state<boolean>(false);
+
   /**
    * Merges that hit conflicts, by agent: where the merge was headed and which
    * files collided. Held until the user merges again or hands it to a
@@ -132,7 +135,10 @@ export class Review {
       return;
     }
     try {
-      const branches = await api.projectBranches(projectId);
+      const agent = app.selectedAgent;
+      if (!agent) return;
+      // The branches of the checkout the agent was cut from, on its own Host.
+      const branches = await api.projectBranches(agent.host, agent.home_project_id ?? projectId);
       if (app.selectedAgent?.project_id !== projectId) return;
       this.branches = branches;
     } catch {
@@ -170,6 +176,24 @@ export class Review {
       return false;
     } finally {
       if (app.selectedAgentId === id) this.merging = false;
+    }
+  }
+
+  /**
+   * Push the selected agent's last merge again, after its push failed. The
+   * merge itself already stands; this only carries it to the remote.
+   */
+  async pushAgain() {
+    const app = this.#app;
+    const id = app.selectedAgentId;
+    if (!id) return;
+    this.pushing = true;
+    try {
+      app.upsert(await api.pushMerge(id));
+    } catch (e) {
+      if (app.selectedAgentId === id) this.error = String(e);
+    } finally {
+      this.pushing = false;
     }
   }
 
