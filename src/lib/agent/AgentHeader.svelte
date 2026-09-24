@@ -114,8 +114,11 @@
     cursor: pointer;
   }
 
+  /* Equal columns, so the segments stay balanced whatever the labels. */
   .tabs {
-    display: inline-flex;
+    display: inline-grid;
+    grid-auto-flow: column;
+    grid-auto-columns: 1fr;
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
     overflow: hidden;
@@ -131,6 +134,7 @@
     cursor: pointer;
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: var(--space-3);
   }
 
