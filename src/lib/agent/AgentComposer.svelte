@@ -93,7 +93,7 @@
       ? agent.worktree_path
       : store.selectedProject && checkoutOn(store.selectedProject, store.draftHost)?.path,
   );
-  /** Where a new agent could start, when there's more than one machine to choose. */
+  /** Where a new agent could start, when more than one machine is online to choose. */
   const hostOptions = $derived(
     drafting && hosts.several && store.selectedProject
       ? hostChoices(
