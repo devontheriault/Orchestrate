@@ -109,6 +109,12 @@
 /* The rest of the scale is the same in every theme: a palette changes what
    the app is coloured, never how big or how fast it is. */
 :root {
+  /* ----------------------------------------------------------------- BRAND
+     The logo's signal green: the one colour no palette restates, only
+     darkened for a light page. `light-dark()` follows each theme's own
+     `color-scheme`, so the named themes get the right one for free. */
+  --brand-signal: light-dark(#0e9f4e, #3df58a);
+
   /* ------------------------------------------------------------ TYPOGRAPHY */
 
   /* The whole app is set in JetBrains Mono, bundled from
@@ -117,6 +123,8 @@
   --font-mono: "JetBrains Mono Variable", ui-monospace, Menlo, Consolas,
     monospace;
   --font-sans: var(--font-mono);
+  /* The wordmark's face, and nothing else's. Bundled like the mono. */
+  --font-brand: "Geist Variable", Helvetica, sans-serif;
 
   /* The whole UI is sized in rem off this one value, so it scales with the
      window instead of being pinned to a pixel size. */

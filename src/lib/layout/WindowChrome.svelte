@@ -2,6 +2,7 @@
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { isMac, ownsWindowFrame, watchMaximized } from "./platform";
   import { panes } from "./panes.svelte";
+  import Logo from "./Logo.svelte";
   import { store } from "$lib/state/store.svelte";
 
   const win = getCurrentWindow();
@@ -29,10 +30,13 @@
   <!-- The title sits in a segment as wide as the project pane and painted like
        it, so the bar reads as the top of the two panes below rather than as a
        band laid across them. -->
-  <div class="lead" style="width: {panes.cssWidth}" data-tauri-drag-region>
-    <span class="wordmark" data-tauri-drag-region
-      ><b data-tauri-drag-region>DEV</b> Code</span
-    >
+  <div
+    class="lead"
+    class:railed={panes.railed}
+    style="width: {panes.cssWidth}"
+    data-tauri-drag-region
+  >
+    <Logo markOnly={panes.railed} />
   </div>
 
   <!-- The detail pane's heading, in the bar that continues it: the name Claude
@@ -115,6 +119,14 @@
     padding: 0 var(--pad-x);
     background: var(--panel-bg);
     overflow: hidden;
+    /* Sizes the logo: the name, not a caption, so it fills the bar the way a
+       heading would. */
+    font-size: 1.5rem;
+  }
+
+  /* Over the rail, the mark sits where the rail's own rows and "+" start. */
+  .lead.railed {
+    padding-inline: 0.4rem;
   }
 
   /* The traffic lights live in this corner, so the title starts after them. */
@@ -122,23 +134,6 @@
     padding-left: 5rem;
   }
 
-  .wordmark {
-    /* Stands in for the app icon until there is one, so it carries more weight
-       than a caption would. Sized to sit comfortably in the bar. */
-    font-size: var(--text-2xl);
-    line-height: var(--leading-none);
-    font-weight: var(--weight-normal);
-    letter-spacing: 0.01em;
-    color: var(--fg-muted);
-    min-width: 0;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .wordmark b {
-    font-weight: var(--weight-bold);
-  }
 
   .title {
     flex: 1;
