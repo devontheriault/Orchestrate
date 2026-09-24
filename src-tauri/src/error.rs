@@ -60,6 +60,9 @@ pub enum Error {
     #[error("{path} has uncommitted work; commit it before merging")]
     WorktreeDirty { path: PathBuf },
 
+    #[error("{path} has uncommitted work, which another machine can't pick up; commit it first")]
+    HandoffDirty { path: PathBuf },
+
     #[error("the project has uncommitted changes on {branch}; commit or stash them first")]
     ProjectDirty { branch: String },
 

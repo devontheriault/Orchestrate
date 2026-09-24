@@ -117,6 +117,21 @@ export type Agent = {
 };
 
 /**
+ * An agent's committed work, put on the project's remote by its Host for an
+ * agent on another Host to pick up (ADR 0013). Mirrors `handoff::Handoff`.
+ */
+export type Handoff = {
+  /** The branch on the remote the work is waiting on. */
+  branch: string;
+  /** The agent's Base, which the new agent's diff is read against too. */
+  base_commit: string | null;
+  /** What the new agent is told about the work, ahead of the user's prompt. */
+  brief: string;
+  /** The agent's Title, which the new one goes by until Claude names it. */
+  title: string | null;
+};
+
+/**
  * A prompt waiting for its agent to be free, with the picks it was queued
  * under. Null leaves a pick to Claude Code, as it does on a Turn.
  */
@@ -404,6 +419,8 @@ export const api = {
     effort: string | null,
     permissionMode: string | null,
     options: AgentOptions,
+    /** Work handed off from another Host, for the new agent to pick up. */
+    handoff: Handoff | null = null,
   ): Promise<Agent> => ({
     ...(await host<Omit<Agent, "host">>(hostId, "spawn_agent", {
       projectId,
@@ -413,9 +430,15 @@ export const api = {
       effort,
       permissionMode,
       options,
+      handoff,
     })),
     host: hostId,
   }),
+  /**
+   * Put a stopped agent's committed work on the project's remote, for an agent
+   * spawned on another Host to pick up. Refused while it holds uncommitted work.
+   */
+  handOff: (agentId: string) => host<Handoff>(on(agentId), "hand_off", { agentId }),
   /**
    * Say something to an agent. The Host starts a Turn if the agent is free and
    * queues it if not; the returned record says which.

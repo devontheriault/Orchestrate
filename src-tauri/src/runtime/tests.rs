@@ -1475,3 +1475,87 @@ async fn a_queued_message_that_cannot_go_stays_queued_and_says_why() {
     assert!(said.iter().any(|e| e.event["type"] == NOTICE_EVENT_TYPE
         && e.event["text"].as_str().unwrap().contains("wasn't sent")));
 }
+
+#[tokio::test]
+async fn a_handoff_starts_an_agent_on_another_host_from_the_work_it_committed() {
+    let _env = StateEnv::new();
+    // The Project's remote, and a checkout of it on the Host the work is on.
+    let origin = TempDir::new().unwrap();
+    git(
+        origin.path(),
+        &["init", "--quiet", "--bare", "--initial-branch=main"],
+    )
+    .await;
+    let repo = init_repo().await;
+    let o = origin.path().to_str().unwrap();
+    git(repo.path(), &["remote", "add", "origin", o]).await;
+    git(repo.path(), &["push", "--quiet", "-u", "origin", "main"]).await;
+    let project = sample_project(repo.path().to_path_buf());
+
+    let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_ok());
+    let first = rt
+        .spawn(
+            &project,
+            "Build it".into(),
+            vec![],
+            None,
+            None,
+            None,
+            AgentOptions::default(),
+        )
+        .await
+        .unwrap();
+    wait_for_exit(&mut rx).await;
+    std::fs::write(first.worktree_path.join("work.txt"), "work\n").unwrap();
+
+    // Loose work stays behind, so it is refused rather than left out.
+    let first = storage::load_agent(&first.id).unwrap();
+    let refused = handoff::hand_off(&project, &first, "desk").await;
+    assert!(
+        matches!(refused, Err(Error::HandoffDirty { .. })),
+        "{refused:?}"
+    );
+
+    git(&first.worktree_path, &["add", "-A"]).await;
+    git(&first.worktree_path, &["commit", "--quiet", "-m", "work"]).await;
+    let tip = git(&first.worktree_path, &["rev-parse", "HEAD"]).await;
+    let mut first = first;
+    first.title = Some("Build it".into());
+    let handoff = handoff::hand_off(&project, &first, "desk").await.unwrap();
+
+    // Another Host's own clone of the Project.
+    let there = TempDir::new().unwrap();
+    let clone = there.path().join("proj");
+    git::clone(o, &clone).await.unwrap();
+    let elsewhere = sample_project(clone.clone());
+    let next = rt
+        .spawn_handoff(
+            &elsewhere,
+            &handoff,
+            "Now test it".into(),
+            vec![],
+            None,
+            None,
+            None,
+            AgentOptions::default(),
+        )
+        .await
+        .unwrap();
+    wait_for_exit(&mut rx).await;
+
+    assert_eq!(git(&next.worktree_path, &["rev-parse", "HEAD"]).await, tip);
+    assert_eq!(next.base_commit, first.base_commit);
+    assert_eq!(next.title.as_deref(), Some("Build it"));
+    assert!(next
+        .task
+        .prompt
+        .starts_with("You're picking up another agent's work. It ran on desk"));
+    assert!(next.task.prompt.contains("> Build it"));
+    assert!(next
+        .task
+        .prompt
+        .ends_with("What to do next:\n\nNow test it"));
+    // The ref it travelled on is gone once picked up.
+    let refs = git(origin.path(), &["for-each-ref", "--format=%(refname)"]).await;
+    assert!(!refs.contains("handoff"), "{refs}");
+}

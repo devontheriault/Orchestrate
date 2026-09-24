@@ -12,6 +12,7 @@ use super::{Host, Peer};
 use crate::domain::{new_id, Agent, AgentOptions, AgentState, Project, QueuedMessage};
 use crate::error::Error;
 use crate::git::{self, Merged};
+use crate::handoff::{self, Handoff};
 use crate::{merging, paths, storage, worktree};
 
 /// One call, as `{"method": "spawn_agent", "args": {"projectId": ...}}`. The
@@ -59,6 +60,14 @@ pub enum Call {
         effort: Option<String>,
         permission_mode: Option<String>,
         options: AgentOptions,
+        /// Work another Host handed off, for the new Agent to pick up.
+        #[serde(default)]
+        handoff: Option<Handoff>,
+    },
+    /// Put a stopped Agent's committed work on the Project's remote, for an
+    /// Agent Spawned on another Host to pick up (ADR 0013).
+    HandOff {
+        agent_id: String,
     },
     /// Say something to an Agent, on the model, effort and Permission Mode the
     /// caller picked for it. The Host decides whether it starts a Turn now or
@@ -289,24 +298,52 @@ async fn handle(host: &Host, call: Call) -> Result<Value, String> {
             effort,
             permission_mode,
             options,
+            handoff,
         } => {
             let reg = storage::Registry::load().map_err(err)?;
             let project = reg
                 .project(&project_id)
                 .ok_or_else(|| format!("project not found: {project_id}"))?;
-            let agent = runtime
-                .spawn(
-                    project,
-                    prompt,
-                    attachments,
-                    model,
-                    effort,
-                    permission_mode,
-                    options,
-                )
-                .await
-                .map_err(err)?;
-            ok(agent)
+            let agent = match handoff {
+                Some(handoff) => {
+                    runtime
+                        .spawn_handoff(
+                            project,
+                            &handoff,
+                            prompt,
+                            attachments,
+                            model,
+                            effort,
+                            permission_mode,
+                            options,
+                        )
+                        .await
+                }
+                None => {
+                    runtime
+                        .spawn(
+                            project,
+                            prompt,
+                            attachments,
+                            model,
+                            effort,
+                            permission_mode,
+                            options,
+                        )
+                        .await
+                }
+            };
+            ok(agent.map_err(err)?)
+        }
+
+        Call::HandOff { agent_id } => {
+            let agent = storage::load_agent(&agent_id).map_err(err)?;
+            let project = project_of(&agent, "hand off")?;
+            ok(
+                handoff::hand_off(&project, &agent, &super::protocol::machine_name())
+                    .await
+                    .map_err(err)?,
+            )
         }
 
         Call::SendMessage {

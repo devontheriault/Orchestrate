@@ -37,7 +37,7 @@
   import ModelPicker from "$lib/menus/ModelPicker.svelte";
   import ModePicker from "$lib/menus/ModePicker.svelte";
   import HostPicker from "$lib/menus/HostPicker.svelte";
-  import { hostChoices } from "$lib/menus/hostChoices";
+  import { handoffChoices, hostChoices } from "$lib/menus/hostChoices";
   import { hosts } from "$lib/state/hosts.svelte";
   import AgentQueue from "./AgentQueue.svelte";
   import TurnStats from "./TurnStats.svelte";
@@ -103,6 +103,28 @@
           (id) => hosts.problem(id),
         )
       : null,
+  );
+  /**
+   * Where a stopped agent's next prompt could run instead of its own Host: a
+   * new agent elsewhere, from its commits (ADR 0013). Null hides the picker.
+   */
+  const handoffOptions = $derived.by(() => {
+    if (!agent || working || !store.canContinue || !hosts.several) return null;
+    const group = store.projectOf(agent);
+    if (!group) return null;
+    return handoffChoices(
+      agent,
+      group,
+      hosts.list.map((h) => h.id),
+      (id) => hosts.label(id),
+      (id) => hosts.problem(id),
+    );
+  });
+  /** The Host picked for the next prompt to this agent; null is its own. */
+  let handOffTo = $state<string | null>(null);
+  /** Another Host picked: the prompt starts a new agent there instead of replying. */
+  const elsewhere = $derived(
+    agent && handoffOptions && handOffTo && handOffTo !== agent.host ? handOffTo : null,
   );
   /** And on which machine: the agent's, or the one a new agent would start on. */
   const commandsHost = $derived(agent ? agent.host : store.draftHost);
@@ -232,6 +254,8 @@
   function restore(key: string | null) {
     // What a command did was said about the conversation being left.
     notice = null;
+    // Another Host is picked for one prompt, not for good.
+    handOffTo = null;
     const draft = key ? drafts.get(key) : undefined;
     if (draft) {
       ({ prompt, attachments, model, effort, mode } = draft);
@@ -277,7 +301,9 @@
     const key = draftKey;
     const sent = drafting
       ? await store.spawn(prompt, attachments, model, effort, mode)
-      : await store.resume(prompt, attachments, model, effort, mode);
+      : elsewhere
+        ? await store.handOff(elsewhere, prompt, attachments, model, effort, mode)
+        : await store.resume(prompt, attachments, model, effort, mode);
     if (!sent) return;
     // The box may have moved on while it went out — a spawn opens the agent it
     // started — and so set what was sent aside as a draft. Drop that, and
@@ -564,7 +590,9 @@
             ? "Say what to do with the attached files…"
             : drafting
               ? "What should the agent do? Type / for commands"
-              : "Reply to this agent, or type / for commands"}
+              : elsewhere
+                ? `What should the new agent on ${hosts.label(elsewhere)} do next?`
+                : "Reply to this agent, or type / for commands"}
         ></textarea>
         {#if menuOpen && box}
           <SlashMenu
@@ -604,8 +632,8 @@
               class="send"
               onclick={send}
               disabled={inFlight || !prompt.trim()}
-              aria-label={drafting ? "Spawn this agent" : "Send"}
-              title={drafting ? "Spawn this agent (Enter)" : "Send (Enter)"}
+              aria-label={drafting || elsewhere ? "Spawn this agent" : "Send"}
+              title={drafting || elsewhere ? "Spawn this agent (Enter)" : "Send (Enter)"}
             >
               <!-- Arrow up: the send affordance every chat box uses, so it needs
                    no label to read as "send". -->
@@ -658,6 +686,8 @@
             <!-- What the command at the head of the prompt takes, while its
                  arguments are being typed. -->
             /{usage.name} {usage.argument_hint}
+          {:else if elsewhere}
+            Starts a new agent on {hosts.label(elsewhere)} from this one's commits
           {/if}
         </span>
         <div class="picks">
@@ -671,13 +701,22 @@
               compact
               label="Host for the new agent"
             />
+          {:else if handoffOptions && agent}
+            <HostPicker
+              value={handOffTo ?? agent.host}
+              options={handoffOptions}
+              onpick={(h) => (handOffTo = h === agent.host ? null : h)}
+              disabled={inFlight}
+              compact
+              label="Host for this prompt"
+            />
           {/if}
           <ModelPicker
             bind:value={model}
             bind:effort
             disabled={inFlight}
             compact
-            label={drafting ? "Model for the new agent" : "Model for this prompt"}
+            label={drafting || elsewhere ? "Model for the new agent" : "Model for this prompt"}
           />
           <!-- Right of the model: the same decision, one step further out —
                which model runs the turn, and what it's allowed to do. -->
@@ -685,7 +724,7 @@
             bind:value={mode}
             disabled={inFlight}
             compact
-            label={drafting ? "Mode for the new agent" : "Mode for this prompt"}
+            label={drafting || elsewhere ? "Mode for the new agent" : "Mode for this prompt"}
           />
         </div>
       </div>

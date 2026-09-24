@@ -876,3 +876,40 @@ async fn a_host_clones_a_project_it_has_no_checkout_of() {
     let failed = clone("/nonexistent/repo.git", &here.path().join("nope")).await;
     assert!(matches!(failed, Err(Error::Git { .. })));
 }
+
+#[tokio::test]
+async fn a_handoff_travels_through_the_remote_and_leaves_nothing_there() {
+    let r = WithRemote::new().await;
+    stdout(r.path(), &["branch", "cw/agent-x"]).await.unwrap();
+    stdout(r.path(), &["checkout", "--quiet", "cw/agent-x"])
+        .await
+        .unwrap();
+    let work = commit_file(r.path(), "work.txt", "work\n").await;
+    let handoff = handoff_branch("h1");
+
+    publish(r.path(), "cw/agent-x", &handoff).await.unwrap();
+    assert_eq!(rev_parse(r.origin.path(), &handoff).await.unwrap(), work);
+
+    // Another Host, with its own clone.
+    let there = TempDir::new().unwrap();
+    let dest = there.path().join("proj");
+    clone(r.origin.path().to_str().unwrap(), &dest)
+        .await
+        .unwrap();
+    assert_eq!(fetch_published(&dest, &handoff).await.unwrap(), work);
+
+    unpublish(&dest, &handoff).await;
+    assert!(rev_parse(r.origin.path(), &handoff).await.is_err());
+    assert!(rev_parse(&dest, &format!("origin/{handoff}"))
+        .await
+        .is_err());
+    // The Agent's own branch never went anywhere.
+    assert!(rev_parse(r.origin.path(), "cw/agent-x").await.is_err());
+}
+
+#[tokio::test]
+async fn a_handoff_needs_a_remote() {
+    let f = Fixture::new().await;
+    let refused = publish(f.repo.path(), Fixture::BRANCH, &handoff_branch("h")).await;
+    assert!(matches!(refused, Err(Error::Git { .. })));
+}
