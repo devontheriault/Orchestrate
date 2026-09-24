@@ -8,12 +8,20 @@
  * - `review` — the selected Agent's diff, and the Commit / Merge / Resolve
  *   taken from the Diff tab (`review.svelte.ts`).
  * - `queue` — messages lined up behind a working Agent (`queue.svelte.ts`).
- * - `prefs` — the Model, Effort and Mode a new Agent opens on (`prefs.svelte.ts`).
+ * - `prefs` — the Model, Effort, Mode and options a new Agent opens on
+ *   (`prefs.svelte.ts`).
  *
  * The model list is its own store (`models.svelte.ts`): it needs nothing here.
  */
 
-import { api, events, type Agent, type AgentEvent, type Project } from "$lib/api";
+import {
+  api,
+  events,
+  type Agent,
+  type AgentEvent,
+  type AgentOptions,
+  type Project,
+} from "$lib/api";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { models } from "./models.svelte";
 import { TurnPrefs } from "./prefs.svelte";
@@ -263,13 +271,13 @@ export class AppStore {
   }
 
   /**
-   * What to call an agent: the name Claude wrote for it, or — until that
-   * lands, and on agents from before titles existed — the first line of the
-   * prompt it was given.
+   * What to call an agent: the Title the user gave it, else the one Claude
+   * wrote for it, or — until that lands, and on agents from before titles
+   * existed — the first line of the prompt it was given.
    */
   agentName(a: Agent): string {
-    const title = a.title?.trim();
-    if (title) return title;
+    const name = a.user_title?.trim() || a.title?.trim();
+    if (name) return name;
     return a.task.prompt.split("\n")[0] ?? "";
   }
 
@@ -507,6 +515,7 @@ export class AppStore {
         model || null,
         effort || null,
         mode || null,
+        this.prefs.options,
       );
       this.prefs.remember(model, effort, mode);
       this.agents.push(agent);
@@ -578,6 +587,45 @@ export class AppStore {
       // Cleared on the same condition it was set on: if the selection moved
       // mid-flight, the flag no longer speaks for the Agent on screen anyway.
       if (onScreen) this.sending = false;
+    }
+  }
+
+  /**
+   * Name an agent, or with null let Claude's title name it again. Returns
+   * whether it took. Allowed while the agent works, as are the edits below.
+   */
+  renameAgent(id: string, name: string | null): Promise<boolean> {
+    return this.edit(api.renameAgent(id, name));
+  }
+
+  /** Tag an agent with a colour, or untag it with null. */
+  setAgentColor(id: string, color: string | null): Promise<boolean> {
+    return this.edit(api.setAgentColor(id, color));
+  }
+
+  /**
+   * Set how an agent's turns run from its next one on — and, since options
+   * are meant to stick, what the next new agent spawns with.
+   */
+  async setAgentOptions(id: string, options: AgentOptions): Promise<boolean> {
+    const done = await this.edit(api.setAgentOptions(id, options));
+    if (done) this.prefs.rememberOptions(options);
+    return done;
+  }
+
+  /**
+   * Wait out an edit. The record it returns isn't put in place: the backend
+   * announces the edit too, in order with the agent's other changes, and a
+   * reply that lands after a Turn's end was announced would put the agent
+   * back to work on screen.
+   */
+  private async edit(editing: Promise<Agent>): Promise<boolean> {
+    try {
+      await editing;
+      return true;
+    } catch (e) {
+      this.error = String(e);
+      return false;
     }
   }
 

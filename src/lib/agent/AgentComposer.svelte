@@ -25,16 +25,22 @@
   import { open } from "@tauri-apps/plugin-dialog";
   import { store } from "$lib/state/store.svelte";
   import { slash } from "$lib/state/slash.svelte";
-  import { api } from "$lib/api";
-  import { DEFAULT_EFFORT, DEFAULT_MODE, DEFAULT_MODEL } from "$lib/picks";
+  import { api, type AgentOptions } from "$lib/api";
+  import { models } from "$lib/state/models.svelte";
+  import { theme } from "$lib/theme/theme.svelte";
+  import { tagColor } from "$lib/theme/tags";
+  import { usage as usageWindow } from "$lib/usage/usage.svelte";
+  import { advisorLabel, DEFAULT_EFFORT, DEFAULT_MODE, DEFAULT_MODEL } from "$lib/picks";
   import { stepActive } from "$lib/menus/menu";
   import Attachments from "./Attachments.svelte";
   import ModelPicker from "$lib/menus/ModelPicker.svelte";
   import ModePicker from "$lib/menus/ModePicker.svelte";
+  import OptionsPicker from "$lib/menus/OptionsPicker.svelte";
   import AgentQueue from "./AgentQueue.svelte";
   import TurnStats from "./TurnStats.svelte";
   import SlashMenu from "./SlashMenu.svelte";
   import { completeCommand, matchCommands, namesCommand, slashQuery, typedCommand } from "./slash";
+  import { interpret, menuCommands, type Action } from "./appCommands";
 
   const agent = $derived(store.selectedAgent);
   /** No agent yet: this composer is holding the opening prompt for a new one. */
@@ -85,12 +91,41 @@
       : store.projects.find((p) => p.id === store.selectedProjectId)?.path,
   );
   const commands = $derived(slash.for(commandsDir));
+  /** The menu's list: the app's own commands, and what `claude` offers less the rest. */
+  const offered = $derived(menuCommands(commands.list));
   /** What's typed of a command at the head of the prompt, or null. */
   const query = $derived(slashQuery(prompt, caret));
-  const matches = $derived(query === null ? [] : matchCommands(commands.list, query));
+  const matches = $derived(query === null ? [] : matchCommands(offered, query));
   const menuOpen = $derived(query !== null && !inFlight && dismissed !== prompt);
   /** The command being given arguments, so what it takes can be shown. */
-  const usage = $derived(typedCommand(commands.list, prompt));
+  const usage = $derived(typedCommand(offered, prompt));
+
+  /**
+   * What the last command the app answered did, or why it didn't. Said under
+   * the box, where the eye is, until the user types again or it has had time
+   * to be read.
+   */
+  let notice = $state<{ text: string; failed: boolean } | null>(null);
+  let noticeTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function say(text: string, failed = false) {
+    notice = { text, failed };
+    clearTimeout(noticeTimer);
+    noticeTimer = setTimeout(() => (notice = null), 8000);
+  }
+
+  $effect(() => () => clearTimeout(noticeTimer));
+
+  /** The agent's options, or on a blank page the ones it will spawn with. */
+  const options = $derived<AgentOptions>(agent ? agent.options ?? {} : store.prefs.options);
+
+  /** Change some of the options: the agent's straight away, or the new agent's. */
+  async function setOptions(change: AgentOptions): Promise<boolean> {
+    const next = { ...options, ...change };
+    if (agent) return store.setAgentOptions(agent.id, next);
+    store.prefs.rememberOptions(next);
+    return true;
+  }
 
   // Ask afresh each time the menu comes up: skills get added mid-session, and
   // the list shown meanwhile is the last one, so reopening never blanks it.
@@ -109,6 +144,11 @@
 
   function trackCaret() {
     if (textarea) caret = textarea.selectionStart;
+  }
+
+  function onInput() {
+    trackCaret();
+    notice = null;
   }
 
   /** Put `/name ` at the head of the prompt, ready for its arguments. */
@@ -168,6 +208,8 @@
   }
 
   function restore(key: string | null) {
+    // What a command did was said about the conversation being left.
+    notice = null;
     const draft = key ? drafts.get(key) : undefined;
     if (draft) {
       ({ prompt, attachments, model, effort, mode } = draft);
@@ -194,6 +236,14 @@
 
   async function send() {
     if (!prompt.trim() || inFlight) return;
+    // A command the app answers goes nowhere near `claude`, so it works mid-Turn
+    // too. A refusal leaves the text, to be corrected rather than retyped.
+    const action = interpret(prompt, { models: models.list, styles: commands.styles });
+    if (action) {
+      if (action.do !== "refuse") prompt = "";
+      await apply(action);
+      return;
+    }
     // Mid-Turn, the same gesture lines the message up instead: one `claude` per
     // worktree, so it goes out as its own Turn once this one ends.
     if (working) {
@@ -217,6 +267,48 @@
   function clear() {
     prompt = "";
     attachments = [];
+  }
+
+  /**
+   * Do what a command the app answers asks. Model and effort move the pickers,
+   * so they go out with the next prompt as a click on them would; the rest
+   * change the agent, or the app, straight away.
+   */
+  async function apply(action: Action) {
+    switch (action.do) {
+      case "refuse":
+        return say(action.why, true);
+      case "model":
+        model = action.model;
+        return say(`Model: ${models.name(action.model)}, from the next prompt.`);
+      case "effort":
+        effort = action.effort;
+        return say(`Effort: ${action.effort || "default"}, from the next prompt.`);
+      case "advisor":
+        if (await setOptions({ advisor: action.advisor }))
+          say(`Advisor: ${action.advisor ? advisorLabel(action.advisor) : "default"}, from the next prompt.`);
+        return;
+      case "style":
+        if (await setOptions({ output_style: action.style }))
+          say(`Output style: ${action.style ?? "default"}, from the next prompt.`);
+        return;
+      case "theme":
+        if (!action.theme) return theme.openPicker();
+        theme.set(action.theme);
+        return say(`Theme: ${theme.label}.`);
+      case "usage":
+        return usageWindow.show();
+      case "color":
+        if (!agent) return say("Spawn the agent first, then give it a colour.", true);
+        if (await store.setAgentColor(agent.id, action.color))
+          say(action.color ? `Tagged ${action.color}.` : "Colour cleared.");
+        return;
+      case "rename":
+        if (!agent) return say("Spawn the agent first, then name it.", true);
+        if (await store.renameAgent(agent.id, action.name))
+          say(action.name ? `Renamed to “${action.name}”.` : "Back to Claude's name for it.");
+        return;
+    }
   }
 
   /** The box is up and taking input — the only time a file has somewhere to go. */
@@ -329,7 +421,7 @@
     // Enter completes what's highlighted — unless the command is already typed
     // in full, when it goes out as it is: `/compact` then Enter just compacts.
     if (e.key === "Enter" && !e.shiftKey && !e.altKey && matches.length) {
-      if (namesCommand(commands.list, query ?? "")) return false;
+      if (namesCommand(offered, query ?? "")) return false;
       pickCommand(matches[active].name);
       return true;
     }
@@ -373,7 +465,15 @@
       <TurnStats />
     {/if}
     {#if drafting || store.canContinue || working}
-      <div class="box" class:dropping bind:this={box}>
+      <!-- An agent tagged with a colour wears it on its box, as Claude Code's
+           `/color` tints its prompt bar. -->
+      <div
+        class="box"
+        class:dropping
+        class:tagged={!!tagColor(agent?.color)}
+        style:--tag={tagColor(agent?.color)}
+        bind:this={box}
+      >
         {#if attachments.length}
           <div class="files">
             <Attachments paths={attachments} onremove={inFlight ? undefined : detach} />
@@ -384,7 +484,7 @@
           bind:value={prompt}
           onkeydown={onKeydown}
           onkeyup={trackCaret}
-          oninput={trackCaret}
+          oninput={onInput}
           onclick={trackCaret}
           onpaste={onPaste}
           rows="1"
@@ -486,6 +586,8 @@
             Spawning…
           {:else if store.sending}
             Sending…
+          {:else if notice}
+            <span class:failed={notice.failed} role="status">{notice.text}</span>
           {:else if usage?.argument_hint}
             <!-- What the command at the head of the prompt takes, while its
                  arguments are being typed. -->
@@ -507,6 +609,15 @@
             disabled={inFlight}
             compact
             label={drafting ? "Mode for the new agent" : "Mode for this prompt"}
+          />
+          <!-- Last: what it picks is the agent's, not just this prompt's. -->
+          <OptionsPicker
+            {options}
+            styles={commands.styles}
+            onchange={setOptions}
+            onopen={() => commandsDir && slash.load(commandsDir)}
+            disabled={inFlight}
+            label={drafting ? "Options for the new agent" : "Options for this agent"}
           />
         </div>
       </div>
@@ -552,6 +663,15 @@
 
   .box:focus-within {
     border-color: var(--accent);
+  }
+
+  /* Tinted at rest and in full while typed in, so the tag reads either way. */
+  .box.tagged {
+    border-color: color-mix(in srgb, var(--tag) 45%, var(--border));
+  }
+
+  .box.tagged:focus-within {
+    border-color: var(--tag);
   }
 
   .box.dropping {
@@ -719,12 +839,22 @@
     min-width: 0;
   }
 
+  /* The hint gives way to the pickers, never the other way round: a notice
+     long enough to wrap wraps in its own space rather than squeezing them. */
   .hint {
+    flex: 1 1 0;
+    min-width: 0;
     font-size: var(--text-2xs);
     color: var(--fg-muted);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  /* A reason to hold up rather than a hint, and it may run long: it wraps. */
+  .hint .failed {
+    color: var(--danger-text);
+    white-space: normal;
   }
 
   .closed {

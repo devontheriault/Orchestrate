@@ -87,7 +87,15 @@ async fn spawn_run_to_completion() {
     let (rt, mut rx) = AgentRuntime::with_bin(bin);
 
     let agent = rt
-        .spawn(&project, "hello".into(), vec![], None, None, None)
+        .spawn(
+            &project,
+            "hello".into(),
+            vec![],
+            None,
+            None,
+            None,
+            AgentOptions::default(),
+        )
         .await
         .unwrap();
     assert_eq!(agent.state, AgentState::Running);
@@ -134,7 +142,15 @@ async fn spawned_agents_worktree_is_diffable_after_completion() {
     let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_writes_code());
 
     let agent = rt
-        .spawn(&project, "write some code".into(), vec![], None, None, None)
+        .spawn(
+            &project,
+            "write some code".into(),
+            vec![],
+            None,
+            None,
+            None,
+            AgentOptions::default(),
+        )
         .await
         .unwrap();
     let base = agent
@@ -192,7 +208,15 @@ async fn spawn_run_to_failure() {
     let (rt, mut rx) = AgentRuntime::with_bin(bin);
 
     let agent = rt
-        .spawn(&project, "boom".into(), vec![], None, None, None)
+        .spawn(
+            &project,
+            "boom".into(),
+            vec![],
+            None,
+            None,
+            None,
+            AgentOptions::default(),
+        )
         .await
         .unwrap();
     let final_agent = loop {
@@ -224,7 +248,15 @@ async fn stop_preserves_the_worktree_for_review() {
     let (rt, mut rx) = AgentRuntime::with_bin(bin);
 
     let agent = rt
-        .spawn(&project, "hang".into(), vec![], None, None, None)
+        .spawn(
+            &project,
+            "hang".into(),
+            vec![],
+            None,
+            None,
+            None,
+            AgentOptions::default(),
+        )
         .await
         .unwrap();
     assert!(agent.worktree_path.exists());
@@ -282,7 +314,15 @@ async fn resume_continues_the_same_session_and_worktree() {
     let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_recording(&args_log));
 
     let agent = rt
-        .spawn(&project, "first".into(), vec![], None, None, None)
+        .spawn(
+            &project,
+            "first".into(),
+            vec![],
+            None,
+            None,
+            None,
+            AgentOptions::default(),
+        )
         .await
         .unwrap();
     let session = agent.session_id.clone().expect("spawn mints a session");
@@ -353,6 +393,7 @@ async fn the_picked_model_is_passed_to_claude_and_carried_across_turns() {
             Some("sonnet".into()),
             None,
             None,
+            AgentOptions::default(),
         )
         .await
         .unwrap();
@@ -397,7 +438,15 @@ async fn no_picked_model_passes_no_model_flag() {
     let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_recording(&args_log));
 
     let agent = rt
-        .spawn(&project, "hello".into(), vec![], None, None, None)
+        .spawn(
+            &project,
+            "hello".into(),
+            vec![],
+            None,
+            None,
+            None,
+            AgentOptions::default(),
+        )
         .await
         .unwrap();
     assert_eq!(agent.model, None);
@@ -426,7 +475,15 @@ exit 0
     )));
 
     let agent = rt
-        .spawn(&project, "first".into(), vec![], None, None, None)
+        .spawn(
+            &project,
+            "first".into(),
+            vec![],
+            None,
+            None,
+            None,
+            AgentOptions::default(),
+        )
         .await
         .unwrap();
     wait_for_exit(&mut rx).await;
@@ -457,6 +514,7 @@ async fn the_picked_effort_is_passed_to_claude_and_carried_across_turns() {
             None,
             Some("low".into()),
             None,
+            AgentOptions::default(),
         )
         .await
         .unwrap();
@@ -509,6 +567,7 @@ async fn the_picked_mode_is_passed_to_claude_and_carried_across_turns() {
             None,
             None,
             Some("plan".into()),
+            AgentOptions::default(),
         )
         .await
         .unwrap();
@@ -562,7 +621,15 @@ async fn no_picked_mode_bypasses_permissions() {
     let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_recording(&args_log));
 
     let agent = rt
-        .spawn(&project, "hello".into(), vec![], None, None, None)
+        .spawn(
+            &project,
+            "hello".into(),
+            vec![],
+            None,
+            None,
+            None,
+            AgentOptions::default(),
+        )
         .await
         .unwrap();
     assert_eq!(agent.permission_mode, None);
@@ -577,6 +644,117 @@ async fn no_picked_mode_bypasses_permissions() {
 
 /// Attachments reach `claude` as paths it is told about and allowed to read,
 /// and reach the transcript beside the prompt rather than inside it.
+/// Options are the Agent's, not a Turn's: set at Spawn or later, they reach
+/// every Turn after, where the same slash command would last one.
+#[tokio::test]
+async fn options_reach_every_turn_as_settings() {
+    let _env = StateEnv::new();
+    let repo = init_repo().await;
+    let project = sample_project(repo.path().to_path_buf());
+    let args_log = std::env::temp_dir().join(format!("cw-args-{}.txt", new_id()));
+    let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_recording(&args_log));
+
+    let agent = rt
+        .spawn(
+            &project,
+            "first".into(),
+            vec![],
+            None,
+            None,
+            None,
+            AgentOptions::default(),
+        )
+        .await
+        .unwrap();
+    wait_for_exit(&mut rx).await;
+
+    rt.edit(&agent.id, |a| {
+        a.options = AgentOptions {
+            advisor: Some("opus".into()),
+            output_style: None,
+        }
+    })
+    .await
+    .unwrap();
+    // Its own announcement, which reads as an idle Agent: out of the way of
+    // the next wait for a Turn to end.
+    rx.recv().await.unwrap();
+    rt.resume(&agent.id, "second".into(), vec![], None, None, None)
+        .await
+        .unwrap();
+    wait_for_exit(&mut rx).await;
+    rt.resume(&agent.id, "third".into(), vec![], None, None, None)
+        .await
+        .unwrap();
+    wait_for_exit(&mut rx).await;
+
+    let args = std::fs::read_to_string(&args_log).unwrap();
+    let lines: Vec<&str> = args.lines().collect();
+    assert_eq!(lines.len(), 3, "one `claude` per Turn: {args}");
+    assert!(
+        !lines[0].contains("--settings"),
+        "nothing set, nothing passed: {}",
+        lines[0]
+    );
+    for line in &lines[1..] {
+        assert!(
+            line.contains(r#"--settings {"advisorModel":"opus"}"#),
+            "{line}"
+        );
+    }
+}
+
+/// The supervisor saves its own copy of the record when the Turn ends. A
+/// rename, colour or option set while the Agent worked must outlive that save.
+#[tokio::test]
+async fn an_edit_made_while_the_agent_works_survives_the_turn() {
+    let _env = StateEnv::new();
+    let repo = init_repo().await;
+    let project = sample_project(repo.path().to_path_buf());
+    let bin = write_script(
+        r#"#!/bin/sh
+sleep 1
+echo '{"type":"result","status":"complete"}'
+exit 0
+"#,
+    );
+    let (rt, mut rx) = AgentRuntime::with_bin(bin);
+
+    let agent = rt
+        .spawn(
+            &project,
+            "slow".into(),
+            vec![],
+            None,
+            None,
+            None,
+            AgentOptions::default(),
+        )
+        .await
+        .unwrap();
+    let edited = rt
+        .edit(&agent.id, |a| {
+            a.user_title = Some("Mine".into());
+            a.color = Some("green".into());
+            a.options.output_style = Some("Concise".into());
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        edited.state,
+        AgentState::Running,
+        "editing doesn't touch the Turn"
+    );
+
+    let done = wait_for_exit(&mut rx).await;
+    assert_eq!(done.state, AgentState::Completed);
+    for a in [done, storage::load_agent(&agent.id).unwrap()] {
+        assert_eq!(a.user_title.as_deref(), Some("Mine"));
+        assert_eq!(a.color.as_deref(), Some("green"));
+        assert_eq!(a.options.output_style.as_deref(), Some("Concise"));
+    }
+}
+
 #[tokio::test]
 async fn attachments_are_named_to_claude_and_kept_out_of_the_prompt() {
     let _env = StateEnv::new();
@@ -596,6 +774,7 @@ async fn attachments_are_named_to_claude_and_kept_out_of_the_prompt() {
             None,
             None,
             None,
+            AgentOptions::default(),
         )
         .await
         .unwrap();
@@ -643,7 +822,15 @@ async fn resume_is_refused_while_the_agent_is_working() {
     let (rt, _rx) = AgentRuntime::with_bin(fake_claude_hang());
 
     let agent = rt
-        .spawn(&project, "hang".into(), vec![], None, None, None)
+        .spawn(
+            &project,
+            "hang".into(),
+            vec![],
+            None,
+            None,
+            None,
+            AgentOptions::default(),
+        )
         .await
         .unwrap();
     let err = rt
@@ -705,7 +892,15 @@ async fn a_finished_turn_names_the_agent() {
     let (rt, mut rx) = AgentRuntime::with_bin_naming(fake_claude_and_namer(&counter));
 
     let agent = rt
-        .spawn(&project, "do the thing".into(), vec![], None, None, None)
+        .spawn(
+            &project,
+            "do the thing".into(),
+            vec![],
+            None,
+            None,
+            None,
+            AgentOptions::default(),
+        )
         .await
         .unwrap();
     assert_eq!(agent.title, None, "a fresh Agent has no name to show yet");
@@ -729,7 +924,15 @@ async fn the_name_stops_changing_after_the_third_turn() {
     let (rt, mut rx) = AgentRuntime::with_bin_naming(fake_claude_and_namer(&counter));
 
     let agent = rt
-        .spawn(&project, "first".into(), vec![], None, None, None)
+        .spawn(
+            &project,
+            "first".into(),
+            vec![],
+            None,
+            None,
+            None,
+            AgentOptions::default(),
+        )
         .await
         .unwrap();
     let mut name = wait_for_name(&mut rx, None).await.title;
@@ -780,6 +983,7 @@ async fn a_stopped_agent_can_still_be_resumed() {
             None,
             None,
             None,
+            AgentOptions::default(),
         )
         .await
         .unwrap();
@@ -813,7 +1017,15 @@ async fn resume_is_refused_when_the_worktree_is_gone() {
     let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_ok());
 
     let agent = rt
-        .spawn(&project, "hello".into(), vec![], None, None, None)
+        .spawn(
+            &project,
+            "hello".into(),
+            vec![],
+            None,
+            None,
+            None,
+            AgentOptions::default(),
+        )
         .await
         .unwrap();
     wait_for_exit(&mut rx).await;
@@ -848,8 +1060,11 @@ async fn resume_is_refused_for_an_agent_with_no_session() {
         model: None,
         effort: None,
         permission_mode: None,
+        options: Default::default(),
         turns: 1,
         title: None,
+        user_title: None,
+        color: None,
         branch: "cw/agent-old".into(),
         spawned_at: OffsetDateTime::now_utc(),
         turn_started_at: Some(OffsetDateTime::now_utc()),
@@ -889,7 +1104,15 @@ exit 0
     let (rt, mut rx) = AgentRuntime::with_bin(bin);
 
     let agent = rt
-        .spawn(&project, "hello".into(), vec![], None, None, None)
+        .spawn(
+            &project,
+            "hello".into(),
+            vec![],
+            None,
+            None,
+            None,
+            AgentOptions::default(),
+        )
         .await
         .unwrap();
     let minted = agent.session_id.clone().unwrap();
@@ -924,8 +1147,11 @@ async fn adopt_orphans_transitions_running() {
         model: None,
         effort: None,
         permission_mode: None,
+        options: Default::default(),
         turns: 1,
         title: None,
+        user_title: None,
+        color: None,
         branch: "cw/agent-x".into(),
         spawned_at: OffsetDateTime::now_utc(),
         turn_started_at: Some(OffsetDateTime::now_utc()),
@@ -983,9 +1209,17 @@ git commit -qam 'agent: edit shared'
 exit 0
 "#,
     ));
-    rt.spawn(&project, "edit shared".into(), vec![], None, None, None)
-        .await
-        .unwrap();
+    rt.spawn(
+        &project,
+        "edit shared".into(),
+        vec![],
+        None,
+        None,
+        None,
+        AgentOptions::default(),
+    )
+    .await
+    .unwrap();
     let agent = wait_for_exit(&mut rx).await;
     assert_eq!(agent.state, AgentState::Completed);
 

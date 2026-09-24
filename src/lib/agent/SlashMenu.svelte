@@ -4,9 +4,10 @@
    * the commands `claude` would accept, narrowed by what's typed. Unlike the
    * pickers it never takes focus — the user is still typing, so the textarea
    * keeps the keyboard and walks this list for them (see AgentComposer), the
-   * way a combobox does.
+   * way a combobox does. The commands the app answers itself are marked, since
+   * they do the app's version of what `claude` would.
    */
-  import type { SlashCommand } from "$lib/api";
+  import type { MenuCommand } from "./appCommands";
   import { dismissOnMove, menuStyle, placeMenu, type Placement } from "$lib/menus/menu";
   import { blurb } from "./slash";
 
@@ -26,13 +27,13 @@
     id: string;
     /** The input box: the menu sits on it, as wide as it is. */
     anchor: HTMLElement;
-    commands: SlashCommand[];
+    commands: MenuCommand[];
     active: number;
     /** What's typed after the `/`, for saying so when nothing matches. */
     query: string;
     loading: boolean;
     error: string | null;
-    onpick: (c: SlashCommand) => void;
+    onpick: (c: MenuCommand) => void;
     onhover: (i: number) => void;
     onclose: () => void;
   } = $props();
@@ -103,7 +104,11 @@
               <span class="slash-mark">/</span><span class="ns">{ns}</span>{own}
               {#if c.argument_hint}<span class="args">{c.argument_hint}</span>{/if}
             </span>
-            <span class="desc" title={c.description}>{blurb(c)}</span>
+            <span class="desc" title={c.description}>
+              {#if c.app}<span class="app" title="Answered by this app, not sent to Claude"
+                  >app</span
+                >{/if}{blurb(c)}
+            </span>
           </li>
         {/each}
       </ul>
@@ -184,6 +189,19 @@
     text-overflow: ellipsis;
     color: var(--fg-muted);
     font-size: var(--text-xs);
+  }
+
+  /* A small tag rather than a column of its own: most rows are Claude's. */
+  .app {
+    margin-right: var(--space-2);
+    padding: 0 0.3rem;
+    border-radius: var(--radius-xs);
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    color: var(--accent);
+    font-size: var(--text-3xs);
+    font-weight: var(--weight-medium);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
   }
 
   .empty {

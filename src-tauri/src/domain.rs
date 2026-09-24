@@ -114,6 +114,11 @@ pub struct Agent {
     /// before Modes existed ran on.
     #[serde(default)]
     pub permission_mode: Option<String>,
+    /// The rest of how the Agent's Turns run, set for the Agent as a whole
+    /// rather than picked per prompt. Default for Agents recorded before
+    /// options existed.
+    #[serde(default)]
+    pub options: AgentOptions,
     /// How many Turns have been started, including the opening one.
     #[serde(default = "one")]
     pub turns: u32,
@@ -124,6 +129,15 @@ pub struct Agent {
     /// existed — readers fall back to the opening prompt.
     #[serde(default)]
     pub title: Option<String>,
+    /// The Title the user gave the Agent with `/rename`. Wins over `title`
+    /// wherever the Agent is shown, and the namer never touches it, so a Title
+    /// the user chose stays put. `None` until they choose one.
+    #[serde(default)]
+    pub user_title: Option<String>,
+    /// The colour the user tagged the Agent with, by the name the UI has a
+    /// swatch for (`red`, `blue`, …). `None` is untagged.
+    #[serde(default)]
+    pub color: Option<String>,
     #[serde(with = "time::serde::rfc3339")]
     pub spawned_at: OffsetDateTime,
     /// When the current — or, once it has exited, the last — Turn began. Set at
@@ -153,6 +167,49 @@ pub struct Agent {
     /// Merge was headed for. `None` on every other Agent.
     #[serde(default)]
     pub resolves: Option<Resolution>,
+}
+
+impl Agent {
+    /// Take the fields the user may change at any moment — their Title, Tag
+    /// and options — from `edited`. A Turn's supervisor holds its own copy of the
+    /// record from before the Turn began, and writing that back as it stood
+    /// would undo whatever the user changed while the Agent worked.
+    pub fn keep_edits(&mut self, edited: &Agent) {
+        self.user_title = edited.user_title.clone();
+        self.color = edited.color.clone();
+        self.options = edited.options.clone();
+    }
+}
+
+/// How an Agent's Turns run beyond the Model, Effort and Mode picked with each
+/// prompt: Claude Code settings the user sets once for the Agent. Typed as a
+/// slash command they would last one Turn, since every Turn is a new `claude`;
+/// kept here, they are handed to each Turn in turn. `None` leaves a setting to
+/// Claude Code's own configuration.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentOptions {
+    /// The model Claude consults at key moments, as `/advisor` takes it:
+    /// `fable`, `opus`, `sonnet`, or `off`.
+    #[serde(default)]
+    pub advisor: Option<String>,
+    /// The output style, by the name Claude Code lists it under, e.g. `Concise`.
+    #[serde(default)]
+    pub output_style: Option<String>,
+}
+
+impl AgentOptions {
+    /// These options as the JSON `claude --settings` layers over the user's
+    /// own settings, or `None` when there is nothing to layer.
+    pub fn settings(&self) -> Option<String> {
+        let mut settings = serde_json::Map::new();
+        if let Some(advisor) = &self.advisor {
+            settings.insert("advisorModel".into(), advisor.clone().into());
+        }
+        if let Some(style) = &self.output_style {
+            settings.insert("outputStyle".into(), style.clone().into());
+        }
+        (!settings.is_empty()).then(|| serde_json::Value::Object(settings).to_string())
+    }
 }
 
 /// What a Resolver was spawned to finish: a Merge of another Agent's branch
@@ -228,8 +285,14 @@ mod tests {
                 model: Some("opus".into()),
                 effort: Some("high".into()),
                 permission_mode: Some("plan".into()),
+                options: AgentOptions {
+                    advisor: Some("opus".into()),
+                    output_style: Some("Concise".into()),
+                },
                 turns: 3,
                 title: Some("Wire up the thing".into()),
+                user_title: Some("My thing".into()),
+                color: Some("green".into()),
                 spawned_at: datetime!(2026-09-20 14:00:00 UTC),
                 turn_started_at: Some(datetime!(2026-09-20 14:02:00 UTC)),
                 exited_at: Some(datetime!(2026-09-20 14:05:00 UTC)),
@@ -302,6 +365,31 @@ mod tests {
             "no recorded turn start means readers fall back to spawned_at"
         );
         assert_eq!(a.resolves, None, "an old agent resolves nothing");
+        assert_eq!(a.user_title, None, "an old agent has only Claude's title");
+        assert_eq!(a.color, None);
+        assert_eq!(a.options, AgentOptions::default());
+    }
+
+    #[test]
+    fn options_become_settings_only_for_what_is_set() {
+        assert_eq!(AgentOptions::default().settings(), None);
+        let advisor = AgentOptions {
+            advisor: Some("opus".into()),
+            output_style: None,
+        };
+        assert_eq!(
+            advisor.settings().as_deref(),
+            Some(r#"{"advisorModel":"opus"}"#)
+        );
+        let both = AgentOptions {
+            advisor: Some("off".into()),
+            output_style: Some("Concise".into()),
+        };
+        let v: serde_json::Value = serde_json::from_str(&both.settings().unwrap()).unwrap();
+        assert_eq!(
+            v,
+            serde_json::json!({"advisorModel": "off", "outputStyle": "Concise"})
+        );
     }
 
     /// Meta files written while the action was called Land carry `landed_*`.
