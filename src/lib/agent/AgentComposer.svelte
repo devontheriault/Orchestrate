@@ -166,11 +166,16 @@
   // few pixels of slack keeps the last line from being clipped. Once it's
   // scrolling, typing at the end keeps the line being typed on exactly where it
   // sat before the ceiling — the browser alone would scroll it only as far as
-  // the text, leaving it jammed against the bottom edge.
+  // the text, leaving it jammed against the bottom edge. The box holds its
+  // height while the textarea collapses to be measured: WebKit clamps the
+  // transcript's scroll to the momentarily taller pane, so every keystroke
+  // would otherwise nudge a transcript sitting at the bottom up off it.
   function fit() {
     if (!textarea) return;
+    if (box) box.style.height = `${box.offsetHeight}px`;
     textarea.style.height = "auto";
     textarea.style.height = `${textarea.scrollHeight + 4}px`;
+    if (box) box.style.height = "";
     if (textarea.selectionEnd === textarea.value.length) {
       textarea.scrollTop = textarea.scrollHeight;
     }
