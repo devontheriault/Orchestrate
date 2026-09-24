@@ -42,6 +42,28 @@ pub fn attachments_dir() -> Result<PathBuf> {
     Ok(state_dir()?.join("attachments"))
 }
 
+/// The socket this state directory's Host listens on. Windows find their
+/// Host here, so a state directory and its Host are always a pair.
+pub fn host_socket() -> Result<PathBuf> {
+    Ok(state_dir()?.join("host.sock"))
+}
+
+/// Held locked by the running Host, so a second one for the same state
+/// directory knows to leave.
+pub fn host_lock() -> Result<PathBuf> {
+    Ok(state_dir()?.join("host.lock"))
+}
+
+/// Where a Host started without systemd writes what it has to say.
+pub fn host_log() -> Result<PathBuf> {
+    Ok(state_dir()?.join("host.log"))
+}
+
+/// The Agents a stopping Host Orphaned, left for the next Host to report.
+pub fn orphans_file() -> Result<PathBuf> {
+    Ok(state_dir()?.join("orphans.json"))
+}
+
 pub fn agent_log_path(agent_id: &str) -> Result<PathBuf> {
     Ok(logs_dir()?.join(format!("{agent_id}.jsonl")))
 }

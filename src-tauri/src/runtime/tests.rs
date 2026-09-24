@@ -1,31 +1,8 @@
 use super::*;
 use crate::domain::AgentEvent;
-use crate::test_util::StateEnv;
+use crate::test_util::{init_repo, write_script, StateEnv};
 use tempfile::TempDir;
 use tokio::process::Command;
-
-async fn init_repo() -> TempDir {
-    let dir = TempDir::new().unwrap();
-    for args in [
-        vec!["init", "--initial-branch=main"],
-        vec!["config", "user.email", "t@t.t"],
-        vec!["config", "user.name", "t"],
-        // Don't let the developer's global config break the fixture.
-        vec!["config", "commit.gpgsign", "false"],
-        vec!["config", "core.hooksPath", "/dev/null"],
-        vec!["commit", "--allow-empty", "-m", "init"],
-    ] {
-        let out = Command::new("git")
-            .arg("-C")
-            .arg(dir.path())
-            .args(&args)
-            .output()
-            .await
-            .unwrap();
-        assert!(out.status.success());
-    }
-    dir
-}
 
 fn sample_project(path: std::path::PathBuf) -> Project {
     Project {
@@ -64,18 +41,6 @@ trap 'echo "ignored TERM"' TERM
 while : ; do sleep 1; done
 "#;
     write_script(script)
-}
-
-fn write_script(contents: &str) -> String {
-    use std::io::Write;
-    use std::os::unix::fs::PermissionsExt;
-    let tmp = std::env::temp_dir().join(format!("cw-fake-claude-{}.sh", new_id()));
-    let mut f = std::fs::File::create(&tmp).unwrap();
-    f.write_all(contents.as_bytes()).unwrap();
-    let mut perms = std::fs::metadata(&tmp).unwrap().permissions();
-    perms.set_mode(0o755);
-    std::fs::set_permissions(&tmp, perms).unwrap();
-    tmp.to_string_lossy().into_owned()
 }
 
 #[tokio::test]
@@ -1132,7 +1097,7 @@ exit 0
 #[tokio::test]
 async fn adopt_orphans_transitions_running() {
     let _env = StateEnv::new();
-    // Seed a Running agent on disk (as if it were running when the app died).
+    // Seed a Running agent on disk (as if it were running when its Host died).
     let a = Agent {
         id: new_id(),
         project_id: new_id(),
@@ -1338,4 +1303,46 @@ async fn a_resolver_that_did_not_merge_leaves_the_project_alone() {
             && e.event["text"].as_str().unwrap().starts_with("Not merged")),
         "{log:?}"
     );
+}
+
+#[tokio::test]
+async fn a_host_closes_only_when_idle_and_then_takes_no_turns() {
+    let _env = StateEnv::new();
+    let repo = init_repo().await;
+    let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_hang());
+    let project = sample_project(repo.path().to_path_buf());
+    let agent = rt
+        .spawn(
+            &project,
+            "go".into(),
+            vec![],
+            None,
+            None,
+            None,
+            AgentOptions::default(),
+        )
+        .await
+        .unwrap();
+
+    assert!(!rt.close_if_idle().await, "closed with a Turn running");
+    rt.stop(&agent.id).await.unwrap();
+    wait_for_exit(&mut rx).await;
+    assert!(rt.close_if_idle().await);
+
+    let spawned = rt
+        .spawn(
+            &project,
+            "again".into(),
+            vec![],
+            None,
+            None,
+            None,
+            AgentOptions::default(),
+        )
+        .await;
+    assert!(matches!(spawned, Err(Error::HostClosing)));
+    let resumed = rt
+        .resume(&agent.id, "more".into(), vec![], None, None, None)
+        .await;
+    assert!(matches!(resumed, Err(Error::HostClosing)));
 }

@@ -3,6 +3,7 @@ pub mod commands;
 pub mod domain;
 pub mod error;
 pub mod git;
+pub mod host;
 pub mod merging;
 pub mod models;
 pub mod paths;
@@ -16,20 +17,11 @@ pub mod worktree;
 #[cfg(test)]
 pub(crate) mod test_util;
 
-use serde::Serialize;
+use std::sync::Arc;
+
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
-use commands::AppState;
-use domain::{Agent, AgentEvent};
-use runtime::{AgentRuntime, RuntimeEvent};
-
-/// Payload for the `agent-event` Tauri event: one stream-json line from a
-/// running Agent, timestamped and tagged with which Agent produced it.
-#[derive(Serialize, Clone)]
-struct AgentEventPayload {
-    agent_id: String,
-    event: AgentEvent,
-}
+use host::client::HostLink;
 
 /// Build the one window the app has.
 ///
@@ -112,17 +104,17 @@ fn apply_linux_webkit_workarounds() {
     }
 }
 
+/// The app's entry point: this machine's Host with `--host`, a window
+/// otherwise. The window owns no Agents; it asks the Host for everything, and
+/// closing it leaves every Agent working (ADR 0009).
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    if std::env::args().nth(1).as_deref() == Some("--host") {
+        return host::run();
+    }
+
     #[cfg(target_os = "linux")]
     apply_linux_webkit_workarounds();
-
-    let startup_orphans = runtime::adopt_orphans_on_launch()
-        .unwrap_or_default()
-        .into_iter()
-        .map(|a| a.id)
-        .collect();
-    let (rt, rx) = AgentRuntime::new();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -131,66 +123,23 @@ pub fn run() {
             build_main_window(app.handle())?;
 
             let handle = app.handle().clone();
-            let mut rx = rx;
-            tauri::async_runtime::spawn(async move {
-                while let Some(ev) = rx.recv().await {
-                    match ev {
-                        RuntimeEvent::AgentEvent { agent_id, event } => {
-                            let _ =
-                                handle.emit("agent-event", AgentEventPayload { agent_id, event });
-                        }
-                        RuntimeEvent::StateChanged { agent, .. } => {
-                            let _ = handle.emit::<Agent>("agent-state-changed", *agent);
-                        }
-                    }
-                }
-            });
+            let link = HostLink::new(
+                paths::host_socket()?,
+                Arc::new(host::service::start),
+                Arc::new(move |name: &str, payload| {
+                    let _ = handle.emit(name, payload);
+                }),
+            );
+            tauri::async_runtime::spawn(link.clone().run());
+            app.manage(link);
             Ok(())
         })
-        .manage(AppState {
-            runtime: rt,
-            startup_orphans: std::sync::Mutex::new(startup_orphans),
-        })
-        .on_window_event(|window, event| {
-            if let tauri::WindowEvent::CloseRequested { .. } = event {
-                // Best-effort: mark live Agents as Orphaned before the process
-                // dies. If this race is lost, adopt_orphans_on_launch catches
-                // them on the next start.
-                let state = window.state::<AppState>();
-                let runtime = state.runtime.clone();
-                tauri::async_runtime::block_on(async move {
-                    runtime.shutdown().await;
-                });
-            }
-        })
         .invoke_handler(tauri::generate_handler![
-            commands::list_projects,
-            commands::project_needs_setup,
-            commands::add_project,
-            commands::remove_project,
-            commands::list_agents,
-            commands::spawn_agent,
-            commands::resume_agent,
-            commands::rename_agent,
-            commands::set_agent_color,
-            commands::set_agent_options,
+            commands::host,
+            commands::host_status,
             commands::save_attachment,
             commands::save_clipboard_image,
             commands::attachment_preview,
-            commands::stop_agent,
-            commands::discard_agent,
-            commands::agent_events,
-            commands::agent_diff,
-            commands::agent_commit,
-            commands::agent_merge,
-            commands::resolve_conflict,
-            commands::agents_holding_work,
-            commands::project_branches,
-            commands::startup_orphans,
-            commands::dismiss_orphans,
-            commands::list_models,
-            commands::slash_commands,
-            commands::usage_summary,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

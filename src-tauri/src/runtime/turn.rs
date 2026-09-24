@@ -166,7 +166,15 @@ pub(super) async fn supervise(
                 let _ = child.kill().await;
                 let _ = child.wait().await;
             }
-            Outcome::Stopped
+            // `shutdown` marks the record Orphaned before it cancels; a user's
+            // Stop leaves it Running.
+            let orphaned = storage::load_agent(&agent.id)
+                .is_ok_and(|on_disk| on_disk.state == AgentState::Orphaned);
+            if orphaned {
+                Outcome::Orphaned
+            } else {
+                Outcome::Stopped
+            }
         }
         exit = child.wait() => Outcome::Exited(exit),
     };
@@ -201,7 +209,9 @@ pub(super) async fn supervise(
         emitter.announce(&original);
     }
 
-    if let Some(namer) = namer.filter(|_| title::wanted(agent.turns)) {
+    // Not for an Orphan: its Host is on its way out, and the namer with it.
+    let naming = agent.state != AgentState::Orphaned && title::wanted(agent.turns);
+    if let Some(namer) = namer.filter(|_| naming) {
         let answer = answer.lock().unwrap().clone();
         // Detached: naming costs a `claude` call of its own, and the Turn's
         // result should reach the UI without waiting on it.
@@ -217,6 +227,10 @@ fn settle(agent: &mut Agent, outcome: Outcome, stderr: &str) {
             // The Worktree stays: a Stopped Turn may have left work behind, and
             // the Agent can be Resumed to redirect it. Discard is explicit.
             agent.state = AgentState::Stopped;
+        }
+        Outcome::Orphaned => {
+            // Its Host is stopping; the next one to start offers it back.
+            agent.state = AgentState::Orphaned;
         }
         Outcome::Exited(Ok(status)) => {
             agent.exit_code = status.code();
@@ -297,6 +311,7 @@ async fn name_agent(namer: Arc<String>, agent: Agent, answer: String, emitter: E
 
 enum Outcome {
     Stopped,
+    Orphaned,
     Exited(std::io::Result<std::process::ExitStatus>),
 }
 

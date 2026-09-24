@@ -10,6 +10,7 @@ mod tests;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -57,6 +58,10 @@ pub struct AgentRuntime {
     /// Whether a finished Turn spends a second `claude` call naming the Agent.
     /// Off in most tests, so the fake `claude` sees one invocation per Turn.
     naming: bool,
+    /// Set once the Host has decided to exit (see [`Self::close_if_idle`]).
+    /// Read and written only under the live-map lock, so no Turn can start
+    /// between the check that the Host is idle and the exit that follows.
+    closed: Arc<AtomicBool>,
 }
 
 impl AgentRuntime {
@@ -68,6 +73,7 @@ impl AgentRuntime {
             emitter: Emitter::new(tx),
             claude_bin: Arc::new("claude".to_string()),
             naming: true,
+            closed: Arc::default(),
         };
         (rt, rx)
     }
@@ -165,6 +171,11 @@ impl AgentRuntime {
     /// Cut the new Agent's Worktree from `from`, put its record on disk, and
     /// start its first Turn on its Task.
     async fn start(&self, project: &Project, from: &str, agent: Agent) -> Result<Agent> {
+        // Checked again under the lock in `launch`; this only saves cutting a
+        // Worktree for a Turn that could not start.
+        if self.closed.load(Ordering::SeqCst) {
+            return Err(Error::HostClosing);
+        }
         worktree::create(&project.path, &agent.worktree_path, &agent.branch, from).await?;
         storage::save_agent(&agent)?;
         let Task {
@@ -204,6 +215,9 @@ impl AgentRuntime {
         // same Agent at once must not both get past the check and put two
         // `claude`s to work in one Worktree.
         let mut live = self.inner.write().await;
+        if self.closed.load(Ordering::SeqCst) {
+            return Err(Error::HostClosing);
+        }
         if live.contains_key(agent_id) {
             return Err(Error::AgentBusy(agent_id.to_string()));
         }
@@ -277,17 +291,26 @@ impl AgentRuntime {
         how: Continuity,
         live: &mut Live<'_>,
     ) -> Result<Agent> {
+        let fail = |why: String| {
+            let mut failed = agent.clone();
+            failed.state = AgentState::Failed;
+            failed.exited_at = Some(OffsetDateTime::now_utc());
+            failed.fail_reason = Some(why);
+            let _ = storage::save_agent(&failed);
+            self.emitter.announce(&failed);
+        };
+        // A Spawn that got past the early check in `start` as the Host closed.
+        if self.closed.load(Ordering::SeqCst) {
+            fail(Error::HostClosing.to_string());
+            return Err(Error::HostClosing);
+        }
+
         let child = turn::command(&self.claude_bin, &agent, prompt, attached, how).spawn();
 
         let child = match child {
             Ok(child) => child,
             Err(source) => {
-                let mut failed = agent.clone();
-                failed.state = AgentState::Failed;
-                failed.exited_at = Some(OffsetDateTime::now_utc());
-                failed.fail_reason = Some(format!("could not start `claude`: {source}"));
-                let _ = storage::save_agent(&failed);
-                self.emitter.announce(&failed);
+                fail(format!("could not start `claude`: {source}"));
                 return Err(Error::Io {
                     path: agent.worktree_path.clone(),
                     source,
@@ -342,9 +365,22 @@ impl AgentRuntime {
             .collect()
     }
 
+    /// Stop taking Turns if none is running, and say whether that happened.
+    /// How a Host that is waiting to be updated picks its moment to exit: from
+    /// a `true` on, every Spawn and Resume is refused with
+    /// [`Error::HostClosing`], so nothing can start in the gap before it does.
+    pub async fn close_if_idle(&self) -> bool {
+        let live = self.inner.write().await;
+        if !live.is_empty() {
+            return false;
+        }
+        self.closed.store(true, Ordering::SeqCst);
+        true
+    }
+
     /// Signal every live Agent to stop and wait (bounded) for their
-    /// supervisors to finish. Called on app close. Worktrees are *not* discarded
-    /// on shutdown — the next launch surfaces them as Orphaned via
+    /// supervisors to finish. Called when the Host stops. Worktrees are *not* discarded
+    /// on shutdown — the next Host to start surfaces them as Orphaned via
     /// `adopt_orphans_on_launch`.
     pub async fn shutdown(&self) {
         let handles: Vec<AgentHandle> = {
@@ -358,6 +394,12 @@ impl AgentRuntime {
             agent.state = AgentState::Orphaned;
             agent.exited_at = Some(OffsetDateTime::now_utc());
             let _ = storage::save_agent(&agent);
+        }
+        // Already Orphaned on disk, so the next Host's scan for Agents left
+        // Running won't find them; it reads these instead.
+        if !handles.is_empty() {
+            let ids: Vec<String> = handles.iter().map(|h| h.agent.id.clone()).collect();
+            let _ = storage::save_orphan_ids(&ids);
         }
         // Kill the processes.
         for h in &handles {
@@ -415,14 +457,17 @@ fn new_agent(
     })
 }
 
-/// Scan every meta file on disk for Agents still marked `Running` and
-/// transition them to `Orphaned` with `exited_at = now`. Called once at
-/// startup. Returns the newly-adopted Orphans.
+/// The Agents the last Host left mid-Turn, for a starting Host to report:
+/// those it Orphaned as it stopped, and — when it died without stopping —
+/// those still marked `Running`, which are Orphaned here with `exited_at = now`.
 pub fn adopt_orphans_on_launch() -> Result<Vec<Agent>> {
+    let left = storage::take_orphan_ids()?;
     let all = storage::list_agents()?;
     let mut adopted = Vec::new();
     for mut agent in all {
-        if agent.state == AgentState::Running {
+        if agent.state == AgentState::Orphaned && left.contains(&agent.id) {
+            adopted.push(agent);
+        } else if agent.state == AgentState::Running {
             agent.state = AgentState::Orphaned;
             if agent.exited_at.is_none() {
                 agent.exited_at = Some(OffsetDateTime::now_utc());
