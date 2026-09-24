@@ -63,11 +63,11 @@
       </button>
       <div class="actions">
         {#if !running}
-          <!-- The queue only sends itself after a Turn ends cleanly, so a
+          <!-- The Host only sends the queue after a Turn Completes, so a
                Stopped or Failed agent's queue waits for the user to say go. -->
           <button
             class="act"
-            onclick={() => store.queue.drain(agentId)}
+            onclick={() => store.queue.sendNext(agentId)}
             disabled={store.sending}
           >
             Send next
@@ -84,8 +84,8 @@
     {#if expanded}
       {#if !running}
         <p class="note">
-          Held — the last reply didn't finish on its own. Send the next one when
-          you're ready.
+          Held — the queue only sends itself when a reply finishes on its own.
+          Send the next one when you're ready.
         </p>
       {/if}
       <ul>
@@ -103,8 +103,8 @@
             {/if}
             <!-- Only when it isn't the usual one: a queued message that will
                  plan rather than act should say so before it goes out. -->
-            {#if message.mode && message.mode !== DEFAULT_MODE}
-              <span class="badge mode">{modeLabel(message.mode)}</span>
+            {#if message.permission_mode && message.permission_mode !== DEFAULT_MODE}
+              <span class="badge mode">{modeLabel(message.permission_mode)}</span>
             {/if}
             <button
               class="del"

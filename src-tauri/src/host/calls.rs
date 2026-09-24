@@ -9,7 +9,7 @@ use serde_json::Value;
 use time::OffsetDateTime;
 
 use super::Host;
-use crate::domain::{new_id, Agent, AgentOptions, AgentState, Project};
+use crate::domain::{new_id, Agent, AgentOptions, AgentState, Project, QueuedMessage};
 use crate::error::Error;
 use crate::git::{self, Merged};
 use crate::{merging, paths, storage, worktree};
@@ -53,15 +53,39 @@ pub enum Call {
         permission_mode: Option<String>,
         options: AgentOptions,
     },
-    /// Continue a conversation with an Agent that has stopped working, on the
-    /// model, effort and Permission Mode the caller names for this Turn.
-    ResumeAgent {
+    /// Say something to an Agent, on the model, effort and Permission Mode the
+    /// caller picked for it. The Host decides whether it starts a Turn now or
+    /// waits in the Agent's Queue; the window never has to.
+    SendMessage {
         agent_id: String,
         prompt: String,
         attachments: Vec<PathBuf>,
         model: Option<String>,
         effort: Option<String>,
         permission_mode: Option<String>,
+    },
+    /// Send the head of a Queue that a Stop or a Fail held.
+    SendNext {
+        agent_id: String,
+    },
+    /// Add messages to the end of an Agent's Queue without sending any. How a
+    /// window hands over the Queues it kept itself before the Host kept them.
+    QueueMessages {
+        agent_id: String,
+        messages: Vec<QueuedMessage>,
+    },
+    RemoveQueued {
+        agent_id: String,
+        message_id: String,
+    },
+    ClearQueue {
+        agent_id: String,
+    },
+    /// Whether this Host keeps running while its user is logged out: `null`
+    /// when it isn't a service that could.
+    KeepRunning {},
+    SetKeepRunning {
+        on: bool,
     },
     /// Give an Agent the user's own Title, or with `None` hand the naming back
     /// to Claude. Allowed while it works, like the other edits.
@@ -217,7 +241,7 @@ async fn handle(host: &Host, call: Call) -> Result<Value, String> {
             ok(agent)
         }
 
-        Call::ResumeAgent {
+        Call::SendMessage {
             agent_id,
             prompt,
             attachments,
@@ -225,18 +249,47 @@ async fn handle(host: &Host, call: Call) -> Result<Value, String> {
             effort,
             permission_mode,
         } => {
-            let agent = runtime
-                .resume(
-                    &agent_id,
-                    prompt,
-                    attachments,
-                    model,
-                    effort,
-                    permission_mode,
-                )
+            let message = QueuedMessage {
+                id: new_id(),
+                prompt: prompt.trim().to_string(),
+                attachments,
+                model,
+                effort,
+                permission_mode,
+            };
+            ok(runtime.send(&agent_id, message).await.map_err(err)?)
+        }
+
+        Call::SendNext { agent_id } => ok(runtime.send_next(&agent_id).await.map_err(err)?),
+
+        Call::QueueMessages { agent_id, messages } => ok(runtime
+            .edit(&agent_id, |a| a.queue.extend(messages))
+            .await
+            .map_err(err)?),
+
+        Call::RemoveQueued {
+            agent_id,
+            message_id,
+        } => ok(runtime
+            .edit(&agent_id, |a| a.queue.retain(|m| m.id != message_id))
+            .await
+            .map_err(err)?),
+
+        Call::ClearQueue { agent_id } => ok(runtime
+            .edit(&agent_id, |a| a.queue.clear())
+            .await
+            .map_err(err)?),
+
+        Call::KeepRunning {} => ok(tokio::task::spawn_blocking(super::service::keeps_running)
+            .await
+            .map_err(err)?),
+
+        Call::SetKeepRunning { on } => {
+            tokio::task::spawn_blocking(move || super::service::set_keeps_running(on))
                 .await
-                .map_err(err)?;
-            ok(agent)
+                .map_err(err)?
+                .map_err(|e| format!("could not change it: {e}"))?;
+            ok(())
         }
 
         Call::RenameAgent { agent_id, name } => {

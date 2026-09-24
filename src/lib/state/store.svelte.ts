@@ -23,6 +23,8 @@ import {
   type HostStatus,
   type Project,
 } from "$lib/api";
+import { notify } from "$lib/notify/notify";
+import { turnNotice } from "$lib/notify/turnNotice";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { models } from "./models.svelte";
 import { TurnPrefs } from "./prefs.svelte";
@@ -151,6 +153,10 @@ export class AppStore {
   /** Whether `refresh` has ever succeeded. */
   private loaded = false;
 
+  /** The read `refresh` has out, and whether another was asked for meanwhile. */
+  private refreshing: Promise<void> | null = null;
+  private refreshAgain = false;
+
   /** The selected agent's diff, and what the Diff tab does with it. */
   readonly review = new Review(this);
 
@@ -162,9 +168,6 @@ export class AppStore {
 
   /** Agents whose on-disk log has been replayed into `eventsByAgent`. */
   private hydrated = new Set<string>();
-
-  /** Agents with a Turn already being started, so a drain can't double-send. */
-  private turnsInFlight = new Set<string>();
 
   private unlisteners: UnlistenFn[] = [];
   private started = false;
@@ -260,16 +263,14 @@ export class AppStore {
 
     this.unlisteners.push(
       await events.onAgentStateChanged((agent) => {
-        const i = this.agents.findIndex((a) => a.id === agent.id);
-        if (i >= 0) this.agents[i] = agent;
-        else this.agents.push(agent);
+        const before = this.agents.find((a) => a.id === agent.id);
+        this.upsert(agent);
+        const notice = turnNotice(before, agent, this.agentName(agent));
+        if (notice) notify(notice, agent.id === this.selectedAgentId);
         // An agent that just exited has a final diff worth showing.
         if (agent.id === this.selectedAgentId && this.detailTab === "diff") {
           this.review.load();
         }
-        // A Turn that ended cleanly is the moment anything queued behind it
-        // becomes sendable.
-        if (agent.state === "completed") this.queue.drain(agent.id);
         // A merged agent's worktree only changes because the agent ran, so a
         // turn ending is the one moment its bucket can have moved. That is why
         // nothing here polls git on a timer.
@@ -300,7 +301,30 @@ export class AppStore {
     this.started = false;
   }
 
-  async refresh() {
+  /**
+   * Re-read everything from the Host. Reads never overlap: one asked for while
+   * another is out runs once that one is back, so an older answer can't land
+   * on top of a newer one — as it would when a window starts on a Host that
+   * is just making way for the next.
+   */
+  refresh(): Promise<void> {
+    if (this.refreshing) {
+      this.refreshAgain = true;
+      return this.refreshing;
+    }
+    this.refreshing = (async () => {
+      do {
+        this.refreshAgain = false;
+        await this.load();
+      } while (this.refreshAgain);
+      // After the last read rather than after each, so the queues it hands
+      // over aren't overwritten by a read that started before they arrived.
+      if (this.loaded) this.queue.handOver();
+    })().finally(() => (this.refreshing = null));
+    return this.refreshing;
+  }
+
+  private async load() {
     try {
       this.error = null;
       [this.projects, this.agents, this.orphans, this.holdingWork] =
@@ -311,7 +335,6 @@ export class AppStore {
           api.agentsHoldingWork(),
         ]);
       this.loaded = true;
-      this.queue.prune();
       this.applyInitialSelection();
     } catch (e) {
       this.error = String(e);
@@ -572,9 +595,10 @@ export class AppStore {
   }
 
   /**
-   * Send a follow-up prompt, and any files attached to it, to the selected
-   * agent, putting it back to work in the worktree it already has, on `model`
-   * and in `mode`. Returns whether the agent took it.
+   * Say something to the selected agent, with any files attached to it, on
+   * `model` and in `mode`. The Host puts it back to work in the worktree it
+   * already has if it's free, and queues it behind the Turn in flight if not.
+   * Returns whether the Host took it.
    */
   async resume(
     prompt: string,
@@ -585,29 +609,10 @@ export class AppStore {
   ) {
     const id = this.selectedAgentId;
     if (!id || !prompt.trim() || this.sending) return false;
-    return this.sendTurn(id, prompt, attachments, model, effort, mode);
-  }
-
-  /**
-   * Start a Turn on a named Agent. Takes an id rather than reading the selection
-   * because a queue drains whether or not its Agent is the one on screen, and
-   * `sending` — a flag the composer reads — only speaks for the Agent it shows.
-   */
-  async sendTurn(
-    id: string,
-    prompt: string,
-    attachments: string[],
-    model: string,
-    effort: string,
-    mode: string,
-  ): Promise<boolean> {
-    if (this.turnsInFlight.has(id)) return false;
-    this.turnsInFlight.add(id);
-    const onScreen = id === this.selectedAgentId;
-    if (onScreen) this.sending = true;
+    this.sending = true;
     this.error = null;
     try {
-      const agent = await api.resumeAgent(
+      const agent = await api.sendMessage(
         id,
         prompt,
         attachments,
@@ -616,8 +621,7 @@ export class AppStore {
         mode || null,
       );
       this.prefs.remember(model, effort, mode);
-      const i = this.agents.findIndex((a) => a.id === agent.id);
-      if (i >= 0) this.agents[i] = agent;
+      this.upsert(agent);
       // It's working again, so it's nobody's leftover any more.
       this.orphans = this.orphans.filter((o) => o.id !== id);
       return true;
@@ -625,11 +629,15 @@ export class AppStore {
       this.error = String(e);
       return false;
     } finally {
-      this.turnsInFlight.delete(id);
-      // Cleared on the same condition it was set on: if the selection moved
-      // mid-flight, the flag no longer speaks for the Agent on screen anyway.
-      if (onScreen) this.sending = false;
+      this.sending = false;
     }
+  }
+
+  /** Take an agent's latest record, adding it if this window hadn't seen it. */
+  upsert(agent: Agent) {
+    const i = this.agents.findIndex((a) => a.id === agent.id);
+    if (i >= 0) this.agents[i] = agent;
+    else this.agents.push(agent);
   }
 
   /**
@@ -685,7 +693,6 @@ export class AppStore {
       this.agents = this.agents.filter((a) => a.id !== id);
       delete this.eventsByAgent[id];
       this.hydrated.delete(id);
-      this.queue.clear(id);
       if (this.selectedAgentId === id) {
         this.selectedAgentId = null;
         this.review.clear();

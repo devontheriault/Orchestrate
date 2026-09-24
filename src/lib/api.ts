@@ -84,6 +84,25 @@ export type Agent = {
    * that merge and records it on both.
    */
   resolves?: Resolution | null;
+  /**
+   * What the user has said that the agent wasn't free to hear yet, oldest
+   * first. Kept by the Host, which sends the next one when a Turn Completes.
+   */
+  queue: QueuedMessage[];
+};
+
+/**
+ * A prompt waiting for its agent to be free, with the picks it was queued
+ * under. Null leaves a pick to Claude Code, as it does on a Turn.
+ */
+export type QueuedMessage = {
+  id: string;
+  prompt: string;
+  /** Files attached to it, by path. Absent when there are none. */
+  attachments?: string[];
+  model: string | null;
+  effort: string | null;
+  permission_mode: string | null;
 };
 
 /**
@@ -315,7 +334,11 @@ export const api = {
       permissionMode,
       options,
     }),
-  resumeAgent: (
+  /**
+   * Say something to an agent. The Host starts a Turn if the agent is free and
+   * queues it if not; the returned record says which.
+   */
+  sendMessage: (
     agentId: string,
     prompt: string,
     attachments: string[],
@@ -323,7 +346,7 @@ export const api = {
     effort: string | null,
     permissionMode: string | null,
   ) =>
-    host<Agent>("resume_agent", {
+    host<Agent>("send_message", {
       agentId,
       prompt,
       attachments,
@@ -331,6 +354,20 @@ export const api = {
       effort,
       permissionMode,
     }),
+  /** Send the head of a queue that a Stop or a Fail held. */
+  sendNext: (agentId: string) => host<Agent>("send_next", { agentId }),
+  /** Add messages to the end of a queue without sending any. */
+  queueMessages: (agentId: string, messages: QueuedMessage[]) =>
+    host<Agent>("queue_messages", { agentId, messages }),
+  removeQueued: (agentId: string, messageId: string) =>
+    host<Agent>("remove_queued", { agentId, messageId }),
+  clearQueue: (agentId: string) => host<Agent>("clear_queue", { agentId }),
+  /**
+   * Whether the Host keeps running while the user is logged out; null when it
+   * isn't a service that could.
+   */
+  keepRunning: () => host<boolean | null>("keep_running"),
+  setKeepRunning: (on: boolean) => host<void>("set_keep_running", { on }),
   /** Name an agent; null hands the naming back to Claude's title. */
   renameAgent: (agentId: string, name: string | null) =>
     host<Agent>("rename_agent", { agentId, name }),
