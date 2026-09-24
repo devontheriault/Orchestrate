@@ -324,7 +324,7 @@
                    no label to read as "send". -->
               <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
                 <path
-                  d="M8 13V3.5M8 3.5L3.5 8M8 3.5L12.5 8"
+                  d="M8 12.75V3.25M8 3.25L3.5 7.75M8 3.25L12.5 7.75"
                   fill="none"
                   stroke="currentColor"
                   stroke-width="1.8"
@@ -467,8 +467,9 @@
     );
     overflow-y: auto;
     /* Side padding clears the attach and send buttons so text never runs
-       under either. */
-    padding: 0.95rem 3.25rem 0.95rem 2.85rem;
+       under either. The bottom gives back the 4px of slack fit() adds under
+       the text, so one line sits dead centre in the box. */
+    padding: 0.95rem 3.25rem calc(0.95rem - 4px) 2.85rem;
     border: none;
     background: none;
     color: var(--fg);
@@ -487,11 +488,12 @@
   }
 
   /* Pinned to the bottom-right of the box, so whichever button the moment
-     calls for stays put as the text grows. */
+     calls for stays put as the text grows. Raised so the button's middle
+     lines up with the last line of text — on a single line, the box's middle. */
   .slot {
     position: absolute;
     right: 0.7rem;
-    bottom: 0.7rem;
+    bottom: calc(0.95rem + var(--text-lg) * var(--leading-normal) / 2 - 1.85rem / 2);
     display: flex;
     align-items: center;
   }
@@ -505,6 +507,7 @@
   .clip {
     width: 1.85rem;
     height: 1.85rem;
+    padding: 0;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -536,6 +539,7 @@
   .send {
     width: 1.85rem;
     height: 1.85rem;
+    padding: 0;
     display: flex;
     align-items: center;
     justify-content: center;
