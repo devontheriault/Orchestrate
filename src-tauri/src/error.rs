@@ -77,6 +77,9 @@ pub enum Error {
 
     #[error("could not ask Claude Code which slash commands it offers: {0}")]
     SlashCommands(String),
+
+    #[error("the Host is restarting to update; try again in a moment")]
+    HostClosing,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

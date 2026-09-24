@@ -70,7 +70,7 @@ export function rowDetail(
   if (delivered) return `Merged into ${a.merged_branch ?? "the project"}`;
   if (a.state === "failed")
     return a.fail_reason?.trim() || (a.exit_code != null ? `Exited with code ${a.exit_code}` : "Failed");
-  if (a.state === "orphaned") return "Interrupted when the app closed";
+  if (a.state === "orphaned") return "Interrupted when the Host stopped";
   if (a.merged_at && holdingWork) return `New work since merging into ${a.merged_branch}`;
   const parts = [`${a.turns} repl${a.turns === 1 ? "y" : "ies"}`];
   if (modelName) parts.push(modelName);

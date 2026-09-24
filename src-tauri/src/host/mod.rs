@@ -1,0 +1,290 @@
+//! The Host: the long-lived process that owns this machine's Agents, so they
+//! keep working whether or not a window is open (ADR 0009). It is this same
+//! binary run with `--host`, and it never opens a window.
+//!
+//! Windows reach it over a Unix socket in the state directory — the same
+//! directory, and so the same Host, as long as they agree on the state
+//! directory. A connection carries calls one way and replies and events the
+//! other (see [`protocol`]); every connection hears every Agent's events.
+//!
+//! The window's half lives here too: [`client`] is how a window talks to a
+//! Host, and [`service`] is how it starts one that isn't running.
+
+mod calls;
+pub mod client;
+pub mod protocol;
+pub mod service;
+
+#[cfg(test)]
+mod tests;
+
+use std::os::unix::fs::PermissionsExt;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use serde_json::json;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::net::{UnixListener, UnixStream};
+use tokio::sync::{broadcast, mpsc, watch};
+
+use crate::domain::new_id;
+use crate::paths;
+use crate::runtime::{self, AgentRuntime, RuntimeEvent};
+use protocol::{line, Frame, Hello, Request};
+
+/// How many event lines a connection may fall behind before it is dropped.
+/// A window that lags this far is better off reconnecting and reading the
+/// logs afresh than being fed a backlog.
+const EVENT_BACKLOG: usize = 4096;
+
+/// How often a Host waiting to update checks whether its Turns have ended.
+const IDLE_POLL: Duration = Duration::from_secs(1);
+
+pub struct Host {
+    runtime: AgentRuntime,
+    /// Ids of the Orphans adopted when this Host started, so a window can
+    /// surface them. Emptied once the user dismisses the banner, so another
+    /// window, or a reload, doesn't raise it again.
+    startup_orphans: Mutex<Vec<String>>,
+    /// Every event, as the line each connection writes. Connections subscribe.
+    frames: broadcast::Sender<Arc<str>>,
+    hello: Hello,
+    /// Set once a window has asked this Host to make way for a newer build.
+    draining: AtomicBool,
+    /// Flipped to `true` to make [`serve`] return.
+    stopping: Arc<watch::Sender<bool>>,
+}
+
+impl Host {
+    /// A Host over `runtime`, relaying what it reports to every connection.
+    pub fn new(
+        runtime: AgentRuntime,
+        mut events: mpsc::UnboundedReceiver<RuntimeEvent>,
+        startup_orphans: Vec<String>,
+    ) -> Arc<Self> {
+        let (frames, _) = broadcast::channel(EVENT_BACKLOG);
+        let relay = frames.clone();
+        tokio::spawn(async move {
+            while let Some(ev) = events.recv().await {
+                let frame = match ev {
+                    RuntimeEvent::AgentEvent { agent_id, event } => Frame::Event {
+                        name: "agent-event".into(),
+                        payload: json!({ "agent_id": agent_id, "event": event }),
+                    },
+                    RuntimeEvent::StateChanged { agent, .. } => Frame::Event {
+                        name: "agent-state-changed".into(),
+                        payload: serde_json::to_value(*agent).unwrap_or_default(),
+                    },
+                };
+                // No subscribers is fine: nobody is watching right now.
+                let _ = relay.send(Arc::from(line(&frame)));
+            }
+        });
+        Arc::new(Self {
+            runtime,
+            startup_orphans: Mutex::new(startup_orphans),
+            frames,
+            hello: Hello::new(new_id()),
+            draining: AtomicBool::new(false),
+            stopping: Arc::new(watch::channel(false).0),
+        })
+    }
+
+    /// Stop serving: [`serve`] Orphans whatever is still running and returns.
+    pub fn stop(&self) {
+        self.stopping.send_replace(true);
+    }
+
+    /// Exit the moment no Turn is running, taking no new ones from then on.
+    /// Asked by a window from a newer build, so the service can start that
+    /// build instead — without cutting off any Agent mid-Turn to do it.
+    fn shut_down_when_idle(&self) {
+        if self.draining.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        eprintln!("host: a newer build asked to take over; exiting once no turn is running");
+        let runtime = self.runtime.clone();
+        let stopping = self.stopping.clone();
+        tokio::spawn(async move {
+            while !runtime.close_if_idle().await {
+                tokio::time::sleep(IDLE_POLL).await;
+            }
+            stopping.send_replace(true);
+        });
+    }
+}
+
+/// Accept windows on `listener` until the Host is stopped, then Orphan any
+/// Agent still working, as a closing app used to.
+pub async fn serve(host: Arc<Host>, listener: UnixListener) {
+    let mut stopping = host.stopping.subscribe();
+    loop {
+        tokio::select! {
+            accepted = listener.accept() => match accepted {
+                Ok((stream, _)) => {
+                    tokio::spawn(connection(host.clone(), stream));
+                }
+                Err(e) => eprintln!("host: could not accept a window: {e}"),
+            },
+            _ = stopping.wait_for(|s| *s) => break,
+        }
+    }
+    host.runtime.shutdown().await;
+}
+
+/// One window's connection, from its Hello to its hanging up.
+async fn connection(host: Arc<Host>, stream: UnixStream) {
+    let (read, mut write) = stream.into_split();
+    let (out, mut outgoing) = mpsc::unbounded_channel::<Arc<str>>();
+
+    // Subscribed before the Hello goes out, so a window that reads the Agent
+    // list on hearing it misses nothing that changes after.
+    let mut events = host.frames.subscribe();
+    let _ = out.send(Arc::from(line(&Frame::Hello(host.hello.clone()))));
+
+    let writer = tokio::spawn(async move {
+        while let Some(l) = outgoing.recv().await {
+            if write.write_all(l.as_bytes()).await.is_err() {
+                break;
+            }
+        }
+    });
+
+    let forward = {
+        let out = out.clone();
+        async move {
+            loop {
+                match events.recv().await {
+                    Ok(l) => {
+                        if out.send(l).is_err() {
+                            break;
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Lagged(n)) => {
+                        eprintln!("host: a window fell {n} events behind; dropping it");
+                        break;
+                    }
+                    Err(broadcast::error::RecvError::Closed) => break,
+                }
+            }
+        }
+    };
+
+    let answer = {
+        let host = host.clone();
+        async move {
+            let mut lines = BufReader::new(read).lines();
+            while let Ok(Some(l)) = lines.next_line().await {
+                let req = match serde_json::from_str::<Request>(&l) {
+                    Ok(req) => req,
+                    Err(e) => {
+                        eprintln!("host: unreadable request: {e}");
+                        continue;
+                    }
+                };
+                // Each call on its own task: a Stop waiting on its supervisor
+                // must not hold up the window's next call.
+                let host = host.clone();
+                let out = out.clone();
+                tokio::spawn(async move {
+                    let outcome = calls::answer(&host, req.call).await.into();
+                    let _ = out.send(Arc::from(line(&Frame::Reply {
+                        id: req.id,
+                        outcome,
+                    })));
+                });
+            }
+        }
+    };
+
+    let mut stopping = host.stopping.subscribe();
+    tokio::select! {
+        _ = forward => {},
+        _ = answer => {},
+        _ = stopping.wait_for(|s| *s) => {},
+    }
+    writer.abort();
+}
+
+/// `--host`: run this machine's Host until it is told to stop.
+pub fn run() {
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("could not start the async runtime");
+    let code = runtime.block_on(main());
+    std::process::exit(code);
+}
+
+async fn main() -> i32 {
+    match start().await {
+        Ok(()) => 0,
+        Err(e) => {
+            eprintln!("host: {e}");
+            1
+        }
+    }
+}
+
+async fn start() -> Result<(), String> {
+    paths::ensure_dirs().map_err(|e| e.to_string())?;
+    let Some(_lock) = lock().map_err(|e| format!("could not take the Host lock: {e}"))? else {
+        eprintln!("host: another Host is already running for this state directory");
+        return Ok(());
+    };
+
+    let socket = paths::host_socket().map_err(|e| e.to_string())?;
+    // Left behind by a Host that died without cleaning up. Safe to remove:
+    // holding the lock means no live Host is listening on it.
+    let _ = std::fs::remove_file(&socket);
+    let listener = UnixListener::bind(&socket)
+        .map_err(|e| format!("could not listen on {}: {e}", socket.display()))?;
+    // Anyone who can open the socket can run Agents as this user.
+    std::fs::set_permissions(&socket, std::fs::Permissions::from_mode(0o600))
+        .map_err(|e| format!("could not restrict {}: {e}", socket.display()))?;
+
+    let orphans = runtime::adopt_orphans_on_launch()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|a| a.id)
+        .collect();
+    let (rt, rx) = AgentRuntime::new();
+    let host = Host::new(rt, rx, orphans);
+
+    let on_signal = host.clone();
+    tokio::spawn(async move {
+        use tokio::signal::unix::{signal, SignalKind};
+        let (Ok(mut term), Ok(mut int)) = (
+            signal(SignalKind::terminate()),
+            signal(SignalKind::interrupt()),
+        ) else {
+            return;
+        };
+        tokio::select! {
+            _ = term.recv() => {},
+            _ = int.recv() => {},
+        }
+        on_signal.stop();
+    });
+
+    eprintln!("host: listening on {}", socket.display());
+    serve(host, listener).await;
+    let _ = std::fs::remove_file(&socket);
+    Ok(())
+}
+
+/// Take the state directory's Host lock, or `None` if another Host holds it.
+/// The lock lasts as long as the returned file stays open.
+fn lock() -> std::io::Result<Option<std::fs::File>> {
+    use std::os::fd::AsRawFd;
+    let path = paths::host_lock().map_err(std::io::Error::other)?;
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(path)?;
+    // SAFETY: flock on a descriptor we own and keep open.
+    let taken = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0;
+    Ok(taken.then_some(file))
+}

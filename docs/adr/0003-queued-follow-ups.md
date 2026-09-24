@@ -1,5 +1,7 @@
 # Queued Follow-ups
 
+_Where the Queue lives is superseded by ADR 0010: it moved from the window to the Host._
+
 ADR-0002 rejected queueing a follow-up typed while an Agent is still working, on two grounds: sending it as a second concurrent `claude` in one Worktree would have two processes writing the same files, and "holding it to send later hides a pending action in the UI". The composer was disabled mid-Turn, and the only way to say anything was to Stop first.
 
 That second ground turns out to be an argument about the UI, not about queueing. A Queue that is *visible* — a strip directly above the composer that says how many messages are waiting, opens to show each prompt, and lets any of them be removed — hides nothing. Meanwhile the first ground is satisfied by never sending a queued message while a Turn is in flight: the Queue drains into a **new Turn** on an Agent that is already free, which is exactly what Resume has always done. One `claude` per Worktree still holds.

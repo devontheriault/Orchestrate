@@ -1,8 +1,12 @@
 /**
- * The IPC boundary: every Tauri command the backend exposes, the two events it
- * pushes, and the shapes that cross over. Types here mirror the Rust structs
- * they deserialize from (`src-tauri/src/domain.rs`, `git/`, `usage/`), so a
- * field added there is added here.
+ * The IPC boundary: every call the backend answers, the events it pushes, and
+ * the shapes that cross over. Types here mirror the Rust structs they
+ * deserialize from (`src-tauri/src/domain.rs`, `git/`, `usage/`), so a field
+ * added there is added here.
+ *
+ * Nearly every call is for the Host, the process that owns the Agents, and
+ * goes through `host()`; the window passes it on untouched. The few left on
+ * `invoke` are the window's own: the clipboard and files dropped on it.
  */
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
@@ -267,15 +271,32 @@ export type AgentEventPayload = {
   event: AgentEvent;
 };
 
-export const api = {
-  listProjects: () => invoke<Project[]>("list_projects"),
-  /** True when the folder isn't a Git repository with a commit yet. */
-  projectNeedsSetup: (path: string) => invoke<boolean>("project_needs_setup", { path }),
-  addProject: (name: string, path: string, setUp: boolean) =>
-    invoke<Project>("add_project", { name, path, setUp }),
-  removeProject: (id: string) => invoke<void>("remove_project", { id }),
+/** Ask the Host something. The call names and arguments are `host/calls.rs`'s. */
+const host = <T>(method: string, args: Record<string, unknown> = {}) =>
+  invoke<T>("host", { method, args });
 
-  listAgents: () => invoke<Agent[]>("list_agents"),
+/**
+ * Where the window stands with its Host. `updating`: the Host is an older
+ * build, finishing its running Turns before the new one takes over.
+ * `outdated`: the Host is newer than this window.
+ */
+export type HostStatus =
+  | { state: "connecting"; error: string | null }
+  | { state: "connected"; instance: string; version: string }
+  | { state: "updating"; version: string }
+  | { state: "outdated"; version: string };
+
+export const api = {
+  hostStatus: () => invoke<HostStatus>("host_status"),
+
+  listProjects: () => host<Project[]>("list_projects"),
+  /** True when the folder isn't a Git repository with a commit yet. */
+  projectNeedsSetup: (path: string) => host<boolean>("project_needs_setup", { path }),
+  addProject: (name: string, path: string, setUp: boolean) =>
+    host<Project>("add_project", { name, path, setUp }),
+  removeProject: (id: string) => host<void>("remove_project", { id }),
+
+  listAgents: () => host<Agent[]>("list_agents"),
   spawnAgent: (
     projectId: string,
     prompt: string,
@@ -285,7 +306,7 @@ export const api = {
     permissionMode: string | null,
     options: AgentOptions,
   ) =>
-    invoke<Agent>("spawn_agent", {
+    host<Agent>("spawn_agent", {
       projectId,
       prompt,
       attachments,
@@ -302,7 +323,7 @@ export const api = {
     effort: string | null,
     permissionMode: string | null,
   ) =>
-    invoke<Agent>("resume_agent", {
+    host<Agent>("resume_agent", {
       agentId,
       prompt,
       attachments,
@@ -312,13 +333,13 @@ export const api = {
     }),
   /** Name an agent; null hands the naming back to Claude's title. */
   renameAgent: (agentId: string, name: string | null) =>
-    invoke<Agent>("rename_agent", { agentId, name }),
+    host<Agent>("rename_agent", { agentId, name }),
   /** Tag an agent with one of `TAGS`, or untag it with null. */
   setAgentColor: (agentId: string, color: string | null) =>
-    invoke<Agent>("set_agent_color", { agentId, color }),
+    host<Agent>("set_agent_color", { agentId, color }),
   /** Set how an agent's turns run, from its next one on. */
   setAgentOptions: (agentId: string, options: AgentOptions) =>
-    invoke<Agent>("set_agent_options", { agentId, options }),
+    host<Agent>("set_agent_options", { agentId, options }),
   /**
    * Write a pasted file to disk so it can be attached by path, and return the
    * path. Sent as raw bytes rather than JSON; the name rides in a header,
@@ -335,15 +356,15 @@ export const api = {
   saveClipboardImage: (name: string) => invoke<string | null>("save_clipboard_image", { name }),
   /** An attached image's bytes, for its thumbnail. Refused for non-images. */
   attachmentPreview: (path: string) => invoke<ArrayBuffer>("attachment_preview", { path }),
-  stopAgent: (agentId: string) => invoke<void>("stop_agent", { agentId }),
-  discardAgent: (agentId: string) => invoke<void>("discard_agent", { agentId }),
+  stopAgent: (agentId: string) => host<void>("stop_agent", { agentId }),
+  discardAgent: (agentId: string) => host<void>("discard_agent", { agentId }),
   agentEvents: (agentId: string) =>
-    invoke<AgentEvent[]>("agent_events", { agentId }),
-  agentDiff: (agentId: string) => invoke<WorktreeDiff>("agent_diff", { agentId }),
+    host<AgentEvent[]>("agent_events", { agentId }),
+  agentDiff: (agentId: string) => host<WorktreeDiff>("agent_diff", { agentId }),
   agentCommit: (agentId: string, message: string) =>
-    invoke<Commit>("agent_commit", { agentId, message }),
+    host<Commit>("agent_commit", { agentId, message }),
   agentMerge: (agentId: string, target: string) =>
-    invoke<MergeOutcome>("agent_merge", { agentId, target }),
+    host<MergeOutcome>("agent_merge", { agentId, target }),
   /** Spawn a resolver for a merge of `agentId` into `target` that conflicted. */
   resolveConflict: (
     agentId: string,
@@ -352,19 +373,19 @@ export const api = {
     model: string | null,
     effort: string | null,
   ) =>
-    invoke<Agent>("resolve_conflict", { agentId, target, files, model, effort }),
+    host<Agent>("resolve_conflict", { agentId, target, files, model, effort }),
   /** Ids of merged agents whose worktree still holds work the project lacks. */
-  agentsHoldingWork: () => invoke<string[]>("agents_holding_work"),
+  agentsHoldingWork: () => host<string[]>("agents_holding_work"),
   projectBranches: (projectId: string) =>
-    invoke<Branches>("project_branches", { projectId }),
+    host<Branches>("project_branches", { projectId }),
 
-  listModels: () => invoke<ModelInfo[]>("list_models"),
-  slashCommands: (dir: string) => invoke<Offered>("slash_commands", { dir }),
+  listModels: () => host<ModelInfo[]>("list_models"),
+  slashCommands: (dir: string) => host<Offered>("slash_commands", { dir }),
 
-  usageSummary: () => invoke<UsageSummary>("usage_summary"),
+  usageSummary: () => host<UsageSummary>("usage_summary"),
 
-  startupOrphans: () => invoke<Agent[]>("startup_orphans"),
-  dismissOrphans: () => invoke<void>("dismiss_orphans"),
+  startupOrphans: () => host<Agent[]>("startup_orphans"),
+  dismissOrphans: () => host<void>("dismiss_orphans"),
 };
 
 export const events = {
@@ -373,4 +394,7 @@ export const events = {
 
   onAgentStateChanged: (fn: (agent: Agent) => void): Promise<UnlistenFn> =>
     listen<Agent>("agent-state-changed", (msg) => fn(msg.payload)),
+
+  onHostStatus: (fn: (status: HostStatus) => void): Promise<UnlistenFn> =>
+    listen<HostStatus>("host-status", (msg) => fn(msg.payload)),
 };

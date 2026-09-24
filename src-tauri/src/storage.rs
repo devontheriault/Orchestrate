@@ -59,6 +59,25 @@ pub fn save_agent(agent: &Agent) -> Result<()> {
     atomic_write(&path, &contents)
 }
 
+/// Leave the ids of the Agents a stopping Host Orphaned for the next one.
+pub fn save_orphan_ids(ids: &[String]) -> Result<()> {
+    paths::ensure_dirs()?;
+    atomic_write(&paths::orphans_file()?, &serde_json::to_string(ids)?)
+}
+
+/// The ids the last Host left with [`save_orphan_ids`], taken so they are
+/// reported once.
+pub fn take_orphan_ids() -> Result<Vec<String>> {
+    let path = paths::orphans_file()?;
+    let ids = match fs::read_to_string(&path) {
+        Ok(s) => serde_json::from_str(&s).unwrap_or_default(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(vec![]),
+        Err(source) => return Err(Error::Io { path, source }),
+    };
+    let _ = fs::remove_file(&path);
+    Ok(ids)
+}
+
 /// Append one event as a JSONL line to the Agent's log file.
 pub fn append_event(agent_id: &str, event: &AgentEvent) -> Result<()> {
     paths::ensure_dirs()?;

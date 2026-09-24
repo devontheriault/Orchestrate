@@ -53,6 +53,7 @@ Conventions the directory tree won't tell you:
 - Pure logic sits in `.ts` beside the component that renders it (`transcript/rows.ts`, `agent/patch.ts`, `menus/menu.ts`). Put new pure logic there too, not in the component's script.
 - Every drop-down menu uses `menus/menu.ts` for placement, dismissal and keyboard walking.
 - Backend: `runtime/` owns live agents (`turn.rs` is one `claude` process), `git/` is split by user action, and `domain.rs` holds the persisted records. Tests for a directory module live in its `tests.rs`.
+- The agents live in the Host, the same binary run with `--host` (ADR 0009). `host/calls.rs` is every call a window can make, so a new backend call goes there and in `api.ts`'s `host()`, not in `commands.rs`. `commands.rs` only forwards calls to the Host, plus the few that touch the window's own machine (clipboard, dropped files). `host/client.rs` is the window's end of the socket, and `host/service.rs` starts a Host when none is running.
 
 ## Agent skills
 

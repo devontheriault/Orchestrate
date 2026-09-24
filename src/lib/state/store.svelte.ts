@@ -20,6 +20,7 @@ import {
   type Agent,
   type AgentEvent,
   type AgentOptions,
+  type HostStatus,
   type Project,
 } from "$lib/api";
 import type { UnlistenFn } from "@tauri-apps/api/event";
@@ -141,6 +142,15 @@ export class AppStore {
   orphanBannerDismissed = $state<boolean>(false);
   error = $state<string | null>(null);
 
+  /** Where this window stands with the Host that owns the agents. */
+  host = $state<HostStatus>({ state: "connecting", error: null });
+
+  /** The Host last connected to, to tell a reconnection from a successor. */
+  private hostInstance: string | null = null;
+
+  /** Whether `refresh` has ever succeeded. */
+  private loaded = false;
+
   /** The selected agent's diff, and what the Diff tab does with it. */
   readonly review = new Review(this);
 
@@ -245,6 +255,9 @@ export class AppStore {
       }),
     );
 
+    this.unlisteners.push(await events.onHostStatus((s) => this.onHostStatus(s)));
+    api.hostStatus().then((s) => this.onHostStatus(s)).catch(() => {});
+
     this.unlisteners.push(
       await events.onAgentStateChanged((agent) => {
         const i = this.agents.findIndex((a) => a.id === agent.id);
@@ -297,11 +310,40 @@ export class AppStore {
           api.startupOrphans(),
           api.agentsHoldingWork(),
         ]);
+      this.loaded = true;
       this.queue.prune();
       this.applyInitialSelection();
     } catch (e) {
       this.error = String(e);
     }
+  }
+
+  /**
+   * Follow the window's connection to the Host. Coming back to it, or to the
+   * one that replaced it, means re-reading everything: whatever the agents did
+   * in between reached the logs but not this window.
+   */
+  private onHostStatus(status: HostStatus) {
+    const was = this.host;
+    this.host = status;
+    if (status.state !== "connected") return;
+    if (was.state === "connected" && was.instance === status.instance) return;
+
+    const previous = this.hostInstance;
+    this.hostInstance = status.instance;
+    // A new Host adopted its own Orphans; the banner is about those now.
+    if (previous !== null && previous !== status.instance) {
+      this.orphanBannerDismissed = false;
+    }
+    // The first connection is the one `start` is already loading from,
+    // unless that load gave up waiting for it.
+    if (previous !== null || !this.loaded) this.resync();
+  }
+
+  private async resync() {
+    this.hydrated.clear();
+    await this.refresh();
+    if (this.selectedAgentId) this.hydrateEvents(this.selectedAgentId);
   }
 
   /**

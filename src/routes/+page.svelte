@@ -4,6 +4,7 @@
   import AgentPane from "$lib/agent/AgentPane.svelte";
   import UsageWindow from "$lib/usage/UsageWindow.svelte";
   import PaneDivider from "$lib/layout/PaneDivider.svelte";
+  import HostNotice from "$lib/layout/HostNotice.svelte";
   import { store } from "$lib/state/store.svelte";
   import { usage } from "$lib/usage/usage.svelte";
   import { viewport } from "$lib/layout/viewport.svelte";
@@ -101,12 +102,14 @@
   </div>
 {/if}
 
+<HostNotice />
+
 {#if showOrphanBanner}
   <div class="orphan-banner" role="status">
     <div>
       <strong>{store.orphans.length}</strong>
       agent{store.orphans.length === 1 ? "" : "s"}
-      {store.orphans.length === 1 ? "was" : "were"} running when the app was last closed.
+      {store.orphans.length === 1 ? "was" : "were"} running when the Host last stopped.
     </div>
     <div class="actions">
       <button class="primary" onclick={() => store.jumpToFirstOrphan()}>
