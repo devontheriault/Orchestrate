@@ -6,7 +6,7 @@ use std::time::Duration;
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
 use tokio::net::unix::{OwnedReadHalf, OwnedWriteHalf};
-use tokio::net::{UnixListener, UnixStream};
+use tokio::net::UnixStream;
 use tokio::task::JoinHandle;
 
 use super::client::{HostLink, Status, Target};
@@ -42,7 +42,7 @@ while : ; do sleep 1; done
 fn host_on(socket: &Path, claude: &str) -> (Arc<Host>, JoinHandle<()>) {
     let (rt, rx) = AgentRuntime::with_bin(claude);
     let host = Host::new(rt, rx, vec![]);
-    let listener = UnixListener::bind(socket).unwrap();
+    let listener = super::local::Listener::bind(socket).unwrap();
     let serving = tokio::spawn(serve(host.clone(), listener, std::future::ready(None)));
     (host, serving)
 }
@@ -416,7 +416,7 @@ async fn an_attachment_sent_to_the_host_is_a_copy_it_keeps() {
 async fn host_on_tcp(socket: &Path, claude: &str, vet: Vet) -> (Arc<Host>, std::net::SocketAddr) {
     let (rt, rx) = AgentRuntime::with_bin(claude);
     let host = Host::new(rt, rx, vec![]);
-    let local = UnixListener::bind(socket).unwrap();
+    let local = super::local::Listener::bind(socket).unwrap();
     let tcp = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = tcp.local_addr().unwrap();
     tokio::spawn(serve(
@@ -499,7 +499,7 @@ async fn a_host_that_can_only_listen_on_the_tailnet_later_serves_it_from_then() 
     let socket = paths::host_socket().unwrap();
     let (rt, rx) = AgentRuntime::with_bin(&fake_claude_ok());
     let host = Host::new(rt, rx, vec![]);
-    let local = UnixListener::bind(&socket).unwrap();
+    let local = super::local::Listener::bind(&socket).unwrap();
     // As when Tailscale comes up after the Host has started.
     let (up, tailscale_up) = tokio::sync::oneshot::channel::<()>();
     let tcp = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
