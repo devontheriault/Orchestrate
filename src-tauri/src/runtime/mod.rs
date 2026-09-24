@@ -17,7 +17,9 @@ use time::OffsetDateTime;
 use tokio::sync::{mpsc, Notify, RwLock};
 use tokio::task::JoinHandle;
 
-use crate::domain::{new_id, new_session_id, Agent, AgentState, Id, Project, Resolution, Task};
+use crate::domain::{
+    new_id, new_session_id, Agent, AgentOptions, AgentState, Id, Project, Resolution, Task,
+};
 use crate::error::{Error, Result};
 use crate::{attachments, git, merging, paths, storage, worktree};
 
@@ -101,8 +103,10 @@ impl AgentRuntime {
     /// Spawn a new Agent for the given Project and opening prompt, with any
     /// files attached to it, on the model and effort the user picked (`None`
     /// leaves either choice to Claude Code) and in the Permission Mode they
-    /// picked (`None` is `DEFAULT_PERMISSION_MODE`). Returns the Agent record
-    /// once the process is running and its meta file is on disk.
+    /// picked (`None` is `DEFAULT_PERMISSION_MODE`), with the `options` the
+    /// user set for it. Returns the Agent record once the process is running
+    /// and its meta file is on disk.
+    #[allow(clippy::too_many_arguments)]
     pub async fn spawn(
         &self,
         project: &Project,
@@ -111,10 +115,12 @@ impl AgentRuntime {
         model: Option<String>,
         effort: Option<String>,
         permission_mode: Option<String>,
+        options: AgentOptions,
     ) -> Result<Agent> {
         attachments::check(&attachments)?;
         let mut agent = new_agent(project, prompt, model, effort, permission_mode)?;
         agent.task.attachments = attachments;
+        agent.options = options;
         // Record the commit we branched from before the Agent can move HEAD, so
         // the diff view has a fixed base even if the Project advances later.
         agent.base_commit = git::head_commit(&project.path).await.ok();
@@ -232,6 +238,26 @@ impl AgentRuntime {
         self.emitter.announce(&agent);
 
         self.launch(agent, &prompt, &attachments, Continuity::Resumed, &mut live)
+    }
+
+    /// Change what the user may change about an Agent at any moment — its
+    /// Title, Tag and options — whether or not it is working, and announce the
+    /// result. Options take effect from the next Turn.
+    ///
+    /// A working Agent's supervisor holds its own copy of the record and saves
+    /// it when the Turn ends. It carries these fields over from disk as it does
+    /// (see `Agent::keep_edits`), under the same lock held here, so the edit
+    /// survives; the live handle is updated too, for a shutdown that saves it.
+    pub async fn edit(&self, agent_id: &str, change: impl FnOnce(&mut Agent)) -> Result<Agent> {
+        let mut live = self.inner.write().await;
+        let mut agent = storage::load_agent(agent_id)?;
+        change(&mut agent);
+        storage::save_agent(&agent)?;
+        if let Some(handle) = live.get_mut(agent_id) {
+            handle.agent.keep_edits(&agent);
+        }
+        self.emitter.announce(&agent);
+        Ok(agent)
     }
 
     /// Append the user's prompt to the Agent's log and push it to the UI.
@@ -371,9 +397,12 @@ fn new_agent(
         model,
         effort,
         permission_mode,
+        options: AgentOptions::default(),
         turns: 1,
         // Named at the end of its first Turn, once there is work to name.
         title: None,
+        user_title: None,
+        color: None,
         spawned_at: now,
         turn_started_at: Some(now),
         exited_at: None,

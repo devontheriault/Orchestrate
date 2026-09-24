@@ -9,12 +9,12 @@ use serde::Serialize;
 use tauri::State;
 use time::OffsetDateTime;
 
-use crate::domain::{new_id, Agent, AgentEvent, AgentState, Project};
+use crate::domain::{new_id, Agent, AgentEvent, AgentOptions, AgentState, Project};
 use crate::error::Error;
 use crate::git::{self, Branches, Commit, Merged, WorktreeDiff};
 use crate::models::ModelInfo;
 use crate::runtime::AgentRuntime;
-use crate::slash::SlashCommand;
+use crate::slash::Offered;
 use crate::usage::UsageSummary;
 use crate::{merging, paths, storage, worktree};
 
@@ -79,6 +79,7 @@ pub async fn list_agents() -> Result<Vec<Agent>, String> {
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn spawn_agent(
     state: State<'_, AppState>,
     project_id: String,
@@ -87,6 +88,7 @@ pub async fn spawn_agent(
     model: Option<String>,
     effort: Option<String>,
     permission_mode: Option<String>,
+    options: AgentOptions,
 ) -> Result<Agent, String> {
     let reg = storage::Registry::load().map_err(err)?;
     let project = reg
@@ -94,7 +96,15 @@ pub async fn spawn_agent(
         .ok_or_else(|| format!("project not found: {project_id}"))?;
     state
         .runtime
-        .spawn(project, prompt, attachments, model, effort, permission_mode)
+        .spawn(
+            project,
+            prompt,
+            attachments,
+            model,
+            effort,
+            permission_mode,
+            options,
+        )
         .await
         .map_err(err)
 }
@@ -122,6 +132,50 @@ pub async fn resume_agent(
             effort,
             permission_mode,
         )
+        .await
+        .map_err(err)
+}
+
+/// Give an Agent the user's own Title, or with `None` hand the naming back to
+/// Claude. Allowed while it works, like the other edits.
+#[tauri::command]
+pub async fn rename_agent(
+    state: State<'_, AppState>,
+    agent_id: String,
+    name: Option<String>,
+) -> Result<Agent, String> {
+    let name = name.map(|n| n.trim().to_string()).filter(|n| !n.is_empty());
+    state
+        .runtime
+        .edit(&agent_id, |a| a.user_title = name)
+        .await
+        .map_err(err)
+}
+
+/// Tag an Agent with a colour, or with `None` untag it.
+#[tauri::command]
+pub async fn set_agent_color(
+    state: State<'_, AppState>,
+    agent_id: String,
+    color: Option<String>,
+) -> Result<Agent, String> {
+    state
+        .runtime
+        .edit(&agent_id, |a| a.color = color)
+        .await
+        .map_err(err)
+}
+
+/// Set how an Agent's Turns run from its next one on.
+#[tauri::command]
+pub async fn set_agent_options(
+    state: State<'_, AppState>,
+    agent_id: String,
+    options: AgentOptions,
+) -> Result<Agent, String> {
+    state
+        .runtime
+        .edit(&agent_id, |a| a.options = options)
         .await
         .map_err(err)
 }
@@ -346,13 +400,11 @@ pub async fn list_models() -> Result<Vec<ModelInfo>, String> {
 }
 
 /// The slash commands `claude` would accept from a Turn started in `dir`, for
-/// the composer's `/` menu: its built-ins, the user's skills and plugins, and
-/// whatever the Project in `dir` defines for itself.
+/// the composer's `/` menu — its built-ins, the user's skills and plugins, and
+/// whatever the Project in `dir` defines for itself — and the output styles it
+/// would take, for the Agent options.
 #[tauri::command]
-pub async fn slash_commands(
-    state: State<'_, AppState>,
-    dir: PathBuf,
-) -> Result<Vec<SlashCommand>, String> {
+pub async fn slash_commands(state: State<'_, AppState>, dir: PathBuf) -> Result<Offered, String> {
     crate::slash::list(state.runtime.claude_bin(), &dir)
         .await
         .map_err(err)

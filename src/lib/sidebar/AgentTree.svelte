@@ -7,6 +7,7 @@
   import { store } from "$lib/state/store.svelte";
   import { models } from "$lib/state/models.svelte";
   import type { Agent } from "$lib/api";
+  import { tagColor } from "$lib/theme/tags";
   import { rowDetail } from "./agentRow";
   import { glide, measure } from "./flip";
 
@@ -314,7 +315,13 @@
           onkeydown={(e) => e.key === "Enter" && pick(a.id)}
           title={`${a.task.prompt}\n\n${a.id}${a.model ? ` · ${models.name(a.model)}` : ""}`}
         >
-          <span class="name">{store.agentName(a)}</span>
+          <span class="name">
+            {#if tagColor(a.color)}<span
+                class="tag"
+                style:background={tagColor(a.color)}
+                title={`Tagged ${a.color}`}
+              ></span>{/if}{store.agentName(a)}
+          </span>
           {#if a.state === "running"}
             <span class="age live" title="Working for {runTime(a)}">{runTime(a)}</span>
           {:else}
@@ -630,6 +637,17 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  /* The colour the user tagged it with (`/color`): a dot leading the name, so
+     a glance down the list finds it without the whole row changing colour. */
+  .tag {
+    display: inline-block;
+    width: 0.5rem;
+    height: 0.5rem;
+    margin-right: var(--space-2);
+    border-radius: var(--radius-circle);
+    vertical-align: 0.05em;
   }
 
   /* Held to the row's right edge: on a running row the column is as wide as

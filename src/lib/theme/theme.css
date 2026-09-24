@@ -115,6 +115,20 @@
      `color-scheme`, so the named themes get the right one for free. */
   --brand-signal: light-dark(#0e9f4e, #3df58a);
 
+  /* ------------------------------------------------------------------ TAGS
+     The colours a user can tag an agent with (`/color`). Named for the hue,
+     against the rule above, because the hue is what the user picks by name —
+     "red" has to be red in every theme. Deeper on a light page, lighter on a
+     dark one, the same way the brand green is. */
+  --tag-red: light-dark(#dc2626, #f87171);
+  --tag-orange: light-dark(#ea580c, #fb923c);
+  --tag-yellow: light-dark(#ca8a04, #facc15);
+  --tag-green: light-dark(#16a34a, #4ade80);
+  --tag-cyan: light-dark(#0891b2, #22d3ee);
+  --tag-blue: light-dark(#2563eb, #60a5fa);
+  --tag-purple: light-dark(#9333ea, #c084fc);
+  --tag-pink: light-dark(#db2777, #f472b6);
+
   /* ------------------------------------------------------------ TYPOGRAPHY */
 
   /* The whole app is set in JetBrains Mono, bundled from

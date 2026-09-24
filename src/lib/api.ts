@@ -46,6 +46,8 @@ export type Agent = {
    * it. Null = YOLO, the mode every agent ran in before the picker existed.
    */
   permission_mode?: string | null;
+  /** The rest of how its turns run, set for the agent as a whole. Absent on older agents. */
+  options?: AgentOptions;
   /** Turns started so far, including the opening one. */
   turns: number;
   /**
@@ -55,6 +57,10 @@ export type Agent = {
    * prompt via `store.agentName`.
    */
   title?: string | null;
+  /** The Title the user gave it with `/rename`. Wins over `title`. */
+  user_title?: string | null;
+  /** The colour the user tagged it with, from `/color`: one of `TAGS`. */
+  color?: string | null;
   spawned_at: string;
   /** When the current (or last) turn began. Absent on agents recorded before turn timing. */
   turn_started_at?: string | null;
@@ -74,6 +80,17 @@ export type Agent = {
    * that merge and records it on both.
    */
   resolves?: Resolution | null;
+};
+
+/**
+ * Claude Code settings an agent's every turn runs with, set once rather than
+ * picked per prompt. Null leaves each to Claude Code's own configuration.
+ */
+export type AgentOptions = {
+  /** The model Claude consults at key moments: "fable", "opus", "sonnet" or "off". */
+  advisor?: string | null;
+  /** The output style, by the name `claude` lists it under, e.g. "Concise". */
+  output_style?: string | null;
 };
 
 export type Resolution = {
@@ -107,6 +124,13 @@ export type SlashCommand = {
   argument_hint: string;
   /** Other names `claude` accepts for it, e.g. "tdd". */
   aliases: string[];
+};
+
+/** What `claude` offers a turn started in one directory. */
+export type Offered = {
+  commands: SlashCommand[];
+  /** Output styles by name, "default" first. */
+  output_styles: string[];
 };
 
 export type ChangedFile = {
@@ -259,6 +283,7 @@ export const api = {
     model: string | null,
     effort: string | null,
     permissionMode: string | null,
+    options: AgentOptions,
   ) =>
     invoke<Agent>("spawn_agent", {
       projectId,
@@ -267,6 +292,7 @@ export const api = {
       model,
       effort,
       permissionMode,
+      options,
     }),
   resumeAgent: (
     agentId: string,
@@ -284,6 +310,15 @@ export const api = {
       effort,
       permissionMode,
     }),
+  /** Name an agent; null hands the naming back to Claude's title. */
+  renameAgent: (agentId: string, name: string | null) =>
+    invoke<Agent>("rename_agent", { agentId, name }),
+  /** Tag an agent with one of `TAGS`, or untag it with null. */
+  setAgentColor: (agentId: string, color: string | null) =>
+    invoke<Agent>("set_agent_color", { agentId, color }),
+  /** Set how an agent's turns run, from its next one on. */
+  setAgentOptions: (agentId: string, options: AgentOptions) =>
+    invoke<Agent>("set_agent_options", { agentId, options }),
   /**
    * Write a pasted file to disk so it can be attached by path, and return the
    * path. Sent as raw bytes rather than JSON; the name rides in a header,
@@ -324,7 +359,7 @@ export const api = {
     invoke<Branches>("project_branches", { projectId }),
 
   listModels: () => invoke<ModelInfo[]>("list_models"),
-  slashCommands: (dir: string) => invoke<SlashCommand[]>("slash_commands", { dir }),
+  slashCommands: (dir: string) => invoke<Offered>("slash_commands", { dir }),
 
   usageSummary: () => invoke<UsageSummary>("usage_summary"),
 

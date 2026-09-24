@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from "svelte";
   import { theme, THEMES, type ThemePref } from "$lib/theme/theme.svelte";
   import { usage } from "$lib/usage/usage.svelte";
   import {
@@ -117,6 +118,18 @@
     if (!open || !subOpen) return;
     theme.preview = themes[subActive].id;
     return () => (theme.preview = null);
+  });
+
+  // `/theme` with no name asks for the themes: open on them, keys in the list.
+  // Only a request made since this menu mounted counts, so moving between the
+  // rail and the full sidebar doesn't open it again.
+  let requestsSeen = theme.pickerRequests;
+  $effect(() => {
+    const requests = theme.pickerRequests;
+    if (requests === requestsSeen) return;
+    requestsSeen = requests;
+    openMenu();
+    tick().then(() => pick(THEME));
   });
 
   // The menus are pinned to the trigger's position, so anything that moves it

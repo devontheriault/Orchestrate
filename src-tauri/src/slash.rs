@@ -1,7 +1,8 @@
-//! Which slash commands `claude` offers in a directory.
+//! Which slash commands `claude` offers in a directory, and which output styles.
 //!
 //! The composer's `/` menu is filled by asking `claude` itself rather than from
-//! a list baked into the app. Built-in commands, the user's skills and plugins,
+//! a list baked into the app. The same answer lists the output styles, which
+//! the Agent options offer and which live in the same places as commands do. Built-in commands, the user's skills and plugins,
 //! and the Project's own `.claude/commands` and `.claude/skills` all depend on
 //! the Claude Code install and the directory, so only `claude` knows the list.
 //!
@@ -44,8 +45,18 @@ pub struct SlashCommand {
     pub aliases: Vec<String>,
 }
 
-/// Every slash command `claude` would accept from a Turn started in `cwd`.
-pub async fn list(bin: &str, cwd: &Path) -> Result<Vec<SlashCommand>> {
+/// What `claude` offers a Turn started in one directory.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Offered {
+    pub commands: Vec<SlashCommand>,
+    /// Output styles by name, `default` first — built-in, the user's and the
+    /// Project's own.
+    pub output_styles: Vec<String>,
+}
+
+/// Every slash command and output style `claude` would offer a Turn started
+/// in `cwd`.
+pub async fn list(bin: &str, cwd: &Path) -> Result<Offered> {
     let fail = |why: String| Error::SlashCommands(why);
     let mut child = Command::new(bin)
         .arg("--print")
@@ -92,9 +103,9 @@ pub async fn list(bin: &str, cwd: &Path) -> Result<Vec<SlashCommand>> {
         .map_err(|_| fail("`claude` took too long to answer".into()))?
 }
 
-/// The commands in one line of `claude`'s output, if it is the answer to our
+/// What one line of `claude`'s output offers, if it is the answer to our
 /// request. `None` for any other line.
-fn parse_answer(line: &str) -> Option<Result<Vec<SlashCommand>>> {
+fn parse_answer(line: &str) -> Option<Result<Offered>> {
     let v: Value = serde_json::from_str(line).ok()?;
     if v.get("type")?.as_str()? != "control_response" {
         return None;
@@ -110,16 +121,25 @@ fn parse_answer(line: &str) -> Option<Result<Vec<SlashCommand>>> {
             .unwrap_or("`claude` refused to list its commands");
         return Some(Err(Error::SlashCommands(why.to_string())));
     }
-    let commands = response
-        .get("response")
-        .and_then(|r| r.get("commands"))
-        .cloned()
-        .unwrap_or(Value::Array(vec![]));
-    Some(
-        serde_json::from_value::<Vec<SlashCommand>>(commands)
-            .map(offered)
-            .map_err(Error::Json),
-    )
+    let answer = response.get("response");
+    let field = |name: &str| {
+        answer
+            .and_then(|r| r.get(name))
+            .cloned()
+            .unwrap_or(Value::Array(vec![]))
+    };
+    let commands = match serde_json::from_value::<Vec<SlashCommand>>(field("commands")) {
+        Ok(commands) => offered(commands),
+        Err(e) => return Some(Err(Error::Json(e))),
+    };
+    // Only a nicety for the options menu, so a shape we don't recognise
+    // leaves it empty rather than failing the commands too.
+    let output_styles =
+        serde_json::from_value(field("available_output_styles")).unwrap_or_default();
+    Some(Ok(Offered {
+        commands,
+        output_styles,
+    }))
 }
 
 /// Drop the commands `claude` lists for its own plumbing: `__`-prefixed names
@@ -136,16 +156,18 @@ mod tests {
     use super::*;
 
     /// A trimmed copy of a real answer: a plugin skill with an alias, a built-in
-    /// with an argument hint, and an internal command.
+    /// with an argument hint, an internal command, and the output styles.
     const ANSWER: &str = r#"{"type":"control_response","response":{"subtype":"success","request_id":"cw-slash-commands","response":{"commands":[
         {"name":"mattpocock-skills:tdd","description":"(mattpocock-skills) Test-driven development.","argumentHint":"","aliases":["tdd"]},
         {"name":"compact","description":"Free up context by summarizing the conversation so far","argumentHint":"<optional custom summarization instructions>"},
         {"name":"__remote-workflow","description":"Run the workflow script","argumentHint":""}
-    ],"models":[],"pid":1}}}"#;
+    ],"available_output_styles":["default","Concise"],"models":[],"pid":1}}}"#;
 
     #[test]
     fn reads_commands_out_of_the_initialize_answer() {
-        let commands = parse_answer(ANSWER).unwrap().unwrap();
+        let offered = parse_answer(ANSWER).unwrap().unwrap();
+        assert_eq!(offered.output_styles, vec!["default", "Concise"]);
+        let commands = offered.commands;
         let names: Vec<&str> = commands.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(names, vec!["mattpocock-skills:tdd", "compact"]);
         assert_eq!(commands[0].aliases, vec!["tdd"]);
@@ -191,7 +213,10 @@ mod tests {
         std::fs::write(&bin, script).unwrap();
         std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
 
-        let commands = list(bin.to_str().unwrap(), dir.path()).await.unwrap();
+        let commands = list(bin.to_str().unwrap(), dir.path())
+            .await
+            .unwrap()
+            .commands;
         assert_eq!(commands.len(), 2);
         assert_eq!(commands[1].name, "compact");
     }

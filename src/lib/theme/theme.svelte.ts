@@ -127,6 +127,16 @@ class Theme {
     });
   }
 
+  /**
+   * Bumped to ask the settings menu to open on its themes — `/theme` typed
+   * with no name. A count rather than a flag, so asking twice opens it twice.
+   */
+  pickerRequests = $state(0);
+
+  openPicker() {
+    this.pickerRequests++;
+  }
+
   set(pref: ThemePref) {
     this.pref = pref;
     // The choice supersedes whatever was being tried on.

@@ -52,3 +52,20 @@ export function modeLabel(id: string | null | undefined): string {
   if (!id) return modeLabel(DEFAULT_MODE);
   return MODES.find((m) => m.id === id)?.name ?? id;
 }
+
+/**
+ * The advisors an agent can consult, as Claude Code's `advisorModel` setting
+ * takes them. One of an agent's options rather than a per-Turn pick: set once
+ * for the agent, and null leaves it to Claude Code's own configuration.
+ */
+export const ADVISORS = [
+  { id: "off", name: "Off" },
+  { id: "fable", name: "Fable" },
+  { id: "opus", name: "Opus" },
+  { id: "sonnet", name: "Sonnet" },
+] as const;
+
+/** What to call an advisor. Falls back to the id, for one this build predates. */
+export function advisorLabel(id: string): string {
+  return ADVISORS.find((a) => a.id === id)?.name ?? id;
+}

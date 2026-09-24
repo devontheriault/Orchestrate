@@ -1,9 +1,10 @@
 /**
- * The Model, Effort and Mode the user picked last, remembered so a new agent's
- * page opens on their habitual choice instead of resetting every time.
+ * The Model, Effort and Mode the user picked last, and the agent options they
+ * set last, remembered so a new agent's page opens on their habitual choice
+ * instead of resetting every time.
  */
 
-import type { Agent } from "$lib/api";
+import type { Agent, AgentOptions } from "$lib/api";
 import { DEFAULT_EFFORT, DEFAULT_MODE, DEFAULT_MODEL } from "$lib/picks";
 import type { AppStore } from "./store.svelte";
 
@@ -24,11 +25,23 @@ const EFFORT_KEY = "cw:preferred-effort";
 /** The mode the user picked last, stored on the same terms as the model. */
 const MODE_KEY = "cw:preferred-mode";
 
+/** The agent options the user set last, on any agent, as JSON. */
+const OPTIONS_KEY = "cw:preferred-options";
+
 function readStored(key: string): string | null {
   try {
     return localStorage.getItem(key);
   } catch {
     return null;
+  }
+}
+
+function readOptions(): AgentOptions {
+  try {
+    const parsed = JSON.parse(readStored(OPTIONS_KEY) ?? "{}");
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
   }
 }
 
@@ -43,6 +56,13 @@ export class TurnPrefs {
 
   /** The mode the user picked for the most recent Turn. Null = never picked. */
   mode = $state<string | null>(readStored(MODE_KEY));
+
+  /**
+   * The options a new agent spawns with: the last the user set, on this page
+   * or on any agent. Options are set rarely and meant to stick, so a user who
+   * likes Concise replies shouldn't have to say so for every agent.
+   */
+  options = $state<AgentOptions>(readOptions());
 
   constructor(app: AppStore) {
     this.#app = app;
@@ -88,6 +108,16 @@ export class TurnPrefs {
       localStorage.setItem(MODE_KEY, mode);
     } catch {
       // A preference isn't worth failing a turn over.
+    }
+  }
+
+  /** Remember options just set as the ones the next Spawn opens on. */
+  rememberOptions(options: AgentOptions) {
+    this.options = options;
+    try {
+      localStorage.setItem(OPTIONS_KEY, JSON.stringify(options));
+    } catch {
+      // As above.
     }
   }
 }

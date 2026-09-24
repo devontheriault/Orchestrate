@@ -1,19 +1,22 @@
 /**
  * The slash commands `claude` offers, per directory it was asked in: what the
  * composer's `/` menu lists. Per directory because a Project's own commands
- * and skills live in its tree, so two Projects offer different lists.
+ * and skills live in its tree, so two Projects offer different lists. The
+ * output styles come in the same answer, for the same reason.
  */
 
 import { api, type SlashCommand } from "$lib/api";
 
 type Entry = {
   list: SlashCommand[];
+  /** Output styles by name, for `/output-style` and the agent options. */
+  styles: string[];
   loading: boolean;
   /** Why the last ask failed, if it did. Shown in the menu itself. */
   error: string | null;
 };
 
-const EMPTY: Entry = { list: [], loading: false, error: null };
+const EMPTY: Entry = { list: [], styles: [], loading: false, error: null };
 
 class SlashCommands {
   private entries = $state<Record<string, Entry>>({});
@@ -33,7 +36,13 @@ class SlashCommands {
     if (entry.loading) return;
     this.entries[dir] = { ...entry, loading: true };
     try {
-      this.entries[dir] = { list: await api.slashCommands(dir), loading: false, error: null };
+      const offered = await api.slashCommands(dir);
+      this.entries[dir] = {
+        list: offered.commands,
+        styles: offered.output_styles,
+        loading: false,
+        error: null,
+      };
     } catch (e) {
       this.entries[dir] = { ...this.for(dir), loading: false, error: String(e) };
     }

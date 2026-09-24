@@ -66,6 +66,11 @@ pub(super) fn command(
     if let Some(effort) = &agent.effort {
         cmd.arg("--effort").arg(effort);
     }
+    // The Agent's options, layered over the user's own settings. Typed as
+    // `/advisor` or `/output-style` they would last this one process.
+    if let Some(settings) = agent.options.settings() {
+        cmd.arg("--settings").arg(settings);
+    }
     if let Some(session) = &agent.session_id {
         match how {
             Continuity::Fresh => cmd.arg("--session-id").arg(session),
@@ -177,12 +182,19 @@ pub(super) async fn supervise(
     settle(&mut agent, outcome, &stderr_buf);
     let resolved = finish_resolution(&mut agent, &emitter).await;
 
+    // Held across the write, so an edit the user made while the Turn ran (see
+    // `AgentRuntime::edit`) can't land between reading it back and saving.
+    let mut live = live.write().await;
+    if let Ok(on_disk) = storage::load_agent(&agent.id) {
+        agent.keep_edits(&on_disk);
+    }
     let _ = storage::save_agent(&agent);
 
     // Leave the live map *before* announcing, so a UI that reacts to the exit by
     // sending a follow-up doesn't race the removal and be told we're still busy.
     // A no-op if stop() already took us out.
-    live.write().await.remove(&agent.id);
+    live.remove(&agent.id);
+    drop(live);
 
     emitter.announce(&agent);
     if let Some(original) = resolved {
