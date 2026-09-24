@@ -4,8 +4,8 @@
 //!
 //! Almost everything the webview asks is a question for the Host, and goes
 //! through [`host`] untouched (the calls are listed in `host/calls.rs`). What
-//! stays here is what belongs to the window's own machine: the clipboard, and
-//! files the user drops on the window.
+//! stays here is what belongs to the window's own machine: the clipboard,
+//! files the user drops on the window, and the tailnet as it sees it.
 
 use std::path::PathBuf;
 
@@ -16,6 +16,7 @@ use std::sync::Arc;
 
 use crate::host::client::HostLink;
 use crate::host::hosts::{HostInfo, Hosts, LOCAL};
+use crate::host::tailnet::{self, Machine};
 
 fn err<E: std::fmt::Display>(e: E) -> String {
     e.to_string()
@@ -52,6 +53,13 @@ pub fn hosts(hosts: State<'_, Arc<Hosts>>) -> Vec<HostInfo> {
 #[tauri::command]
 pub fn add_host(hosts: State<'_, Arc<Hosts>>, name: String) -> Result<HostInfo, String> {
     hosts.add(&name)
+}
+
+/// The user's other machines on the tailnet, as this machine's Tailscale sees
+/// them, to pick one to add from. Empty when Tailscale isn't running here.
+#[tauri::command]
+pub async fn tailnet_machines() -> Vec<Machine> {
+    tailnet::machines().await.unwrap_or_default()
 }
 
 /// Forget another machine's Host. Its Agents stay on it, untouched.

@@ -14,6 +14,7 @@ use std::pin::Pin;
 use std::process::Stdio;
 use std::sync::Arc;
 
+use serde::Serialize;
 use serde_json::Value;
 use tokio::process::Command;
 
@@ -78,6 +79,60 @@ pub fn peer_user(whois: &Value) -> Option<(u64, String)> {
     ))
 }
 
+/// One of the user's other machines on the tailnet, as the Hosts dialog offers
+/// it. Whether it runs this app, Tailscale can't say: adding it finds out.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Machine {
+    /// Its MagicDNS name, the one to add it by.
+    pub name: String,
+    pub os: String,
+    pub online: bool,
+}
+
+/// The user's other machines, as `tailscale status --json` on this one lists
+/// them. `None` when Tailscale isn't running here.
+pub async fn machines() -> Option<Vec<Machine>> {
+    let status = tailscale(&["status", "--json"]).await.ok()?;
+    Some(own_machines(&serde_json::from_str(&status).ok()?))
+}
+
+/// The peers in `status` that are the same Tailscale user as this machine —
+/// the only ones whose Host would let this window in — and that could run a
+/// Host: not phones. The ones online first.
+pub fn own_machines(status: &Value) -> Vec<Machine> {
+    let Some(me) = own_user(status) else {
+        return Vec::new();
+    };
+    let Some(peers) = status["Peer"].as_object() else {
+        return Vec::new();
+    };
+    let mut machines: Vec<Machine> = peers
+        .values()
+        .filter(|p| p["UserID"].as_u64() == Some(me))
+        .filter_map(|p| {
+            let os = p["OS"].as_str().unwrap_or("").to_owned();
+            if matches!(os.as_str(), "iOS" | "android" | "tvOS") {
+                return None;
+            }
+            // The first label of its MagicDNS name, which is what resolves.
+            // Its HostName is what the machine calls itself, and may not.
+            let name = p["DNSName"]
+                .as_str()
+                .and_then(|n| n.split('.').next())
+                .filter(|n| !n.is_empty())
+                .or_else(|| p["HostName"].as_str())?
+                .to_ascii_lowercase();
+            Some(Machine {
+                name,
+                os,
+                online: p["Online"].as_bool().unwrap_or(false),
+            })
+        })
+        .collect();
+    machines.sort_by(|a, b| b.online.cmp(&a.online).then_with(|| a.name.cmp(&b.name)));
+    machines
+}
+
 async fn tailscale(args: &[&str]) -> Result<String, String> {
     let out = Command::new("tailscale")
         .args(args)
@@ -115,5 +170,43 @@ mod tests {
         });
         assert_eq!(peer_user(&whois), Some((4242, "dev@example.com".into())));
         assert_eq!(peer_user(&json!({ "Node": {} })), None);
+    }
+
+    #[test]
+    fn lists_the_users_own_machines_that_could_run_a_host() {
+        let status = json!({
+            "Self": { "HostName": "omarchy", "UserID": 4242 },
+            "Peer": {
+                "a": { "HostName": "Desktop", "DNSName": "desktop.tail1234.ts.net.",
+                       "UserID": 4242, "OS": "linux", "Online": false },
+                "b": { "HostName": "Devons-MacBook", "DNSName": "laptop.tail1234.ts.net.",
+                       "UserID": 4242, "OS": "macOS", "Online": true },
+                "c": { "HostName": "localhost", "DNSName": "iphone.tail1234.ts.net.",
+                       "UserID": 4242, "OS": "iOS", "Online": true },
+                "d": { "HostName": "shared", "DNSName": "shared.other.ts.net.",
+                       "UserID": 99, "OS": "linux", "Online": true },
+            },
+        });
+        assert_eq!(
+            own_machines(&status),
+            vec![
+                Machine {
+                    name: "laptop".into(),
+                    os: "macOS".into(),
+                    online: true
+                },
+                Machine {
+                    name: "desktop".into(),
+                    os: "linux".into(),
+                    online: false
+                },
+            ]
+        );
+        // Logged out, or alone on the tailnet.
+        assert_eq!(own_machines(&json!({ "BackendState": "Stopped" })), vec![]);
+        assert_eq!(
+            own_machines(&json!({ "Self": { "UserID": 4242 }, "Peer": null })),
+            vec![]
+        );
     }
 }

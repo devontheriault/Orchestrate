@@ -5,27 +5,105 @@
    * it takes — that machine's Host lets this window in if it's the same
    * Tailscale user. Removing one only stops this window listening: the agents
    * there are that machine's, and carry on.
+   *
+   * The name box is a combobox: it drops down the user's machines Tailscale
+   * knows of, and still takes a name typed by hand for one it doesn't list.
    */
   import { hosts } from "$lib/state/hosts.svelte";
   import { store } from "$lib/state/store.svelte";
-  import type { HostStatus } from "$lib/api";
+  import { api, type HostStatus, type Machine } from "$lib/api";
+  import { dismissOnMove, menuStyle, placeMenu, stepActive, type Placement } from "$lib/menus/menu";
+  import { machineChoices, machineNote } from "./machines";
 
   let { onclose }: { onclose: () => void } = $props();
+
+  const uid = $props.id();
 
   let name = $state("");
   let adding = $state(false);
   let error = $state<string | null>(null);
 
+  let machines = $state<Machine[]>([]);
+  api.tailnetMachines().then(
+    (m) => (machines = m),
+    () => {},
+  );
+
+  const choices = $derived(
+    machineChoices(
+      machines,
+      hosts.list.map((h) => h.id),
+      name,
+    ),
+  );
+
+  let open = $state(false);
+  /** The row the arrows are on, or -1 for none: Enter then adds what's typed. */
+  let active = $state(-1);
+  let placement = $state<Placement | null>(null);
+  let listEl: HTMLElement | undefined = $state();
+  let boxEl: HTMLElement | undefined = $state();
+
   let inputEl: HTMLInputElement | undefined = $state();
   $effect(() => inputEl?.focus());
 
-  async function add(e: SubmitEvent) {
-    e.preventDefault();
-    if (!name.trim() || adding) return;
+  function openMenu() {
+    if (!boxEl || !machines.length) return;
+    placement = placeMenu(boxEl, { minWidth: 240, maxHeight: 240, align: "left" });
+    open = true;
+  }
+
+  function closeMenu() {
+    open = false;
+    active = -1;
+  }
+
+  $effect(() => {
+    if (!open) return;
+    return dismissOnMove(() => [listEl, boxEl], closeMenu);
+  });
+
+  // What's typed narrows the list; the highlight starts over with it.
+  $effect(() => {
+    choices;
+    active = -1;
+  });
+
+  $effect(() => {
+    if (active < 0) return;
+    listEl?.querySelector<HTMLElement>('[data-active="true"]')?.scrollIntoView({ block: "nearest" });
+  });
+
+  async function addNamed(n: string) {
+    if (!n.trim() || adding) return;
+    closeMenu();
     adding = true;
-    error = await hosts.add(name);
+    error = await hosts.add(n);
     adding = false;
     if (!error) name = "";
+  }
+
+  function add(e: SubmitEvent) {
+    e.preventDefault();
+    const picked = open ? choices[active] : undefined;
+    addNamed(picked ? picked.name : name);
+  }
+
+  function onInputKeydown(e: KeyboardEvent) {
+    if (e.key === "Escape" && open) {
+      // Just the list: the dialog stays.
+      e.preventDefault();
+      e.stopPropagation();
+      closeMenu();
+      return;
+    }
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    e.preventDefault();
+    if (!open) {
+      openMenu();
+      return;
+    }
+    if (choices.length) active = stepActive(e.key, active, choices.length) ?? active;
   }
 
   async function remove(id: string) {
@@ -94,18 +172,101 @@
     </ul>
 
     <form onsubmit={add}>
-      <input
-        bind:this={inputEl}
-        bind:value={name}
-        placeholder="Tailscale name, like desktop"
-        aria-label="Tailscale name of the machine to add"
-        spellcheck="false"
-        autocomplete="off"
-      />
+      <div class="box" bind:this={boxEl}>
+        <input
+          bind:this={inputEl}
+          bind:value={name}
+          placeholder={machines.length
+            ? "Pick a machine, or type its Tailscale name"
+            : "Tailscale name, like desktop"}
+          aria-label="Tailscale name of the machine to add"
+          role="combobox"
+          aria-autocomplete="list"
+          aria-expanded={open}
+          aria-controls={`${uid}-machines`}
+          aria-activedescendant={open && active >= 0 ? `${uid}-m-${active}` : undefined}
+          spellcheck="false"
+          autocomplete="off"
+          onclick={openMenu}
+          oninput={openMenu}
+          onkeydown={onInputKeydown}
+        />
+        {#if machines.length}
+          <button
+            type="button"
+            class="chevron"
+            tabindex="-1"
+            aria-label="Your machines"
+            onclick={() => {
+              if (open) closeMenu();
+              else openMenu();
+              inputEl?.focus();
+            }}
+          >
+            <svg viewBox="0 0 10 6" width="10" height="6" aria-hidden="true">
+              <path
+                d="M1 1l4 4 4-4"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </button>
+        {/if}
+      </div>
       <button class="btn btn-primary" disabled={!name.trim() || adding}>
         {adding ? "Adding…" : "Add"}
       </button>
     </form>
+    <!-- Ours rather than a native <select>, and fixed: see menu.ts. -->
+    {#if open && placement}
+      <!-- Pressing a row mustn't take focus from the box: it keeps the keyboard. -->
+      <div
+        class="popover"
+        style={menuStyle(placement)}
+        onpointerdown={(e) => e.preventDefault()}
+        role="presentation"
+      >
+        {#if choices.length}
+          <ul
+            bind:this={listEl}
+            id={`${uid}-machines`}
+            class="menu"
+            role="listbox"
+            aria-label="Your machines"
+          >
+            {#each choices as m, i (m.name)}
+              <!-- The box owns the keyboard, as a combobox's input does. -->
+              <!-- svelte-ignore a11y_click_events_have_key_events -->
+              <li
+                id={`${uid}-m-${i}`}
+                role="option"
+                aria-selected={i === active}
+                data-active={i === active}
+                class="menu-item machine"
+                class:offline={!m.online}
+                onclick={() => addNamed(m.name)}
+                onpointermove={() => (active = i)}
+              >
+                <span class={`status-dot status-${m.online ? "completed" : "failed"}`}></span>
+                <span class="lines">
+                  <span class="menu-label">{m.name}</span>
+                  <span class="note">{machineNote(m)}</span>
+                </span>
+              </li>
+            {/each}
+          </ul>
+        {:else}
+          <p class="empty">
+            {name.trim()
+              ? "None of your machines is called that — Add tries it anyway."
+              : "Every machine Tailscale lists is already here."}
+          </p>
+        {/if}
+      </div>
+    {/if}
     {#if error}<p class="error">{error}</p>{/if}
     <p class="hint">
       The machine needs this app installed, and Tailscale running and logged in as you. Only your
@@ -206,6 +367,63 @@
     gap: var(--space-3);
   }
 
+  .box {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+    display: flex;
+  }
+
+  .chevron {
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: none;
+    color: var(--fg-muted);
+    cursor: pointer;
+  }
+
+  .chevron:hover {
+    color: var(--fg);
+  }
+
+  .machine {
+    align-items: flex-start;
+  }
+
+  .machine .status-dot {
+    margin-top: 0.4rem;
+  }
+
+  .offline {
+    opacity: 0.6;
+  }
+
+  .lines {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    min-width: 0;
+  }
+
+  .note {
+    color: var(--fg-muted);
+    font-size: var(--text-xs);
+  }
+
+  .empty {
+    margin: 0;
+    padding: 0.7rem 0.85rem;
+    color: var(--fg-muted);
+    font-size: var(--text-sm);
+  }
+
   input {
     flex: 1;
     min-width: 0;
@@ -216,6 +434,10 @@
     border-radius: var(--radius-sm);
     background: var(--panel-bg);
     color: var(--fg);
+  }
+
+  .box:has(.chevron) input {
+    padding-right: 2rem;
   }
 
   input:focus {

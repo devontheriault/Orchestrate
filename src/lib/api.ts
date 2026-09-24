@@ -356,10 +356,20 @@ export type HostInfo = {
   status: HostStatus;
 };
 
+/** One of the user's other machines on the tailnet, to add as a Host. */
+export type Machine = {
+  /** Its MagicDNS name, the one to add it by. */
+  name: string;
+  os: string;
+  online: boolean;
+};
+
 export const api = {
   /** Every Host this window knows, and where it stands with each. */
   hosts: () => invoke<HostInfo[]>("hosts"),
   addHost: (name: string) => invoke<HostInfo>("add_host", { name }),
+  /** The user's other machines, as this machine's Tailscale sees them. */
+  tailnetMachines: () => invoke<Machine[]>("tailnet_machines"),
   removeHost: (id: string) => invoke<void>("remove_host", { id }),
 
   /** Note which Host an agent lives on, so calls about it go there. */
