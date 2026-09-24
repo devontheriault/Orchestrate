@@ -45,11 +45,16 @@ struct AgentEventPayload {
 /// doesn't speak it, and GTK falls back to drawing its own titlebar. So the
 /// window stays undecorated and the UI is told, before its first frame, to
 /// leave the controls and resize edges off (see `platform.ts`).
+///
+/// It gets no minimum size there either. A tile is whatever size the layout
+/// makes it, and one smaller than the minimum doesn't grow to fit — GTK draws
+/// the window at its minimum anyway and the compositor crops the rest, which
+/// cuts off the composer and the settings button at the bottom. The UI copes
+/// with any size it's given.
 fn build_main_window(app: &tauri::AppHandle) -> tauri::Result<()> {
     let win = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
         .title("Claude Wrapper")
-        .inner_size(1280.0, 800.0)
-        .min_inner_size(560.0, 420.0);
+        .inner_size(1280.0, 800.0);
 
     #[cfg(target_os = "macos")]
     let win = win
@@ -60,10 +65,14 @@ fn build_main_window(app: &tauri::AppHandle) -> tauri::Result<()> {
     let win = win.decorations(false);
 
     #[cfg(target_os = "linux")]
-    let win = if is_tiling_compositor(|k| std::env::var(k).ok()) {
+    let tiled = is_tiling_compositor(|k| std::env::var(k).ok());
+    #[cfg(not(target_os = "linux"))]
+    let tiled = false;
+
+    let win = if tiled {
         win.initialization_script("window.__COMPOSITOR_OWNS_FRAME__ = true;")
     } else {
-        win
+        win.min_inner_size(560.0, 420.0)
     };
 
     win.build()?;
