@@ -47,8 +47,6 @@ export const APP_COMMANDS: MenuCommand[] = [
  * stop — `/loop` claims to have scheduled a job in a process about to exit.
  */
 const WITHHELD: Record<string, string> = {
-  clear:
-    "each agent here is one conversation, and clearing it would leave the transcript on screen over an empty session. Spawn a new agent (n) to start fresh.",
   fast: "fast mode isn't available to apps built on Claude Code.",
   loop: "it needs a session that stays open between runs, and each reply here is a fresh claude that exits when it's done.",
   batch: "it would spawn agents in worktrees this app can't see or stop. Spawn them here instead.",
