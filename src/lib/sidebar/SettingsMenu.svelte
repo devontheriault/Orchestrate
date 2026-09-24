@@ -4,6 +4,8 @@
   import { usage } from "$lib/usage/usage.svelte";
   import { api } from "$lib/api";
   import { store } from "$lib/state/store.svelte";
+  import { hosts } from "$lib/state/hosts.svelte";
+  import HostsDialog from "./HostsDialog.svelte";
   import {
     dismissOnMove,
     menuStyle,
@@ -20,17 +22,21 @@
   const uid = $props.id();
 
   /**
-   * The menu's own rows: Theme, which opens the themes beside it, Usage, and —
-   * when this machine's Host runs as a service — whether it keeps the agents
-   * running while the user is logged out.
+   * The menu's own rows: Theme, which opens the themes beside it, Usage, the
+   * Hosts this window talks to, and — when this machine's Host runs as a
+   * service — whether it keeps the agents running while the user is logged out.
    */
   const THEME = 0;
   const USAGE = 1;
-  const KEEP = 2;
+  const HOSTS = 2;
+  const KEEP = 3;
 
   /** Asked of the Host each time the menu opens; null hides the row. */
   let keepRunning = $state<boolean | null>(null);
-  const count = $derived(keepRunning === null ? 2 : 3);
+  const count = $derived(keepRunning === null ? 3 : 4);
+
+  /** The Hosts dialog is up. */
+  let managingHosts = $state(false);
 
   async function loadKeepRunning() {
     try {
@@ -131,6 +137,11 @@
     if (i === USAGE) {
       close();
       usage.show();
+      return;
+    }
+    if (i === HOSTS) {
+      close();
+      managingHosts = true;
       return;
     }
     // Stays open, so the tick can be seen to move.
@@ -364,6 +375,25 @@
       <kbd>Ctrl + Shift + U</kbd>
     </div>
 
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <div
+      id={`${uid}-item-${HOSTS}`}
+      role="menuitem"
+      tabindex="-1"
+      data-active={!inSub && active === HOSTS}
+      class="menu-item"
+      onclick={() => pick(HOSTS)}
+      onpointermove={() => {
+        active = HOSTS;
+        closeSub();
+      }}
+      title="Your other machines, whose agents this window shows too"
+    >
+      <span class="menu-tick" aria-hidden="true"></span>
+      <span class="menu-label">Hosts…</span>
+      <span class="menu-note">{hosts.list.length}</span>
+    </div>
+
     {#if keepRunning !== null}
       <!-- svelte-ignore a11y_click_events_have_key_events -->
       <div
@@ -385,6 +415,10 @@
       </div>
     {/if}
   </div>
+{/if}
+
+{#if managingHosts}
+  <HostsDialog onclose={() => (managingHosts = false)} />
 {/if}
 
 {#if open && subOpen && subPlacement}

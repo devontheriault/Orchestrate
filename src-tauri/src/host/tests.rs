@@ -9,8 +9,9 @@ use tokio::net::unix::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::task::JoinHandle;
 
-use super::client::{HostLink, Status};
+use super::client::{HostLink, Status, Target};
 use super::protocol::{Frame, Hello, PROTOCOL};
+use super::tailnet::Vet;
 use super::*;
 use crate::storage;
 use crate::test_util::{init_repo, write_script, StateEnv};
@@ -42,7 +43,7 @@ fn host_on(socket: &Path, claude: &str) -> (Arc<Host>, JoinHandle<()>) {
     let (rt, rx) = AgentRuntime::with_bin(claude);
     let host = Host::new(rt, rx, vec![]);
     let listener = UnixListener::bind(socket).unwrap();
-    let serving = tokio::spawn(serve(host.clone(), listener));
+    let serving = tokio::spawn(serve(host.clone(), listener, None));
     (host, serving)
 }
 
@@ -291,8 +292,15 @@ async fn a_link_starts_a_host_and_follows_it_to_its_successor() {
             heard.lock().unwrap().push((name.to_string(), payload));
         })
     };
-    let link = HostLink::new(socket.clone(), start, notify);
-    tokio::spawn(link.clone().run());
+    let link = HostLink::new(
+        Target::Local {
+            socket: socket.clone(),
+            start,
+        },
+        notify,
+    );
+    let (_stop, stopped) = tokio::sync::watch::channel(false);
+    tokio::spawn(link.clone().run(stopped));
 
     assert_eq!(link.call("list_projects", json!({})).await, Ok(json!([])));
     assert_eq!(started.load(Ordering::SeqCst), 1);
@@ -401,4 +409,155 @@ async fn an_attachment_sent_to_the_host_is_a_copy_it_keeps() {
         .call("store_attachment", json!({ "name": "x", "data": "%%%" }))
         .await;
     assert!(garbled.unwrap_err().contains("didn't arrive intact"));
+}
+
+/// A Host this machine can also reach over TCP, as another machine would over
+/// the tailnet, letting in whoever `vet` does. Returns where it listens.
+async fn host_on_tcp(socket: &Path, claude: &str, vet: Vet) -> (Arc<Host>, std::net::SocketAddr) {
+    let (rt, rx) = AgentRuntime::with_bin(claude);
+    let host = Host::new(rt, rx, vec![]);
+    let local = UnixListener::bind(socket).unwrap();
+    let tcp = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = tcp.local_addr().unwrap();
+    tokio::spawn(serve(host.clone(), local, Some((tcp, vet))));
+    (host, addr)
+}
+
+fn remote_link(addr: std::net::SocketAddr) -> HostLink {
+    let link = HostLink::new(
+        Target::Remote {
+            address: addr.to_string(),
+        },
+        Arc::new(|_: &str, _: Value| {}),
+    );
+    let (stop, stopped) = tokio::sync::watch::channel(false);
+    // Kept alive for the test's length; dropping the sender stops nothing.
+    std::mem::forget(stop);
+    tokio::spawn(link.clone().run(stopped));
+    link
+}
+
+#[tokio::test]
+async fn a_window_on_another_machine_is_served_once_vetted() {
+    let _env = StateEnv::new();
+    let socket = paths::host_socket().unwrap();
+    let asked = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let vet: Vet = {
+        let asked = asked.clone();
+        Arc::new(move |peer| {
+            asked.lock().unwrap().push(peer);
+            Box::pin(async { Ok(()) })
+        })
+    };
+    let (_host, addr) = host_on_tcp(&socket, &fake_claude_ok(), vet).await;
+
+    let link = remote_link(addr);
+    assert_eq!(link.call("list_agents", json!({})).await, Ok(json!([])));
+    assert_eq!(
+        asked.lock().unwrap().len(),
+        1,
+        "every remote window is vetted"
+    );
+    let Status::Connected { name, .. } = link.status() else {
+        panic!("not connected: {:?}", link.status());
+    };
+    assert_eq!(name, protocol::machine_name());
+}
+
+#[tokio::test]
+async fn a_window_the_vet_refuses_is_told_why_and_served_nothing() {
+    let _env = StateEnv::new();
+    let socket = paths::host_socket().unwrap();
+    let vet: Vet = Arc::new(|_| {
+        Box::pin(async { Err("stranger@example.com isn't this machine's user".to_string()) })
+    });
+    let (_host, addr) = host_on_tcp(&socket, &fake_claude_ok(), vet).await;
+
+    let link = remote_link(addr);
+    let refused = tokio::time::timeout(PATIENCE, async {
+        loop {
+            if let Status::Refused { reason } = link.status() {
+                return reason;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("never told it was refused");
+    assert!(refused.contains("stranger@example.com"));
+    let call = link.call("list_agents", json!({})).await.unwrap_err();
+    assert!(call.contains("refused"), "{call}");
+}
+
+#[tokio::test]
+async fn only_a_window_on_the_hosts_own_machine_can_restart_it() {
+    let _env = StateEnv::new();
+    let socket = paths::host_socket().unwrap();
+    let open: Vet = Arc::new(|_| Box::pin(async { Ok(()) }));
+    let (_host, addr) = host_on_tcp(&socket, &fake_claude_ok(), open).await;
+
+    let link = remote_link(addr);
+    let refused = link.call("shutdown_when_idle", json!({})).await;
+    assert!(refused.unwrap_err().contains("own machine"));
+
+    let (mut local, _) = Window::open(&socket).await;
+    assert_eq!(
+        local.call("shutdown_when_idle", json!({})).await,
+        Ok(json!(null))
+    );
+}
+
+#[tokio::test]
+async fn projects_are_listed_with_their_remote_and_can_be_cloned_onto_a_host() {
+    let _env = StateEnv::new();
+    let upstream = init_repo().await;
+    let socket = paths::host_socket().unwrap();
+    let (_host, _serving) = host_on(&socket, &fake_claude_ok());
+    let (mut window, _) = Window::open(&socket).await;
+
+    // Registered here with no remote: listed as such.
+    add_project(&mut window, upstream.path()).await;
+    let listed = window.call("list_projects", json!({})).await.unwrap();
+    assert_eq!(listed[0]["remote"], Value::Null);
+    assert_eq!(listed[0]["cloned"], false);
+
+    let url = upstream.path().to_str().unwrap();
+    let cloned = window
+        .call("clone_project", json!({ "name": "My Proj", "url": url }))
+        .await
+        .unwrap();
+    assert_eq!(cloned["cloned"], true);
+    assert_eq!(cloned["remote"], url);
+    let path = std::path::PathBuf::from(cloned["path"].as_str().unwrap());
+    assert!(path.starts_with(paths::checkouts_dir().unwrap()));
+    assert!(path.join(".git").exists());
+
+    // And an Agent can start there straight away.
+    let agent = spawn(&mut window, cloned["id"].as_str().unwrap()).await;
+    assert_eq!(window.exit_of(&agent).await["state"], "completed");
+}
+
+#[tokio::test]
+async fn a_new_agent_is_heard_of_by_every_window_as_it_starts() {
+    let _env = StateEnv::new();
+    let repo = init_repo().await;
+    let socket = paths::host_socket().unwrap();
+    let (_host, _serving) = host_on(&socket, &fake_claude_hang());
+
+    let (mut spawner, _) = Window::open(&socket).await;
+    let (mut watcher, _) = Window::open(&socket).await;
+    let project = add_project(&mut spawner, repo.path()).await;
+    let agent = spawn(&mut spawner, &project).await;
+
+    let heard = loop {
+        let (name, payload) = watcher.event().await;
+        if name == "agent-state-changed" && payload["id"] == agent {
+            break payload;
+        }
+    };
+    assert_eq!(heard["state"], "running");
+    spawner
+        .call("stop_agent", json!({ "agentId": agent }))
+        .await
+        .unwrap();
 }

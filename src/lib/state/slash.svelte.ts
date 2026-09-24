@@ -21,9 +21,12 @@ const EMPTY: Entry = { list: [], styles: [], loading: false, error: null };
 class SlashCommands {
   private entries = $state<Record<string, Entry>>({});
 
-  /** What's known for `dir` — empty until the first ask comes back. */
-  for(dir: string | null | undefined): Entry {
-    return (dir && this.entries[dir]) || EMPTY;
+  /**
+   * What's known for `dir` on `host` — empty until the first ask comes back.
+   * Keyed by both: a project is often at the same path on every machine.
+   */
+  for(host: string, dir: string | null | undefined): Entry {
+    return (dir && this.entries[`${host}:${dir}`]) || EMPTY;
   }
 
   /**
@@ -31,20 +34,21 @@ class SlashCommands {
    * skills get added mid-session, and the ask costs no tokens. The last list
    * stays up while it runs, so the menu never blanks on a reopen.
    */
-  async load(dir: string) {
-    const entry = this.for(dir);
+  async load(host: string, dir: string) {
+    const key = `${host}:${dir}`;
+    const entry = this.for(host, dir);
     if (entry.loading) return;
-    this.entries[dir] = { ...entry, loading: true };
+    this.entries[key] = { ...entry, loading: true };
     try {
-      const offered = await api.slashCommands(dir);
-      this.entries[dir] = {
+      const offered = await api.slashCommands(host, dir);
+      this.entries[key] = {
         list: offered.commands,
         styles: offered.output_styles,
         loading: false,
         error: null,
       };
     } catch (e) {
-      this.entries[dir] = { ...this.for(dir), loading: false, error: String(e) };
+      this.entries[key] = { ...this.for(host, dir), loading: false, error: String(e) };
     }
   }
 }

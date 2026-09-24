@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use time::OffsetDateTime;
 
-use super::Host;
+use super::{Host, Peer};
 use crate::domain::{new_id, Agent, AgentOptions, AgentState, Project, QueuedMessage};
 use crate::error::Error;
 use crate::git::{self, Merged};
@@ -42,6 +42,13 @@ pub enum Call {
     },
     RemoveProject {
         id: String,
+    },
+    /// Clone a Project this Host has no checkout of, from its remote, so an
+    /// Agent can be spawned here. Trusted already: the user trusted the
+    /// repository when they registered it on another machine.
+    CloneProject {
+        name: String,
+        url: String,
     },
     ListAgents {},
     SpawnAgent {
@@ -166,6 +173,22 @@ pub enum Call {
     ShutdownWhenIdle {},
 }
 
+/// A Project as a window sees it: the record, and where its remote is. The
+/// remote is read afresh each time rather than stored, since the user can
+/// change it, and it is how a window knows that checkouts on two Hosts are one
+/// Project.
+#[derive(Debug, Serialize)]
+pub struct ListedProject {
+    #[serde(flatten)]
+    pub project: Project,
+    pub remote: Option<String>,
+}
+
+async fn listed(project: Project) -> ListedProject {
+    let remote = git::remote_url(&project.path).await;
+    ListedProject { project, remote }
+}
+
 /// How a Merge the user asked for came out. A conflict is an outcome rather
 /// than an error: the Project is untouched, and the UI offers to Resolve it.
 #[derive(Debug, Serialize)]
@@ -184,16 +207,49 @@ fn ok<T: Serialize>(value: T) -> Result<Value, String> {
 }
 
 /// Answer one call from its raw JSON.
-pub async fn answer(host: &Host, call: Value) -> Result<Value, String> {
+pub async fn answer(host: &Host, call: Value, peer: Peer) -> Result<Value, String> {
     let call: Call =
         serde_json::from_value(call).map_err(|e| format!("the Host can't read this call: {e}"))?;
+    // Only a window on this machine may restart its Host. One from another
+    // machine is running whatever build *that* machine has, and asking this
+    // Host to make way for it would bring back this machine's own build —
+    // which it would then ask to make way again.
+    if matches!(call, Call::ShutdownWhenIdle {}) && peer != Peer::Local {
+        return Err("only a window on the Host's own machine can restart it".into());
+    }
     handle(host, call).await
 }
 
 async fn handle(host: &Host, call: Call) -> Result<Value, String> {
     let runtime = &host.runtime;
     match call {
-        Call::ListProjects {} => ok(storage::Registry::load().map_err(err)?.projects),
+        Call::ListProjects {} => {
+            let mut projects = Vec::new();
+            for p in storage::Registry::load().map_err(err)?.projects {
+                projects.push(listed(p).await);
+            }
+            ok(projects)
+        }
+
+        Call::CloneProject { name, url } => {
+            let id = new_id();
+            let path = paths::checkouts_dir().map_err(err)?.join(format!(
+                "{}-{id}",
+                name.replace(|c: char| !c.is_ascii_alphanumeric() && c != '-', "_")
+            ));
+            git::clone(&url, &path).await.map_err(err)?;
+            let mut reg = storage::Registry::load().map_err(err)?;
+            let project = Project {
+                id,
+                name,
+                path,
+                added_at: OffsetDateTime::now_utc(),
+                cloned: true,
+            };
+            reg.projects.push(project.clone());
+            reg.save().map_err(err)?;
+            ok(listed(project).await)
+        }
 
         Call::ProjectNeedsSetup { path } => ok(!git::has_commits(&path).await),
 
@@ -210,10 +266,11 @@ async fn handle(host: &Host, call: Call) -> Result<Value, String> {
                 name,
                 path,
                 added_at: OffsetDateTime::now_utc(),
+                cloned: false,
             };
             reg.projects.push(project.clone());
             reg.save().map_err(err)?;
-            ok(project)
+            ok(listed(project).await)
         }
 
         Call::RemoveProject { id } => {

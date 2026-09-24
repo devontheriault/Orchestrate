@@ -4,9 +4,13 @@
  * deserialize from (`src-tauri/src/domain.rs`, `git/`, `usage/`), so a field
  * added there is added here.
  *
- * Nearly every call is for the Host, the process that owns the Agents, and
- * goes through `host()`; the window passes it on untouched. The few left on
- * `invoke` are the window's own: the clipboard and files dropped on it.
+ * Nearly every call is for a Host, the process that owns a machine's Agents,
+ * and goes through `host()`; the window passes it on untouched. There is one
+ * Host per machine the window knows (see `state/hosts.svelte.ts`): `local`,
+ * this machine's, and any added by Tailscale name. A call about an Agent goes
+ * to the Host the Agent lives on, looked up in `agentHosts`; everything else
+ * names its Host. The few calls left on `invoke` are the window's own: the
+ * clipboard, files dropped on it, and the list of Hosts.
  */
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
@@ -18,11 +22,18 @@ export type AgentState =
   | "stopped"
   | "orphaned";
 
+/** A checkout on one Host, as that Host lists it. */
 export type Project = {
   id: string;
   name: string;
   path: string;
   added_at: string;
+  /** Cloned by the Host itself for an agent spawned onto it from elsewhere. */
+  cloned: boolean;
+  /** Where its remote is, as git has it; null for a repository with none. */
+  remote: string | null;
+  /** The Host it's on. Stamped by the window as it lists them. */
+  host: string;
 };
 
 export type Task = {
@@ -33,7 +44,16 @@ export type Task = {
 
 export type Agent = {
   id: string;
+  /**
+   * The project it belongs to. As the Host sends it, that Host's own id for
+   * its checkout; the store swaps in the id of the project as the window
+   * groups them — one project across every Host with a checkout of it — and
+   * keeps the Host's in `home_project_id`.
+   */
   project_id: string;
+  home_project_id?: string;
+  /** The Host it lives on. */
+  host: string;
   task: Task;
   state: AgentState;
   worktree_path: string;
@@ -295,33 +315,78 @@ export type AgentEventPayload = {
   event: AgentEvent;
 };
 
-/** Ask the Host something. The call names and arguments are `host/calls.rs`'s. */
-const host = <T>(method: string, args: Record<string, unknown> = {}) =>
-  invoke<T>("host", { method, args });
+/** The id of this machine's Host. */
+export const LOCAL = "local";
+
+/** Ask a Host something. The call names and arguments are `host/calls.rs`'s. */
+const host = <T>(hostId: string, method: string, args: Record<string, unknown> = {}) =>
+  invoke<T>("host", { host: hostId, method, args });
 
 /**
- * Where the window stands with its Host. `updating`: the Host is an older
- * build, finishing its running Turns before the new one takes over.
- * `outdated`: the Host is newer than this window.
+ * Which Host each agent lives on, so a call about one goes there. Filled as
+ * agents arrive (`route`); an agent this window hasn't seen yet is looked
+ * for on this machine's.
+ */
+const agentHosts = new Map<string, string>();
+const on = (agentId: string) => agentHosts.get(agentId) ?? LOCAL;
+
+/** Records from `hostId`, stamped with it. */
+const stamp = <T extends object>(hostId: string, items: T[]): (T & { host: string })[] =>
+  items.map((item) => ({ ...item, host: hostId }));
+
+/**
+ * Where the window stands with one Host. `updating`: this machine's Host is
+ * an older build, finishing its running Turns before this one takes over.
+ * `outdated`: the Host is newer than this window. `behind`: another machine's
+ * Host is too old to talk to until it's updated there. `refused`: another
+ * machine's Host won't serve this window — it isn't the same Tailscale user.
  */
 export type HostStatus =
   | { state: "connecting"; error: string | null }
-  | { state: "connected"; instance: string; version: string }
+  | { state: "connected"; instance: string; version: string; name: string }
   | { state: "updating"; version: string }
-  | { state: "outdated"; version: string };
+  | { state: "outdated"; version: string }
+  | { state: "behind"; version: string }
+  | { state: "refused"; reason: string };
+
+export type HostInfo = {
+  /** `local`, or the Tailscale name the Host was added by. */
+  id: string;
+  local: boolean;
+  status: HostStatus;
+};
 
 export const api = {
-  hostStatus: () => invoke<HostStatus>("host_status"),
+  /** Every Host this window knows, and where it stands with each. */
+  hosts: () => invoke<HostInfo[]>("hosts"),
+  addHost: (name: string) => invoke<HostInfo>("add_host", { name }),
+  removeHost: (id: string) => invoke<void>("remove_host", { id }),
 
-  listProjects: () => host<Project[]>("list_projects"),
+  /** Note which Host an agent lives on, so calls about it go there. */
+  route(agent: Pick<Agent, "id" | "host">) {
+    agentHosts.set(agent.id, agent.host);
+  },
+
+  listProjects: async (hostId: string) =>
+    stamp(hostId, await host<Omit<Project, "host">[]>(hostId, "list_projects")),
   /** True when the folder isn't a Git repository with a commit yet. */
-  projectNeedsSetup: (path: string) => host<boolean>("project_needs_setup", { path }),
-  addProject: (name: string, path: string, setUp: boolean) =>
-    host<Project>("add_project", { name, path, setUp }),
-  removeProject: (id: string) => host<void>("remove_project", { id }),
+  projectNeedsSetup: (path: string) => host<boolean>(LOCAL, "project_needs_setup", { path }),
+  /** Register a folder on this machine — the one the folder picker browses. */
+  addProject: async (name: string, path: string, setUp: boolean) => ({
+    ...(await host<Omit<Project, "host">>(LOCAL, "add_project", { name, path, setUp })),
+    host: LOCAL,
+  }),
+  removeProject: (hostId: string, id: string) => host<void>(hostId, "remove_project", { id }),
+  /** Have a Host clone a project it has no checkout of, from its remote. */
+  cloneProject: async (hostId: string, name: string, url: string) => ({
+    ...(await host<Omit<Project, "host">>(hostId, "clone_project", { name, url })),
+    host: hostId,
+  }),
 
-  listAgents: () => host<Agent[]>("list_agents"),
-  spawnAgent: (
+  listAgents: async (hostId: string) =>
+    stamp(hostId, await host<Omit<Agent, "host">[]>(hostId, "list_agents")),
+  spawnAgent: async (
+    hostId: string,
     projectId: string,
     prompt: string,
     attachments: string[],
@@ -329,8 +394,8 @@ export const api = {
     effort: string | null,
     permissionMode: string | null,
     options: AgentOptions,
-  ) =>
-    host<Agent>("spawn_agent", {
+  ): Promise<Agent> => ({
+    ...(await host<Omit<Agent, "host">>(hostId, "spawn_agent", {
       projectId,
       prompt,
       attachments,
@@ -338,7 +403,9 @@ export const api = {
       effort,
       permissionMode,
       options,
-    }),
+    })),
+    host: hostId,
+  }),
   /**
    * Say something to an agent. The Host starts a Turn if the agent is free and
    * queues it if not; the returned record says which.
@@ -351,7 +418,7 @@ export const api = {
     effort: string | null,
     permissionMode: string | null,
   ) =>
-    host<Agent>("send_message", {
+    host<Agent>(on(agentId), "send_message", {
       agentId,
       prompt,
       attachments,
@@ -360,28 +427,28 @@ export const api = {
       permissionMode,
     }),
   /** Send the head of a queue that a Stop or a Fail held. */
-  sendNext: (agentId: string) => host<Agent>("send_next", { agentId }),
+  sendNext: (agentId: string) => host<Agent>(on(agentId), "send_next", { agentId }),
   /** Add messages to the end of a queue without sending any. */
   queueMessages: (agentId: string, messages: QueuedMessage[]) =>
-    host<Agent>("queue_messages", { agentId, messages }),
+    host<Agent>(on(agentId), "queue_messages", { agentId, messages }),
   removeQueued: (agentId: string, messageId: string) =>
-    host<Agent>("remove_queued", { agentId, messageId }),
-  clearQueue: (agentId: string) => host<Agent>("clear_queue", { agentId }),
+    host<Agent>(on(agentId), "remove_queued", { agentId, messageId }),
+  clearQueue: (agentId: string) => host<Agent>(on(agentId), "clear_queue", { agentId }),
   /**
-   * Whether the Host keeps running while the user is logged out; null when it
-   * isn't a service that could.
+   * Whether this machine's Host keeps running while the user is logged out;
+   * null when it isn't a service that could.
    */
-  keepRunning: () => host<boolean | null>("keep_running"),
-  setKeepRunning: (on: boolean) => host<void>("set_keep_running", { on }),
+  keepRunning: () => host<boolean | null>(LOCAL, "keep_running"),
+  setKeepRunning: (on: boolean) => host<void>(LOCAL, "set_keep_running", { on }),
   /** Name an agent; null hands the naming back to Claude's title. */
   renameAgent: (agentId: string, name: string | null) =>
-    host<Agent>("rename_agent", { agentId, name }),
+    host<Agent>(on(agentId), "rename_agent", { agentId, name }),
   /** Tag an agent with one of `TAGS`, or untag it with null. */
   setAgentColor: (agentId: string, color: string | null) =>
-    host<Agent>("set_agent_color", { agentId, color }),
+    host<Agent>(on(agentId), "set_agent_color", { agentId, color }),
   /** Set how an agent's turns run, from its next one on. */
   setAgentOptions: (agentId: string, options: AgentOptions) =>
-    host<Agent>("set_agent_options", { agentId, options }),
+    host<Agent>(on(agentId), "set_agent_options", { agentId, options }),
   /**
    * Write a pasted file to disk so it can be attached by path, and return the
    * path. Sent as raw bytes rather than JSON; the name rides in a header,
@@ -395,57 +462,76 @@ export const api = {
    * Save the image on the OS clipboard as `name` and return its path, or null
    * if there's none — for a paste whose event carried no files.
    */
+  saveClipboardImage: (name: string) => invoke<string | null>("save_clipboard_image", { name }),
   /**
-   * Send attached files to the Host and return the paths of its copies, which
+   * Send attached files to a Host and return the paths of its copies, which
    * are what a spawn or a message then attaches. Files are read by the window,
    * where they are; the Host may be another machine.
    */
-  sendAttachments: (paths: string[]) =>
-    paths.length ? invoke<string[]>("send_attachments", { paths }) : Promise.resolve([]),
-  saveClipboardImage: (name: string) => invoke<string | null>("save_clipboard_image", { name }),
+  sendAttachments: (hostId: string, paths: string[]) =>
+    paths.length
+      ? invoke<string[]>("send_attachments", { host: hostId, paths })
+      : Promise.resolve([]),
   /** An attached image's bytes, for its thumbnail. Refused for non-images. */
   attachmentPreview: (path: string) => invoke<ArrayBuffer>("attachment_preview", { path }),
-  stopAgent: (agentId: string) => host<void>("stop_agent", { agentId }),
-  discardAgent: (agentId: string) => host<void>("discard_agent", { agentId }),
+  stopAgent: (agentId: string) => host<void>(on(agentId), "stop_agent", { agentId }),
+  discardAgent: (agentId: string) => host<void>(on(agentId), "discard_agent", { agentId }),
   agentEvents: (agentId: string) =>
-    host<AgentEvent[]>("agent_events", { agentId }),
-  agentDiff: (agentId: string) => host<WorktreeDiff>("agent_diff", { agentId }),
+    host<AgentEvent[]>(on(agentId), "agent_events", { agentId }),
+  agentDiff: (agentId: string) => host<WorktreeDiff>(on(agentId), "agent_diff", { agentId }),
   agentCommit: (agentId: string, message: string) =>
-    host<Commit>("agent_commit", { agentId, message }),
+    host<Commit>(on(agentId), "agent_commit", { agentId, message }),
   agentMerge: (agentId: string, target: string) =>
-    host<MergeOutcome>("agent_merge", { agentId, target }),
+    host<MergeOutcome>(on(agentId), "agent_merge", { agentId, target }),
   /** Push the last merge again, after its push failed. */
-  pushMerge: (agentId: string) => host<Agent>("push_merge", { agentId }),
+  pushMerge: (agentId: string) => host<Agent>(on(agentId), "push_merge", { agentId }),
   /** Spawn a resolver for a merge of `agentId` into `target` that conflicted. */
-  resolveConflict: (
+  resolveConflict: async (
     agentId: string,
     target: string,
     files: string[],
     model: string | null,
     effort: string | null,
-  ) =>
-    host<Agent>("resolve_conflict", { agentId, target, files, model, effort }),
+  ): Promise<Agent> => ({
+    ...(await host<Omit<Agent, "host">>(on(agentId), "resolve_conflict", {
+      agentId,
+      target,
+      files,
+      model,
+      effort,
+    })),
+    // On the conflicted agent's Host: that's where its branch is.
+    host: on(agentId),
+  }),
   /** Ids of merged agents whose worktree still holds work the project lacks. */
-  agentsHoldingWork: () => host<string[]>("agents_holding_work"),
-  projectBranches: (projectId: string) =>
-    host<Branches>("project_branches", { projectId }),
+  agentsHoldingWork: (hostId: string) => host<string[]>(hostId, "agents_holding_work"),
+  /** A checkout's local branches, for the merge picker. */
+  projectBranches: (hostId: string, projectId: string) =>
+    host<Branches>(hostId, "project_branches", { projectId }),
 
-  listModels: () => host<ModelInfo[]>("list_models"),
-  slashCommands: (dir: string) => host<Offered>("slash_commands", { dir }),
+  /** The models the account can run: one account, so this machine's Host answers. */
+  listModels: () => host<ModelInfo[]>(LOCAL, "list_models"),
+  /** The slash commands `claude` offers in `dir`, on the Host that has it. */
+  slashCommands: (hostId: string, dir: string) =>
+    host<Offered>(hostId, "slash_commands", { dir }),
 
-  usageSummary: () => host<UsageSummary>("usage_summary"),
+  usageSummary: (hostId: string) => host<UsageSummary>(hostId, "usage_summary"),
 
-  startupOrphans: () => host<Agent[]>("startup_orphans"),
-  dismissOrphans: () => host<void>("dismiss_orphans"),
+  startupOrphans: async (hostId: string) =>
+    stamp(hostId, await host<Omit<Agent, "host">[]>(hostId, "startup_orphans")),
+  dismissOrphans: (hostId: string) => host<void>(hostId, "dismiss_orphans"),
 };
 
-export const events = {
-  onAgentEvent: (fn: (payload: AgentEventPayload) => void): Promise<UnlistenFn> =>
-    listen<AgentEventPayload>("agent-event", (msg) => fn(msg.payload)),
+export type HostEvent<T> = T & { host: string };
 
+export const events = {
+  onAgentEvent: (fn: (payload: HostEvent<AgentEventPayload>) => void): Promise<UnlistenFn> =>
+    listen<HostEvent<AgentEventPayload>>("agent-event", (msg) => fn(msg.payload)),
+
+  /** An agent's record moved; it carries its Host in `host`. */
   onAgentStateChanged: (fn: (agent: Agent) => void): Promise<UnlistenFn> =>
     listen<Agent>("agent-state-changed", (msg) => fn(msg.payload)),
 
-  onHostStatus: (fn: (status: HostStatus) => void): Promise<UnlistenFn> =>
-    listen<HostStatus>("host-status", (msg) => fn(msg.payload)),
+  onHostStatus: (fn: (status: HostEvent<HostStatus>) => void): Promise<UnlistenFn> =>
+    listen<HostEvent<HostStatus>>("host-status", (msg) => fn(msg.payload)),
 };

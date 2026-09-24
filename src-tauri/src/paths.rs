@@ -32,6 +32,12 @@ pub fn logs_dir() -> Result<PathBuf> {
     Ok(state_dir()?.join("logs"))
 }
 
+/// Where a Host keeps the checkouts it clones itself, for Projects registered
+/// only on other machines.
+pub fn checkouts_dir() -> Result<PathBuf> {
+    Ok(state_dir()?.join("checkouts"))
+}
+
 pub fn worktrees_dir() -> Result<PathBuf> {
     Ok(state_dir()?.join("worktrees"))
 }

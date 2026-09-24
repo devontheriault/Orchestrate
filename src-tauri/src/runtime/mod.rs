@@ -195,7 +195,11 @@ impl AgentRuntime {
         self.record_prompt(&agent, &prompt, &attachments);
 
         let mut live = self.inner.write().await;
-        self.launch(agent, &prompt, &attachments, Continuity::Fresh, &mut live)
+        let agent = self.launch(agent, &prompt, &attachments, Continuity::Fresh, &mut live)?;
+        // Every window hears of a new Agent, not only the one that spawned it:
+        // on another machine, the spawner may not be a window here at all.
+        self.emitter.announce(&agent);
+        Ok(agent)
     }
 
     /// Continue an Agent's conversation with a follow-up prompt and any files

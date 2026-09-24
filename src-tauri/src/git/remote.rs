@@ -22,6 +22,9 @@ use crate::error::{Error, Result};
 /// Spawn waiting on a dead one gives up while the user is still looking.
 const NETWORK_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// A clone brings the whole history, so it gets far longer.
+const CLONE_TIMEOUT: Duration = Duration::from_secs(600);
+
 /// Where a new Agent's branch is cut from, and anything about that choice the
 /// user should be told.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -82,6 +85,14 @@ async fn upstream(repo: &Path, branch: &str) -> Option<Upstream> {
 /// Run a git command that talks to a remote. Never prompts — the Host has no
 /// one to ask — and gives up after [`NETWORK_TIMEOUT`].
 async fn network(repo: &Path, args: &[&str]) -> std::result::Result<(), String> {
+    network_for(repo, args, NETWORK_TIMEOUT).await
+}
+
+async fn network_for(
+    repo: &Path,
+    args: &[&str],
+    timeout: Duration,
+) -> std::result::Result<(), String> {
     let mut cmd = Command::new("git");
     cmd.arg("-C")
         .arg(repo)
@@ -90,7 +101,7 @@ async fn network(repo: &Path, args: &[&str]) -> std::result::Result<(), String> 
         .env("SSH_ASKPASS_REQUIRE", "never")
         .stdin(Stdio::null())
         .kill_on_drop(true);
-    let out = tokio::time::timeout(NETWORK_TIMEOUT, cmd.output())
+    let out = tokio::time::timeout(timeout, cmd.output())
         .await
         .map_err(|_| "the remote didn't answer in time".to_string())?
         .map_err(|e| e.to_string())?;
@@ -106,6 +117,51 @@ async fn network(repo: &Path, args: &[&str]) -> std::result::Result<(), String> 
             .unwrap_or("");
         Err(why.trim().to_owned())
     }
+}
+
+/// Where `repo`'s remote is, as git has it, or `None` for a repository with
+/// none. The remote its checked-out branch tracks, else `origin`, else
+/// whichever there is. It is what makes checkouts of one repository on
+/// several Hosts one Project (ADR 0011).
+pub async fn remote_url(repo: &Path) -> Option<String> {
+    let branch = stdout(repo, &["branch", "--show-current"]).await.ok()?;
+    let tracked = match branch.trim() {
+        "" => None,
+        b => upstream(repo, b).await.map(|u| u.remote),
+    };
+    let names = stdout(repo, &["remote"]).await.ok()?;
+    let names: Vec<&str> = names
+        .lines()
+        .map(str::trim)
+        .filter(|n| !n.is_empty())
+        .collect();
+    let name = tracked
+        .or_else(|| {
+            names
+                .iter()
+                .find(|n| **n == "origin")
+                .map(|n| n.to_string())
+        })
+        .or_else(|| names.first().map(|n| n.to_string()))?;
+    let url = stdout(repo, &["remote", "get-url", &name]).await.ok()?;
+    Some(url.trim().to_owned()).filter(|u| !u.is_empty())
+}
+
+/// Clone `url` into `dest`, for a Host that has no checkout of a Project an
+/// Agent is being spawned onto.
+pub async fn clone(url: &str, dest: &Path) -> Result<()> {
+    let parent = dest.parent().unwrap_or(dest);
+    std::fs::create_dir_all(parent).map_err(|source| Error::Io {
+        path: parent.to_owned(),
+        source,
+    })?;
+    let dest_str = dest.to_string_lossy();
+    network_for(parent, &["clone", "--quiet", url, &dest_str], CLONE_TIMEOUT)
+        .await
+        .map_err(|stderr| Error::Git {
+            command: format!("clone {url}"),
+            stderr,
+        })
 }
 
 /// How many commits `rev` has that `other` doesn't.

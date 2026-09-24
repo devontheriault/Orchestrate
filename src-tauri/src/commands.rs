@@ -12,23 +12,52 @@ use std::path::PathBuf;
 use serde_json::Value;
 use tauri::State;
 
-use crate::host::client::{HostLink, Status};
+use std::sync::Arc;
+
+use crate::host::client::HostLink;
+use crate::host::hosts::{HostInfo, Hosts, LOCAL};
 
 fn err<E: std::fmt::Display>(e: E) -> String {
     e.to_string()
 }
 
-/// Pass one call to the Host and hand back its answer.
-#[tauri::command]
-pub async fn host(link: State<'_, HostLink>, method: String, args: Value) -> Result<Value, String> {
-    link.call(&method, args).await
+/// The link to Host `id`, or this machine's when none is named.
+fn link(hosts: &Hosts, id: Option<&str>) -> Result<HostLink, String> {
+    let id = id.unwrap_or(LOCAL);
+    hosts
+        .get(id)
+        .ok_or_else(|| format!("{id} isn't one of this window's Hosts"))
 }
 
-/// Where the window stands with its Host right now; changes after this arrive
-/// as `host-status` events.
+/// Pass one call to a Host — this machine's unless `host` names another — and
+/// hand back its answer.
 #[tauri::command]
-pub fn host_status(link: State<'_, HostLink>) -> Status {
-    link.status()
+pub async fn host(
+    hosts: State<'_, Arc<Hosts>>,
+    host: Option<String>,
+    method: String,
+    args: Value,
+) -> Result<Value, String> {
+    link(&hosts, host.as_deref())?.call(&method, args).await
+}
+
+/// Every Host this window knows and where it stands with each; changes after
+/// this arrive as `host-status` events, stamped with the Host's id.
+#[tauri::command]
+pub fn hosts(hosts: State<'_, Arc<Hosts>>) -> Vec<HostInfo> {
+    hosts.list()
+}
+
+/// Add another machine's Host by its Tailscale name.
+#[tauri::command]
+pub fn add_host(hosts: State<'_, Arc<Hosts>>, name: String) -> Result<HostInfo, String> {
+    hosts.add(&name)
+}
+
+/// Forget another machine's Host. Its Agents stay on it, untouched.
+#[tauri::command]
+pub fn remove_host(hosts: State<'_, Arc<Hosts>>, id: String) -> Result<(), String> {
+    hosts.remove(&id)
 }
 
 /// Send files the user attached to the Host, and return the paths of the
@@ -36,10 +65,12 @@ pub fn host_status(link: State<'_, HostLink>) -> Status {
 /// window's side, because the files are on this machine and the Host may not be.
 #[tauri::command]
 pub async fn send_attachments(
-    link: State<'_, HostLink>,
+    hosts: State<'_, Arc<Hosts>>,
+    host: Option<String>,
     paths: Vec<PathBuf>,
 ) -> Result<Vec<PathBuf>, String> {
     use base64::Engine;
+    let link = link(&hosts, host.as_deref())?;
     let mut sent = Vec::with_capacity(paths.len());
     for path in paths {
         let (name, bytes) =

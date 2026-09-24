@@ -32,7 +32,7 @@ use crate::error::{Error, Result};
 pub use commit::{commit, Commit};
 pub use diff::{diff, holds_unmerged_work, resolve_base, ChangedFile, WorktreeDiff};
 pub use merge::{branches, merge, Branches, Merged};
-pub use remote::{catch_up, push, spawn_start, Pushed, Start};
+pub use remote::{catch_up, clone, push, remote_url, spawn_start, Pushed, Start};
 pub use setup::{has_commits, set_up};
 
 /// Run git in `dir`, optionally against a scratch index instead of the

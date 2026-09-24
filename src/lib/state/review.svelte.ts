@@ -135,7 +135,10 @@ export class Review {
       return;
     }
     try {
-      const branches = await api.projectBranches(projectId);
+      const agent = app.selectedAgent;
+      if (!agent) return;
+      // The branches of the checkout the agent was cut from, on its own Host.
+      const branches = await api.projectBranches(agent.host, agent.home_project_id ?? projectId);
       if (app.selectedAgent?.project_id !== projectId) return;
       this.branches = branches;
     } catch {

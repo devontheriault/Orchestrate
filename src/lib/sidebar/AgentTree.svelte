@@ -6,6 +6,7 @@
    */
   import { store } from "$lib/state/store.svelte";
   import { models } from "$lib/state/models.svelte";
+  import { hosts } from "$lib/state/hosts.svelte";
   import type { Agent } from "$lib/api";
   import { tagColor } from "$lib/theme/tags";
   import { rowDetail } from "./agentRow";
@@ -67,6 +68,12 @@
   }
 
   const agents = $derived(store.agentsForProject(projectId));
+
+  /**
+   * Whether this project's agents are on more than one Host. Only then does
+   * each row say which: a project on one machine needs no label.
+   */
+  const spansHosts = $derived(new Set(agents.map((a) => a.host)).size > 1);
 
   const grouped = $derived.by(() => {
     const groups: Partial<Record<Bucket, Agent[]>> = {};
@@ -309,6 +316,7 @@
           class:selected={store.selectedAgentId === a.id}
           class:running={a.state === "running"}
           class:doomed={bucket === "delivered" && (confirmingClear || !!bulkClear)}
+          class:away={!hosts.reachable(a.host)}
           onclick={() => pick(a.id)}
           role="button"
           tabindex="0"
@@ -320,7 +328,9 @@
                 class="tag"
                 style:background={tagColor(a.color)}
                 title={`Tagged ${a.color}`}
-              ></span>{/if}{store.agentName(a)}
+              ></span>{/if}{store.agentName(a)}{#if spansHosts}<span class="host"
+                >{hosts.label(a.host)}</span
+              >{/if}
           </span>
           {#if a.state === "running"}
             <span class="age live" title="Working for {runTime(a)}">{runTime(a)}</span>
@@ -329,7 +339,11 @@
               >{relTime(a.spawned_at)}</span
             >
           {/if}
-          <span class="detail" class:failed={a.state === "failed"}>{detail(a)}</span>
+          <!-- An agent on a Host that can't be reached is shown as it was last
+               seen; the line under it says why it isn't live. -->
+          <span class="detail" class:failed={a.state === "failed"}
+            >{hosts.problem(a.host) ?? detail(a)}</span
+          >
           {#if a.state === "running" && a.model}
             <span class="model">{models.name(a.model)}</span>
           {/if}
@@ -691,5 +705,19 @@
 
   .detail.failed {
     color: color-mix(in srgb, var(--failed) 80%, var(--fg-muted));
+  }
+
+  /* Which machine it's on, after the name, when the project spans several. */
+  .host {
+    margin-left: var(--space-3);
+    font-size: var(--text-2xs);
+    font-weight: var(--weight-normal);
+    color: var(--fg-muted);
+  }
+
+  /* On a Host that can't be reached: still listed — hiding it would read as a
+     Discard — but plainly not live. */
+  .agent.away {
+    opacity: 0.55;
   }
 </style>

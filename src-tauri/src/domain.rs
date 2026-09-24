@@ -46,7 +46,8 @@ pub fn new_session_id() -> String {
     )
 }
 
-/// A local Git repository the user has registered with the app.
+/// A Git repository on this Host that Agents can work in: registered by the
+/// user, or cloned by the Host for an Agent spawned onto it from elsewhere.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Project {
     pub id: Id,
@@ -54,6 +55,11 @@ pub struct Project {
     pub path: PathBuf,
     #[serde(with = "time::serde::rfc3339")]
     pub added_at: OffsetDateTime,
+    /// Cloned by the Host itself, into a folder it manages, rather than
+    /// registered by the user. A checkout the user registers on the same Host
+    /// takes over from it for new Agents.
+    #[serde(default)]
+    pub cloned: bool,
 }
 
 /// The opening prompt the user hands an Agent at Spawn. Later Turns are
@@ -284,6 +290,7 @@ mod tests {
             name: "MyProj".into(),
             path: "/home/dev/proj".into(),
             added_at: datetime!(2026-09-20 14:00:00 UTC),
+            cloned: true,
         };
         let s = serde_json::to_string(&p).unwrap();
         let back: Project = serde_json::from_str(&s).unwrap();

@@ -239,6 +239,7 @@ mod tests {
                 name: "N".into(),
                 path: "/p".into(),
                 added_at: OffsetDateTime::now_utc(),
+                cloned: false,
             }],
         };
         r.save().unwrap();

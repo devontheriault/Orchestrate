@@ -25,6 +25,7 @@
   import { open } from "@tauri-apps/plugin-dialog";
   import { store } from "$lib/state/store.svelte";
   import { slash } from "$lib/state/slash.svelte";
+  import { checkoutOn } from "$lib/state/projects";
   import { api, type AgentOptions } from "$lib/api";
   import { models } from "$lib/state/models.svelte";
   import { theme } from "$lib/theme/theme.svelte";
@@ -35,6 +36,9 @@
   import Attachments from "./Attachments.svelte";
   import ModelPicker from "$lib/menus/ModelPicker.svelte";
   import ModePicker from "$lib/menus/ModePicker.svelte";
+  import HostPicker from "$lib/menus/HostPicker.svelte";
+  import { hostChoices } from "$lib/menus/hostChoices";
+  import { hosts } from "$lib/state/hosts.svelte";
   import OptionsPicker from "$lib/menus/OptionsPicker.svelte";
   import AgentQueue from "./AgentQueue.svelte";
   import TurnStats from "./TurnStats.svelte";
@@ -88,9 +92,22 @@
   const commandsDir = $derived(
     agent
       ? agent.worktree_path
-      : store.projects.find((p) => p.id === store.selectedProjectId)?.path,
+      : store.selectedProject && checkoutOn(store.selectedProject, store.draftHost)?.path,
   );
-  const commands = $derived(slash.for(commandsDir));
+  /** Where a new agent could start, when there's more than one machine to choose. */
+  const hostOptions = $derived(
+    drafting && hosts.several && store.selectedProject
+      ? hostChoices(
+          store.selectedProject,
+          hosts.list.map((h) => h.id),
+          (id) => hosts.label(id),
+          (id) => hosts.problem(id),
+        )
+      : null,
+  );
+  /** And on which machine: the agent's, or the one a new agent would start on. */
+  const commandsHost = $derived(agent ? agent.host : store.draftHost);
+  const commands = $derived(slash.for(commandsHost, commandsDir));
   /** The menu's list: the app's own commands, and what `claude` offers less the rest. */
   const offered = $derived(menuCommands(commands.list));
   /** What's typed of a command at the head of the prompt, or null. */
@@ -132,7 +149,8 @@
   $effect(() => {
     if (menuOpen && commandsDir) {
       const dir = commandsDir;
-      untrack(() => slash.load(dir));
+      const on = commandsHost;
+      untrack(() => slash.load(on, dir));
     }
   });
 
@@ -639,6 +657,17 @@
           {/if}
         </span>
         <div class="picks">
+          {#if hostOptions}
+            <!-- First: where the agent runs comes before what runs it. -->
+            <HostPicker
+              value={store.draftHost}
+              options={hostOptions}
+              onpick={(h) => (store.pickedHost = h)}
+              disabled={inFlight}
+              compact
+              label="Host for the new agent"
+            />
+          {/if}
           <ModelPicker
             bind:value={model}
             bind:effort
@@ -659,7 +688,7 @@
             {options}
             styles={commands.styles}
             onchange={setOptions}
-            onopen={() => commandsDir && slash.load(commandsDir)}
+            onopen={() => commandsDir && slash.load(commandsHost, commandsDir)}
             disabled={inFlight}
             label={drafting ? "Options for the new agent" : "Options for this agent"}
           />

@@ -848,3 +848,31 @@ async fn a_branch_with_no_upstream_has_nothing_to_push() {
     assert_eq!(push(f.repo.path(), "main").await, Pushed::NoRemote);
     catch_up(f.repo.path(), "main").await.unwrap();
 }
+
+#[tokio::test]
+async fn a_projects_remote_is_the_one_its_branch_tracks() {
+    let r = WithRemote::new().await;
+    assert_eq!(
+        remote_url(r.path()).await.as_deref(),
+        r.origin.path().to_str()
+    );
+    let f = Fixture::new().await;
+    assert_eq!(remote_url(f.repo.path()).await, None);
+}
+
+#[tokio::test]
+async fn a_host_clones_a_project_it_has_no_checkout_of() {
+    let r = WithRemote::new().await;
+    let pushed = r.pushed_elsewhere("theirs.txt").await;
+    let here = TempDir::new().unwrap();
+    let dest = here.path().join("checkouts").join("proj");
+
+    clone(r.origin.path().to_str().unwrap(), &dest)
+        .await
+        .unwrap();
+    assert_eq!(head_commit(&dest).await.unwrap(), pushed);
+    assert_eq!(remote_url(&dest).await.as_deref(), r.origin.path().to_str());
+
+    let failed = clone("/nonexistent/repo.git", &here.path().join("nope")).await;
+    assert!(matches!(failed, Err(Error::Git { .. })));
+}

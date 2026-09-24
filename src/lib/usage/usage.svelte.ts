@@ -8,7 +8,9 @@
  * climbs in front of the user.
  */
 
-import { api, type UsageSummary } from "$lib/api";
+import { api, LOCAL, type UsageSummary } from "$lib/api";
+import { hosts } from "$lib/state/hosts.svelte";
+import { combineUsage } from "./combine";
 
 /** How often an open window re-reads the logs. */
 export const REFRESH_MS = 8000;
@@ -75,7 +77,13 @@ class UsageWindow {
   async #read() {
     this.loading = true;
     try {
-      this.summary = await api.usageSummary();
+      // One account across every machine: add up what each reachable Host saw.
+      const reachable = hosts.list
+        .map((h) => h.id)
+        .filter((id) => id === LOCAL || hosts.reachable(id));
+      this.summary = combineUsage(
+        await Promise.all((reachable.length ? reachable : [LOCAL]).map((id) => api.usageSummary(id))),
+      );
       this.error = null;
     } catch (e) {
       this.error = String(e);
