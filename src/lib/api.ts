@@ -278,6 +278,11 @@ export const api = {
     invoke<string>("save_attachment", bytes, {
       headers: { "x-name": name.replace(/[^\x20-\x7e]/g, "_") },
     }),
+  /**
+   * Save the image on the OS clipboard as `name` and return its path, or null
+   * if there's none — for a paste whose event carried no files.
+   */
+  saveClipboardImage: (name: string) => invoke<string | null>("save_clipboard_image", { name }),
   /** An attached image's bytes, for its thumbnail. Refused for non-images. */
   attachmentPreview: (path: string) => invoke<ArrayBuffer>("attachment_preview", { path }),
   stopAgent: (agentId: string) => invoke<void>("stop_agent", { agentId }),

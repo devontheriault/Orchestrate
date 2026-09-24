@@ -142,6 +142,17 @@ pub async fn save_attachment(request: tauri::ipc::Request<'_>) -> Result<PathBuf
     crate::attachments::save(name, bytes).map_err(err)
 }
 
+/// Save the image on the OS clipboard, for a paste whose event carried none —
+/// all a paste on Linux ever carries, since WebKitGTK withholds clipboard
+/// images from the page. `None` when there's no image there either.
+#[tauri::command]
+pub async fn save_clipboard_image(name: String) -> Result<Option<PathBuf>, String> {
+    tauri::async_runtime::spawn_blocking(move || crate::attachments::save_clipboard_image(&name))
+        .await
+        .map_err(err)?
+        .map_err(err)
+}
+
 /// An attached image's bytes, for the thumbnail on its chip. Returned raw
 /// rather than as JSON, for the same reason [`save_attachment`] takes them so.
 #[tauri::command]

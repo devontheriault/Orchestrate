@@ -94,6 +94,39 @@ pub fn save(name: &str, bytes: &[u8]) -> Result<PathBuf> {
     Ok(path)
 }
 
+/// Save the image on the OS clipboard as a PNG named `name`, or `None` if the
+/// clipboard holds no image. For when the webview's paste event came up empty:
+/// WebKitGTK never passes clipboard image data to the page, only file paths.
+pub fn save_clipboard_image(name: &str) -> Result<Option<PathBuf>> {
+    let clipboard_err = |e: arboard::Error| Error::Clipboard(e.to_string());
+    let image = match arboard::Clipboard::new()
+        .map_err(clipboard_err)?
+        .get_image()
+    {
+        Ok(image) => image,
+        Err(arboard::Error::ContentNotAvailable) => return Ok(None),
+        Err(e) => return Err(clipboard_err(e)),
+    };
+    save(
+        name,
+        &png(image.width, image.height, image.bytes.into_owned())?,
+    )
+    .map(Some)
+}
+
+/// Encode RGBA pixels, as arboard hands them over, as a PNG.
+fn png(width: usize, height: usize, rgba: Vec<u8>) -> Result<Vec<u8>> {
+    let bad = || Error::Clipboard(format!("the image on it is not {width}×{height} RGBA"));
+    let width = u32::try_from(width).map_err(|_| bad())?;
+    let height = u32::try_from(height).map_err(|_| bad())?;
+    let pixels = image::RgbaImage::from_raw(width, height, rgba).ok_or_else(bad)?;
+    let mut out = std::io::Cursor::new(Vec::new());
+    pixels
+        .write_to(&mut out, image::ImageFormat::Png)
+        .map_err(|e| Error::Clipboard(e.to_string()))?;
+    Ok(out.into_inner())
+}
+
 /// A pasted file's name, cut down to its last component so it can't climb out
 /// of its folder. Clipboard images often come unnamed.
 fn file_name(name: &str) -> String {
@@ -157,6 +190,15 @@ mod tests {
         assert_eq!(preview(&shot).unwrap(), b"png");
         assert!(preview(&notes).is_err());
         assert!(preview(&dir.path().join("gone.png")).is_err());
+    }
+
+    #[test]
+    fn clipboard_pixels_become_a_png() {
+        let png = png(2, 1, vec![255, 0, 0, 255, 0, 0, 255, 128]).unwrap();
+        let back = image::load_from_memory(&png).unwrap().to_rgba8();
+        assert_eq!(back.dimensions(), (2, 1));
+        assert_eq!(back.into_raw(), vec![255, 0, 0, 255, 0, 0, 255, 128]);
+        assert!(super::png(2, 2, vec![0; 4]).is_err(), "too few pixels");
     }
 
     #[test]

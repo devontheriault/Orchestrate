@@ -180,18 +180,27 @@
   }
 
   // A pasted screenshot has no path for `claude` to read it from, so it's
-  // written to disk first. Only when the clipboard holds files and no text:
-  // copying from a document can carry an image rendition of the text too, and
-  // the text is what was meant.
+  // written to disk first. Only when the clipboard holds no text: copying from
+  // a document can carry an image rendition of the text too, and the text is
+  // what was meant. WebKitGTK never gives the page a clipboard image, only
+  // copied files' paths, so with no files either the backend looks for one.
   async function onPaste(e: ClipboardEvent) {
     const data = e.clipboardData;
+    if (data?.getData("text/plain")) return;
     const files = Array.from(data?.files ?? []);
-    if (!files.length || data?.getData("text/plain")) return;
     e.preventDefault();
     try {
+      if (!files.length) {
+        const saved = await api.saveClipboardImage(pastedName("", "image/png"));
+        if (saved) attach([saved]);
+        return;
+      }
       const saved = await Promise.all(
         files.map(async (f) =>
-          api.saveAttachment(pastedName(f), new Uint8Array(await f.arrayBuffer())),
+          api.saveAttachment(
+            pastedName(f.name, f.type),
+            new Uint8Array(await f.arrayBuffer()),
+          ),
         ),
       );
       attach(saved);
@@ -205,9 +214,9 @@
    * user nothing once there are two of them. Name those after the moment
    * they were pasted instead.
    */
-  function pastedName(f: File): string {
-    if (f.name && !/^image\.\w+$/.test(f.name)) return f.name;
-    const ext = f.type.split("/")[1]?.replace(/\W.*$/, "") || "png";
+  function pastedName(name: string, type: string): string {
+    if (name && !/^image\.\w+$/.test(name)) return name;
+    const ext = type.split("/")[1]?.replace(/\W.*$/, "") || "png";
     const t = new Date();
     const pad = (n: number) => String(n).padStart(2, "0");
     return `pasted-${pad(t.getHours())}${pad(t.getMinutes())}${pad(t.getSeconds())}.${ext}`;
