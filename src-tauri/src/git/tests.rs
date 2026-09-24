@@ -1,4 +1,3 @@
-
 use super::commit::parse_log;
 use super::diff::{parse_name_status, parse_numstat, truncate_patch, MAX_PATCH_BYTES};
 use super::*;
@@ -534,6 +533,28 @@ async fn merge_aborts_on_conflict_and_leaves_the_project_byte_identical() {
         .unwrap()
         .trim()
         .is_empty());
+}
+
+/// A conflict is found before the merge starts, so the Project's files are
+/// never written at all — not even briefly with conflict markers, which a file
+/// watcher on the Project (a dev server, say) would otherwise pick up.
+#[tokio::test]
+async fn merge_conflict_never_writes_to_the_project() {
+    let _env = crate::test_util::StateEnv::new();
+    let f = Fixture::new().await;
+    f.agent_commits("tracked.txt", "the agent's line\n", "agent edit")
+        .await;
+    f.user_commits("tracked.txt", "my line\n", "my edit").await;
+
+    let file = f.repo.path().join("tracked.txt");
+    let touched = || std::fs::metadata(&file).unwrap().modified().unwrap();
+    let before = touched();
+    std::thread::sleep(std::time::Duration::from_millis(20));
+
+    let err = f.merge_into_branch("main").await.unwrap_err();
+
+    assert!(matches!(err, Error::MergeConflict { .. }), "got {err:?}");
+    assert_eq!(touched(), before, "the conflicted file was rewritten");
 }
 
 /// The files `git ls-files` reports tracked in `repo`.

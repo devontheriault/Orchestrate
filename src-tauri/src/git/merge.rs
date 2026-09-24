@@ -68,9 +68,12 @@ pub async fn branches(project_path: &Path) -> Result<Branches> {
 /// throwaway worktree, so a Merge never moves the user off their own branch.
 /// When it is, the merge runs in place and the Project's tree must be clean.
 ///
-/// A conflict aborts: the Project is left byte-identical to how it started and
-/// the colliding paths are reported. This app has no merge tool, so a
+/// A conflict refuses: the Project is left byte-identical to how it started
+/// and the colliding paths are reported. This app has no merge tool, so a
 /// half-merged tree is somewhere it could not get the Project back out of.
+/// The conflict is found before anything is checked out, so even conflict
+/// markers never land in the Project for a moment — a file watcher there, such
+/// as a dev server rebuilding on change, would otherwise see them.
 pub async fn merge(
     project_path: &Path,
     worktree_path: &Path,
@@ -106,6 +109,14 @@ pub async fn merge(
         });
     }
 
+    let files = conflicts(project_path, agent_branch, target).await;
+    if !files.is_empty() {
+        return Err(Error::MergeConflict {
+            target: target.to_owned(),
+            files,
+        });
+    }
+
     let current = stdout(project_path, &["branch", "--show-current"]).await?;
     let in_place = current.trim() == target;
 
@@ -129,6 +140,42 @@ pub async fn merge(
     let merged = merge_into(&borrowed, agent_branch, target, message).await;
     crate::worktree::release(project_path, &borrowed).await?;
     merged
+}
+
+/// The paths merging `agent_branch` into `target` would conflict in, worked out
+/// by `git merge-tree` entirely in the object store: no index, no worktree.
+///
+/// Best-effort: empty when git can't say — too old for `--write-tree`, say —
+/// and then [`merge_into`] still catches the conflict, only by aborting.
+async fn conflicts(repo: &Path, agent_branch: &str, target: &str) -> Vec<String> {
+    let Ok(out) = run_with_index(
+        repo,
+        &[
+            "merge-tree",
+            "--write-tree",
+            "--name-only",
+            "--no-messages",
+            "-z",
+            target,
+            agent_branch,
+        ],
+        None,
+    )
+    .await
+    else {
+        return Vec::new();
+    };
+    // 1 is "conflicted"; 0 is clean, and anything else is git failing.
+    if out.status.code() != Some(1) {
+        return Vec::new();
+    }
+    // The merged tree's id, then each conflicted path, all NUL-terminated.
+    String::from_utf8_lossy(&out.stdout)
+        .split('\0')
+        .skip(1)
+        .filter(|p| !p.is_empty())
+        .map(str::to_owned)
+        .collect()
 }
 
 /// Run the merge in whichever worktree has `target` checked out, aborting and
