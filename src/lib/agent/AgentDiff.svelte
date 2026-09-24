@@ -8,10 +8,11 @@
   /** The selected agent's diff, and the Commit / Merge / Resolve taken from it. */
   const review = store.review;
 
-  // Suggested commit message: the agent's own prompt, as a subject line.
+  // Suggested commit message: the conversation's name, as a subject line.
   const suggested = $derived.by(() => {
-    const prompt = store.selectedAgent?.task.prompt ?? "";
-    const subject = prompt.split("\n")[0].replace(/\s+/g, " ").trim();
+    const agent = store.selectedAgent;
+    const name = agent ? store.agentName(agent) : "";
+    const subject = name.replace(/\s+/g, " ").trim();
     return subject.length > 72 ? subject.slice(0, 72).trimEnd() : subject;
   });
 
