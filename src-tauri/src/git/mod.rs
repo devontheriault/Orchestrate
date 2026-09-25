@@ -25,9 +25,8 @@ mod tests;
 
 use std::path::Path;
 
-use tokio::process::Command;
-
 use crate::error::{Error, Result};
+use crate::process::command;
 
 pub use commit::{commit, Commit};
 pub use diff::{diff, holds_unmerged_work, resolve_base, ChangedFile, WorktreeDiff};
@@ -45,7 +44,7 @@ async fn run_with_index(
     args: &[&str],
     index: Option<&Path>,
 ) -> Result<std::process::Output> {
-    let mut cmd = Command::new("git");
+    let mut cmd = command("git");
     cmd.arg("-C").arg(dir).args(args);
     if let Some(index) = index {
         cmd.env("GIT_INDEX_FILE", index);

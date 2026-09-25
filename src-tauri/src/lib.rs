@@ -8,6 +8,7 @@ pub mod host;
 pub mod merging;
 pub mod models;
 pub mod paths;
+pub mod process;
 pub mod runtime;
 pub mod slash;
 pub mod storage;
