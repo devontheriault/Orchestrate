@@ -151,6 +151,7 @@ pub fn run() {
             commands::save_attachment,
             commands::save_clipboard_image,
             commands::attachment_preview,
+            commands::notification_icon,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

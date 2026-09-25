@@ -134,3 +134,24 @@ pub async fn attachment_preview(path: PathBuf) -> Result<tauri::ipc::Response, S
         .map(tauri::ipc::Response::new)
         .map_err(err)
 }
+
+/// A file holding the app's logo, for a notification to show — or `None`
+/// where the OS finds the app's icon itself (the bundle on macOS, the
+/// registered app on Windows). Linux notifications otherwise look the icon up
+/// by the executable's name in the icon theme, which a dev build or an
+/// AppImage never installed there, and the notification gets a stock image.
+#[tauri::command]
+pub fn notification_icon() -> Result<Option<PathBuf>, String> {
+    if !cfg!(target_os = "linux") {
+        return Ok(None);
+    }
+    const LOGO: &[u8] = include_bytes!("../icons/128x128@2x.png");
+    let path = crate::paths::notification_icon().map_err(err)?;
+    if std::fs::read(&path).ok().as_deref() != Some(LOGO) {
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir).map_err(err)?;
+        }
+        std::fs::write(&path, LOGO).map_err(err)?;
+    }
+    Ok(Some(path))
+}

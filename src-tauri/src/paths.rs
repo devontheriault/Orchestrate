@@ -59,6 +59,11 @@ pub fn attachments_dir() -> Result<PathBuf> {
     Ok(state_dir()?.join("attachments"))
 }
 
+/// Where the window keeps a copy of the app's logo for its notifications.
+pub fn notification_icon() -> Result<PathBuf> {
+    Ok(state_dir()?.join("notification-icon.png"))
+}
+
 /// The socket this state directory's Host listens on. Windows find their
 /// Host here, so a state directory and its Host are always a pair.
 #[cfg(unix)]
