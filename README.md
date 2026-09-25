@@ -51,9 +51,7 @@ Claude Code does all the coding. Orchestrate manages the agents around it: it do
 | 🔔 **Notifications** | Get a notification when an agent finishes, fails or needs you. |
 | 🎨 **18 themes** | Orchestrate's own light and dark themes, plus Catppuccin, Dracula, Everforest, Gruvbox, Nord, One Dark, Rosé Pine, Solarized, Tokyo Night and more. |
 
-<!-- TODO: add a screenshot or short screen recording here, e.g.
-<p align="center"><img src="docs/assets/screenshot.png" alt="Orchestrate showing several agents working on one project" width="900"></p>
--->
+<p align="center"><img src="docs/assets/screenshot.png" alt="Orchestrate with four projects in the sidebar and their agents grouped by state (running, completed, stopped, failed), beside the live output of an agent adding dark mode to a checkout page" width="900"></p>
 
 ## Install
 
