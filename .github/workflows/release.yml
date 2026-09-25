@@ -85,6 +85,34 @@ jobs:
           releaseDraft: true
           args: ${{ matrix.args }}
 
+      # linuxdeploy bundles the runner's libwayland, but the AppImage uses the
+      # host's Mesa. A newer Mesa can't create an EGL display with the older
+      # libwayland, so on current distros the window stays blank. libwayland is
+      # backwards compatible and every system that can run the app has it, so
+      # repack without it and let the host's copy load.
+      - name: Drop bundled libwayland from the AppImage
+        if: startsWith(matrix.platform, 'ubuntu')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+        run: |
+          appimage=$(realpath src-tauri/target/release/bundle/appimage/*.AppImage)
+          cd "$RUNNER_TEMP"
+          curl -fsSL -o appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool
+          "$appimage" --appimage-extract > /dev/null
+          rm squashfs-root/usr/lib/libwayland-*.so*
+          rm "$appimage"
+          ARCH=x86_64 ./appimagetool --no-appstream squashfs-root "$appimage"
+
+          # tauri-action already attached the unpatched one to the draft.
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            gh release view "$GITHUB_REF_NAME" --json assets -q '.assets[].name | select(endswith(".AppImage"))' \
+              | xargs -r -n1 gh release delete-asset "$GITHUB_REF_NAME" -y
+            gh release upload "$GITHUB_REF_NAME" "$appimage"
+          fi
+
       - name: Keep the installers with the run
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         uses: actions/upload-artifact@v4
