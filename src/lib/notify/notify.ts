@@ -9,6 +9,7 @@ import {
   requestPermission,
   sendNotification,
 } from "@tauri-apps/plugin-notification";
+import { api } from "$lib/api";
 import type { Notice } from "./turnNotice";
 
 /** Asked once per launch; null until then. */
@@ -21,8 +22,23 @@ function permission(): Promise<boolean> {
   return allowed;
 }
 
+/**
+ * The app's logo as a file, where the OS won't find it on its own (see
+ * `notification_icon`). Fetched once per launch; undefined leaves the OS
+ * to its default.
+ */
+let logo: Promise<string | undefined> | null = null;
+
+function icon(): Promise<string | undefined> {
+  logo ??= api
+    .notificationIcon()
+    .then((path) => path ?? undefined)
+    .catch(() => undefined);
+  return logo;
+}
+
 export async function notify(notice: Notice, onScreen: boolean) {
   if (onScreen && document.hasFocus()) return;
   if (!(await permission())) return;
-  sendNotification(notice);
+  sendNotification({ ...notice, icon: await icon() });
 }

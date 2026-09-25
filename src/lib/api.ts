@@ -507,6 +507,8 @@ export const api = {
       : Promise.resolve([]),
   /** An attached image's bytes, for its thumbnail. Refused for non-images. */
   attachmentPreview: (path: string) => invoke<ArrayBuffer>("attachment_preview", { path }),
+  /** A file holding the app's logo for notifications, or null where the OS finds it itself. */
+  notificationIcon: () => invoke<string | null>("notification_icon"),
   stopAgent: (agentId: string) => host<void>(on(agentId), "stop_agent", { agentId }),
   discardAgent: (agentId: string) => host<void>(on(agentId), "discard_agent", { agentId }),
   agentEvents: (agentId: string) =>
