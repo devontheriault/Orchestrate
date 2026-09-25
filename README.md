@@ -7,7 +7,7 @@
 
 # Orchestrate
 
-Orchestrate is a lightweight desktop app for running several Claude Code agents at once without them stepping on each other. You watch their output live, send follow-ups, stop them when they go the wrong way, then review the changes and merge the work you want to keep.
+Orchestrate is a lightweight desktop app for running several Claude Code agents in parallel, each in its own Git worktree so they never step on each other. You watch their output live, send follow-ups, stop them when they go the wrong way, then review the changes and merge the work you want to keep.
 
 [![Status: alpha](https://img.shields.io/badge/status-alpha-orange)](#alpha)
 [![License: MIT](https://img.shields.io/badge/license-MIT-0e9f4e)](LICENSE)
