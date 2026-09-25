@@ -223,7 +223,7 @@
           <div class="merge-box-foot">
             <span class="sub why">{store.selectedAgent.push_error}</span>
             <div class="merge-controls">
-              <button class="primary" disabled={review.pushing} onclick={() => review.pushAgain()}>
+              <button class="btn btn-primary" disabled={review.pushing} onclick={() => review.pushAgain()}>
                 {review.pushing ? "Pushing…" : "Push"}
               </button>
             </div>
@@ -254,13 +254,14 @@
               </span>
               <div class="merge-controls">
                 <button
+                  class="btn"
                   disabled={review.resolving}
                   onclick={() => review.dismissConflict(store.selectedAgentId!)}
                 >
                   Dismiss
                 </button>
                 <button
-                  class="primary"
+                  class="btn btn-primary"
                   disabled={running || review.resolving}
                   onclick={() => review.resolveConflict()}
                 >
@@ -287,7 +288,7 @@
                 {/if}
               </span>
               <div class="merge-controls">
-                <button onclick={() => store.showAgent(resolver.id)}>Open resolver</button>
+                <button class="btn" onclick={() => store.showAgent(resolver.id)}>Open resolver</button>
               </div>
             </div>
           </div>
@@ -337,7 +338,7 @@
                   label="Branch to merge into"
                 />
                 <button
-                  class="primary"
+                  class="btn btn-primary"
                   disabled={!canMerge || target.length === 0}
                   onclick={() => review.merge(target)}
                 >
@@ -695,30 +696,6 @@
     align-items: center;
     gap: var(--space-3);
     flex: none;
-  }
-
-  /* The picker beside it draws its own trigger — see BranchPicker.svelte. */
-  .merge-controls button.primary {
-    background: var(--accent);
-    border: 1px solid var(--accent);
-    /* Same pairing the composer's send button uses. */
-    color: var(--surface);
-    font-weight: var(--weight-medium);
-    /* Matches the picker's radius, so the pair reads as one strip. */
-    border-radius: var(--radius-md);
-    padding: 0.3rem 0.85rem;
-    font-size: var(--text-md);
-    line-height: var(--leading-snug);
-    cursor: pointer;
-  }
-
-  .merge-controls button.primary:hover:not(:disabled) {
-    filter: brightness(1.08);
-  }
-
-  .merge-controls button.primary:disabled {
-    opacity: 0.5;
-    cursor: default;
   }
 
   .files {
