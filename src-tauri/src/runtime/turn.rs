@@ -15,7 +15,7 @@ use tokio::sync::Notify;
 use super::events::{notice_event, Emitter};
 use super::AgentRuntime;
 use crate::domain::{Agent, AgentEvent, AgentState, Resolution};
-use crate::{attachments, merging, storage, title};
+use crate::{attachments, merging, process, storage, title};
 
 /// Grace period between SIGTERM and SIGKILL when stopping an Agent.
 const STOP_GRACE: Duration = Duration::from_secs(5);
@@ -36,7 +36,7 @@ pub(super) fn command(
     attached: &[PathBuf],
     how: Continuity,
 ) -> Command {
-    let mut cmd = Command::new(claude_bin);
+    let mut cmd = process::command(claude_bin);
     cmd.arg("--print")
         .arg(attachments::for_claude(prompt, attached))
         .arg("--output-format")

@@ -13,10 +13,9 @@ use std::path::Path;
 use std::process::Stdio;
 use std::time::Duration;
 
-use tokio::process::Command;
-
 use super::{is_ancestor, rev_parse, stdout};
 use crate::error::{Error, Result};
+use crate::process::command;
 
 /// Longer than any fetch or push of a healthy remote; short enough that a
 /// Spawn waiting on a dead one gives up while the user is still looking.
@@ -93,7 +92,7 @@ async fn network_for(
     args: &[&str],
     timeout: Duration,
 ) -> std::result::Result<(), String> {
-    let mut cmd = Command::new("git");
+    let mut cmd = command("git");
     cmd.arg("-C")
         .arg(repo)
         .args(args)

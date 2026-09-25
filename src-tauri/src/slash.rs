@@ -18,9 +18,9 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::Command;
 
 use crate::error::{Error, Result};
+use crate::process::command;
 
 /// Bounded so a `claude` that never answers leaves the menu showing an error
 /// rather than "loading…" forever. It normally answers in under a second.
@@ -58,7 +58,7 @@ pub struct Offered {
 /// in `cwd`.
 pub async fn list(bin: &str, cwd: &Path) -> Result<Offered> {
     let fail = |why: String| Error::SlashCommands(why);
-    let mut child = Command::new(bin)
+    let mut child = command(bin)
         .arg("--print")
         .arg("--input-format")
         .arg("stream-json")

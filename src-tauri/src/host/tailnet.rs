@@ -16,7 +16,8 @@ use std::sync::Arc;
 
 use serde::Serialize;
 use serde_json::Value;
-use tokio::process::Command;
+
+use crate::process::command;
 
 /// The port a Host listens on, on its tailnet address. Windows on other
 /// machines reach a Host as `<its Tailscale name>:47300`.
@@ -134,7 +135,7 @@ pub fn own_machines(status: &Value) -> Vec<Machine> {
 }
 
 async fn tailscale(args: &[&str]) -> Result<String, String> {
-    let out = Command::new("tailscale")
+    let out = command("tailscale")
         .args(args)
         .stdin(Stdio::null())
         .output()

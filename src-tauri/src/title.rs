@@ -13,7 +13,7 @@
 use std::process::Stdio;
 use std::time::Duration;
 
-use tokio::process::Command;
+use crate::process::command;
 
 /// Turns whose ending re-writes the title. The first Turn names the Agent; the
 /// next two let the name catch up as the work reveals itself. After that it is
@@ -47,7 +47,7 @@ pub async fn generate(
     answer: &str,
 ) -> Option<String> {
     let ask = ask(prompt, answer);
-    let run = Command::new(bin)
+    let run = command(bin)
         .arg("--print")
         .arg(&ask)
         .arg("--model")

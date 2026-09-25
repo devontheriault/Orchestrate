@@ -3,10 +3,11 @@ use std::path::Path;
 use tokio::process::Command;
 
 use crate::error::{Error, Result};
+use crate::process::command;
 
 /// `git -C <project_path>`, ready for its arguments.
 fn git(project_path: &Path) -> Command {
-    let mut cmd = Command::new("git");
+    let mut cmd = command("git");
     cmd.arg("-C").arg(project_path);
     cmd
 }
