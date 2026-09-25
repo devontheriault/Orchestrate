@@ -31,6 +31,8 @@
   import { theme } from "$lib/theme/theme.svelte";
   import { tagColor } from "$lib/theme/tags";
   import { usage as usageWindow } from "$lib/usage/usage.svelte";
+  import { plugins } from "$lib/plugins/plugins.svelte";
+  import { progress } from "$lib/plugins/catalog";
   import { advisorLabel, DEFAULT_EFFORT, DEFAULT_MODE, DEFAULT_MODEL } from "$lib/picks";
   import { stepActive } from "$lib/menus/menu";
   import Attachments from "./Attachments.svelte";
@@ -346,6 +348,13 @@
         return say(`Theme: ${theme.label}.`);
       case "usage":
         return usageWindow.show();
+      case "plugins": {
+        const doing = progress(action.request);
+        if (doing) say(doing);
+        const said = await plugins.ask(action.request);
+        if (said) say(said.text, said.failed);
+        return;
+      }
       case "color":
         if (!agent) return say("Spawn the agent first, then give it a colour.", true);
         if (await store.setAgentColor(agent.id, action.color))

@@ -7,7 +7,8 @@
  * replied, and the next Turn would start without it. So the composer catches
  * those and does the app's version of each: `/model` moves the model picker,
  * `/color` tags the agent in the sidebar. `/commit` and `/merge` take the Diff
- * tab's Commit and Merge from the keyboard. The commands with no version here and
+ * tab's Commit and Merge from the keyboard. `/plugin` is a whole screen in a
+ * terminal, and `claude --print` has none, so the app opens its own. The commands with no version here and
  * no use through the app are kept out of the menu, and turned back with the
  * reason if they are typed anyway.
  *
@@ -18,12 +19,13 @@ import type { ModelInfo, SlashCommand } from "$lib/api";
 import { ADVISORS, EFFORTS, modelLabel } from "$lib/picks";
 import { TAGS, type Tag } from "$lib/theme/tags";
 import { THEMES, type ThemePref } from "$lib/theme/theme.svelte";
+import { pluginRequest, type PluginRequest } from "$lib/plugins/catalog";
 
 /** A row in the `/` menu. `app` marks one the app answers rather than `claude`. */
 export type MenuCommand = SlashCommand & { app?: boolean };
 
-function ours(name: string, description: string, argument_hint = ""): MenuCommand {
-  return { name, description, argument_hint, aliases: [], app: true };
+function ours(name: string, description: string, argument_hint = "", aliases: string[] = []): MenuCommand {
+  return { name, description, argument_hint, aliases, app: true };
 }
 
 /**
@@ -42,6 +44,7 @@ export const APP_COMMANDS: MenuCommand[] = [
   ours("merge", "Merge this agent's commits into a project branch — main unless named", "[branch]"),
   ours("model", "Set the model this agent's next prompts run on", "<model>"),
   ours("output-style", "Set how this agent writes its replies", "<style>"),
+  ours("plugin", "Browse, install and manage Claude Code plugins and marketplaces", "[install|marketplace|search…]", ["plugins"]),
   ours("rename", "Rename this agent — with no name, Claude names it again", "[name]"),
   ours("theme", "Change the app's theme — with no name, pick from the list", "[theme]"),
   ours("usage", "Open the usage window: tokens, cost and plan limits"),
@@ -90,6 +93,7 @@ export type Action =
   /** Null asks for the theme list rather than naming a theme. */
   | { do: "theme"; theme: ThemePref | null }
   | { do: "usage" }
+  | { do: "plugins"; request: PluginRequest }
   /** Null commits under the agent's name, as the Diff tab offers to. */
   | { do: "commit"; message: string | null }
   /** Null merges into the default target, as the Diff tab's picker points. */
@@ -160,6 +164,9 @@ export function interpret(prompt: string, choices: Choices): Action | null {
     }
     case "usage":
       return { do: "usage" };
+    case "plugin":
+    case "plugins":
+      return { do: "plugins", request: pluginRequest(arg) };
     case "commit":
       return { do: "commit", message: arg || null };
     case "merge":

@@ -196,6 +196,66 @@ export type Offered = {
   output_styles: string[];
 };
 
+/** A Claude Code plugin installed on a Host. */
+export type InstalledPlugin = {
+  /** `name@marketplace`. */
+  id: string;
+  version: string;
+  /** "user", "project" or "local": where it was installed, and so where it's changed. */
+  scope: string;
+  enabled: boolean;
+  /** From the plugin's manifest; empty if it gives none. */
+  description: string;
+};
+
+/** A plugin a marketplace offers that isn't installed yet. */
+export type AvailablePlugin = {
+  /** `name@marketplace`, what an install names. */
+  id: string;
+  name: string;
+  description: string;
+  marketplace: string;
+  /** Installs so far, where the marketplace counts them. */
+  installs: number | null;
+};
+
+export type Marketplace = {
+  name: string;
+  /** "github", "git", "url", "directory"… */
+  source: string;
+  /** Where it comes from: `owner/repo`, a URL or a path. */
+  location: string;
+};
+
+/** What the `/plugin` window shows, as `claude plugin` sees it from one directory. */
+export type PluginCatalog = {
+  installed: InstalledPlugin[];
+  /** Most installed first. */
+  available: AvailablePlugin[];
+  marketplaces: Marketplace[];
+};
+
+/**
+ * A change to the plugins. `acceptCommand` is the hash of a command a
+ * marketplace declared, which the user has seen and agreed to run.
+ */
+export type PluginChange =
+  | { do: "install"; plugin: string; acceptCommand?: string }
+  | { do: "uninstall" | "enable" | "disable"; plugin: string; scope: string }
+  | { do: "update"; plugin: string; scope: string; acceptCommand?: string }
+  | { do: "add_marketplace"; source: string }
+  | { do: "remove_marketplace"; name: string }
+  /** Every marketplace, with no name. */
+  | { do: "update_marketplace"; name?: string };
+
+/**
+ * How a change went, when it didn't fail: done, or waiting on the user to
+ * agree to a command the plugin's marketplace wants to run.
+ */
+export type PluginOutcome =
+  | { outcome: "done"; message: string }
+  | { outcome: "confirm"; message: string; command: string; sha256: string };
+
 export type ChangedFile = {
   path: string;
   /** Git status vs the base: A, M, D, T, … */
@@ -549,6 +609,12 @@ export const api = {
   /** The slash commands `claude` offers in `dir`, on the Host that has it. */
   slashCommands: (hostId: string, dir: string) =>
     host<Offered>(hostId, "slash_commands", { dir }),
+
+  /** The plugins on `hostId`, as `claude` sees them from `dir` (home if null). */
+  plugins: (hostId: string, dir: string | null) =>
+    host<PluginCatalog>(hostId, "plugins", { dir }),
+  changePlugins: (hostId: string, dir: string | null, change: PluginChange) =>
+    host<PluginOutcome>(hostId, "change_plugins", { dir, change }),
 
   usageSummary: (hostId: string) => host<UsageSummary>(hostId, "usage_summary"),
 

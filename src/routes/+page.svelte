@@ -3,10 +3,12 @@
   import ProjectSidebar from "$lib/sidebar/ProjectSidebar.svelte";
   import AgentPane from "$lib/agent/AgentPane.svelte";
   import UsageWindow from "$lib/usage/UsageWindow.svelte";
+  import PluginsWindow from "$lib/plugins/PluginsWindow.svelte";
   import PaneDivider from "$lib/layout/PaneDivider.svelte";
   import HostNotice from "$lib/layout/HostNotice.svelte";
   import { store } from "$lib/state/store.svelte";
   import { usage } from "$lib/usage/usage.svelte";
+  import { plugins } from "$lib/plugins/plugins.svelte";
   import { viewport } from "$lib/layout/viewport.svelte";
   import { panes, MIN_DETAIL, MIN_PROJECTS_DRAG } from "$lib/layout/panes.svelte";
 
@@ -126,6 +128,10 @@
 
 {#if usage.open}
   <UsageWindow />
+{/if}
+
+{#if plugins.open}
+  <PluginsWindow />
 {/if}
 
 <style>
