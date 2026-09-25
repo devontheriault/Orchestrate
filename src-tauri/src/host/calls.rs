@@ -172,6 +172,17 @@ pub enum Call {
     SlashCommands {
         dir: PathBuf,
     },
+    /// The plugins installed and on offer, and the marketplaces, as `claude`
+    /// sees them from `dir` — or from home, with no Project to look from.
+    Plugins {
+        dir: Option<PathBuf>,
+    },
+    /// Install, remove, enable, disable or update a plugin, or add, remove or
+    /// refresh a marketplace.
+    ChangePlugins {
+        dir: Option<PathBuf>,
+        change: crate::plugins::Change,
+    },
     UsageSummary {},
     StartupOrphans {},
     DismissOrphans {},
@@ -531,6 +542,21 @@ async fn handle(host: &Host, call: Call) -> Result<Value, String> {
             .await
             .map_err(err)?),
 
+        Call::Plugins { dir } => ok(crate::plugins::catalog(
+            runtime.claude_bin(),
+            &plugins_dir(dir)?,
+        )
+        .await
+        .map_err(err)?),
+
+        Call::ChangePlugins { dir, change } => {
+            ok(
+                crate::plugins::change(runtime.claude_bin(), &plugins_dir(dir)?, &change)
+                    .await
+                    .map_err(err)?,
+            )
+        }
+
         // Off the async runtime: the first read walks every Claude Code
         // transcript.
         Call::UsageSummary {} => ok(tokio::task::spawn_blocking(crate::usage::summary)
@@ -559,6 +585,14 @@ async fn handle(host: &Host, call: Call) -> Result<Value, String> {
             ok(())
         }
     }
+}
+
+/// Where to run `claude plugin`: the directory asked about, or home. A
+/// directory since removed falls back to home too, rather than failing.
+fn plugins_dir(dir: Option<PathBuf>) -> Result<PathBuf, String> {
+    dir.filter(|d| d.is_dir())
+        .or_else(dirs::home_dir)
+        .ok_or_else(|| "no home directory to run `claude plugin` in".to_string())
 }
 
 async fn discard(agent_id: &str) -> Result<(), String> {

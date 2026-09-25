@@ -2,6 +2,7 @@
   import { tick } from "svelte";
   import { theme, THEMES, type ThemePref } from "$lib/theme/theme.svelte";
   import { usage } from "$lib/usage/usage.svelte";
+  import { plugins } from "$lib/plugins/plugins.svelte";
   import { api } from "$lib/api";
   import { store } from "$lib/state/store.svelte";
   import { hosts } from "$lib/state/hosts.svelte";
@@ -22,18 +23,19 @@
   const uid = $props.id();
 
   /**
-   * The menu's own rows: Theme, which opens the themes beside it, Usage, the
-   * Hosts this window talks to, and — when this machine's Host runs as a
+   * The menu's own rows: Theme, which opens the themes beside it, Usage,
+   * Plugins, the Hosts this window talks to, and — when this machine's Host runs as a
    * service — whether it keeps the agents running while the user is logged out.
    */
   const THEME = 0;
   const USAGE = 1;
-  const HOSTS = 2;
-  const KEEP = 3;
+  const PLUGINS = 2;
+  const HOSTS = 3;
+  const KEEP = 4;
 
   /** Asked of the Host each time the menu opens; null hides the row. */
   let keepRunning = $state<boolean | null>(null);
-  const count = $derived(keepRunning === null ? 3 : 4);
+  const count = $derived(keepRunning === null ? 4 : 5);
 
   /** The Hosts dialog is up. */
   let managingHosts = $state(false);
@@ -143,6 +145,11 @@
     if (i === USAGE) {
       close();
       usage.show();
+      return;
+    }
+    if (i === PLUGINS) {
+      close();
+      plugins.show();
       return;
     }
     if (i === HOSTS) {
@@ -379,6 +386,24 @@
       </span>
       <span class="menu-label">Usage</span>
       <kbd>Ctrl + Shift + U</kbd>
+    </div>
+
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <div
+      id={`${uid}-item-${PLUGINS}`}
+      role="menuitem"
+      tabindex="-1"
+      data-active={!inSub && active === PLUGINS}
+      class="menu-item"
+      onclick={() => pick(PLUGINS)}
+      onpointermove={() => {
+        active = PLUGINS;
+        closeSub();
+      }}
+      title="Browse, install and manage Claude Code plugins (/plugin)"
+    >
+      <span class="menu-tick" aria-hidden="true"></span>
+      <span class="menu-label">Plugins…</span>
     </div>
 
     <!-- svelte-ignore a11y_click_events_have_key_events -->
