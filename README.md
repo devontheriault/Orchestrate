@@ -7,7 +7,7 @@
 
 # Orchestrate
 
-A desktop app for running a bunch of Claude Code agents at once, each in its own Git worktree.
+Orchestrate is a lightweight desktop app for running several Claude Code agents at once without them stepping on each other. You watch their output live, send follow-ups, stop them when they go the wrong way, then review the changes and merge the work you want to keep.
 
 [![Status: alpha](https://img.shields.io/badge/status-alpha-orange)](#alpha)
 [![License: MIT](https://img.shields.io/badge/license-MIT-0e9f4e)](LICENSE)
@@ -36,7 +36,6 @@ It doesn't replace Claude Code. It runs the actual `claude` CLI under your own l
 ## Features
 
 - Every agent works in its own Git worktree and branch. Nothing lands in your checkout until you merge it.
-- Output streams in live and stays readable: repeated tool calls get collapsed (eight file reads show up as `Read ×8`), and thinking can be folded away.
 - Stop an agent mid-turn, resume it with a correction, or queue up follow-ups while it's still busy.
 - See everything an agent changed as a single diff, then commit and merge it into whichever branch you want.
 - If a merge conflicts, a separate agent resolves it in its own worktree so your project isn't left half-merged.
