@@ -90,7 +90,11 @@ jobs:
       # libwayland, so on current distros the window stays blank. libwayland is
       # backwards compatible and every system that can run the app has it, so
       # repack without it and let the host's copy load.
-      - name: Drop bundled libwayland from the AppImage
+      #
+      # linuxdeploy's GTK hook also forces GDK_BACKEND=x11 to dodge crashes from
+      # that same libwayland. Under X11 a desktop's GDK_SCALE (Omarchy sets 2)
+      # blows the window up, so with libwayland gone, prefer Wayland again.
+      - name: Drop bundled libwayland from the AppImage and prefer Wayland
         if: startsWith(matrix.platform, 'ubuntu')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -103,6 +107,10 @@ jobs:
           chmod +x appimagetool
           "$appimage" --appimage-extract > /dev/null
           rm squashfs-root/usr/lib/libwayland-*.so*
+          # Fails the build if a newer linuxdeploy changes the line.
+          hook=squashfs-root/apprun-hooks/linuxdeploy-plugin-gtk.sh
+          grep -q '^export GDK_BACKEND=x11' "$hook"
+          sed -i 's/^export GDK_BACKEND=x11.*/export GDK_BACKEND="${GDK_BACKEND:-wayland,x11}"/' "$hook"
           rm "$appimage"
           ARCH=x86_64 ./appimagetool --no-appstream squashfs-root "$appimage"
 
