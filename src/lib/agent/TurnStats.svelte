@@ -1,6 +1,7 @@
 <script lang="ts">
   import { store } from "$lib/state/store.svelte";
   import { formatDuration, formatTokens } from "$lib/format";
+  import { turnOutputTokens } from "./turnTokens";
 
   // Ticks once a second while the agent runs, so the elapsed timer advances
   // without waiting for the next stream event.
@@ -26,29 +27,7 @@
 
   const elapsedMs = $derived(turnStartedAt != null ? Math.max(0, now - turnStartedAt) : 0);
 
-  /**
-   * Tokens generated so far in the running turn: `claude` reports usage per
-   * API call rather than as incremental deltas, so this sums each call's
-   * output as it arrives — an estimate that climbs as the turn progresses,
-   * not the exact total the final `result` event reports.
-   */
-  const outputTokens = $derived.by(() => {
-    const events = store.eventsForSelected;
-    let sinceIdx = -1;
-    for (let i = events.length - 1; i >= 0; i--) {
-      if ((events[i].event as any)?.type === "cw_prompt") {
-        sinceIdx = i;
-        break;
-      }
-    }
-    let total = 0;
-    for (let i = sinceIdx + 1; i < events.length; i++) {
-      const e = events[i].event as any;
-      const ot = e?.type === "assistant" ? e.message?.usage?.output_tokens : undefined;
-      if (typeof ot === "number") total += ot;
-    }
-    return total;
-  });
+  const outputTokens = $derived(turnOutputTokens(store.eventsForSelected));
 </script>
 
 <!-- Sits directly on top of the input box: while the agent works, how long
