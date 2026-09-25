@@ -1,5 +1,5 @@
 <script module lang="ts">
-  import { SvelteSet } from "svelte/reactivity";
+  import { SvelteMap } from "svelte/reactivity";
 
   // Module-level, so they outlive the transcript: it unmounts whenever the
   // Diff tab is open, and coming back to it shouldn't start from scratch.
@@ -11,15 +11,24 @@
   const FOLLOW_SLACK = 120;
 
   /**
-   * How many Rows are on the page while following, and how many more come in
-   * each time the user scrolls near the top. A long transcript is thousands
-   * of Rows, and building them all made opening an agent slow and every
-   * layout after it slower.
+   * The page holds a window of the Rows rather than all of them: the newest
+   * TAIL while following, and never more than MOST however far back the user
+   * reads. A long transcript is thousands of Rows, and every one on the page
+   * made opening an agent, each event and each layout slower — whether it
+   * was in view or not.
    */
-  const PAGE = 100;
+  const TAIL = 100;
+  const MOST = 200;
 
-  /** How near the top, in pixels, brings in the Rows before it. */
-  const EARLIER_SLACK = 600;
+  /**
+   * How many Rows come onto the page, and as many leave it at the other end,
+   * each time the user scrolls near an edge of the window. Small enough that
+   * building them doesn't stall the scroll.
+   */
+  const PAGE = 25;
+
+  /** How near an edge of the page, in pixels, slides the window that way. */
+  const EDGE_SLACK = 600;
 
   /**
    * Whether the transcript is following the newest output. Only the user
@@ -32,11 +41,11 @@
   let lastScrollTop = 0;
 
   /**
-   * Calls whose details have been opened. A call's input and result are only
-   * built once it has been: a transcript holds hundreds of calls, and one
-   * Read alone can be a thousand highlighted lines nobody asked to see.
+   * Cards the user has opened or folded by hand, by agent and key. Kept here
+   * rather than in the DOM because a card leaves the page when the window
+   * slides past it, and should come back the way the user left it.
    */
-  const opened = new SvelteSet<string>();
+  const toggled = new SvelteMap<string, boolean>();
 </script>
 
 <script lang="ts">
@@ -78,12 +87,17 @@
 
   /**
    * The first Row on the page. Infinity while following, so the page slides
-   * along with the newest PAGE Rows. Letting go of the stream pins it where
-   * it is, so nothing leaves the top of the page under the user's eyes.
+   * along with the newest TAIL Rows. Letting go of the stream pins it where
+   * it is, so nothing leaves the top of the page under the user's eyes; the
+   * page then ends MOST Rows on, and output past that waits for the user to
+   * scroll down to it.
    */
   let start = $state(Infinity);
-  const shownFrom = $derived(Math.max(0, Math.min(start, rows.length - PAGE)));
-  const shown = $derived(shownFrom > 0 ? rows.slice(shownFrom) : rows);
+  const shownFrom = $derived(Math.max(0, Math.min(start, rows.length - TAIL)));
+  const shownTo = $derived(Math.min(rows.length, shownFrom + MOST));
+  const shown = $derived(
+    shownFrom > 0 || shownTo < rows.length ? rows.slice(shownFrom, shownTo) : rows,
+  );
 
   function follow(on: boolean) {
     if (on === following) return;
@@ -94,30 +108,38 @@
   function onScroll() {
     const el = streamEl;
     if (!el) return;
-    if (el.scrollHeight - el.scrollTop - el.clientHeight < FOLLOW_SLACK) follow(true);
+    const fromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    // The bottom of the page is only the newest output once the window
+    // reaches it.
+    if (fromBottom < FOLLOW_SLACK && shownTo === rows.length) follow(true);
     // Our own scrolls only ever go down, and content growing below doesn't
     // move scrollTop at all, so a scroll upward is the user's doing.
     else if (el.scrollTop < lastScrollTop) follow(false);
     lastScrollTop = el.scrollTop;
-    if (!following && el.scrollTop < EARLIER_SLACK) void showEarlier();
+    if (following) return;
+    if (el.scrollTop < EDGE_SLACK && shownFrom > 0) void slide(Math.max(0, shownFrom - PAGE));
+    else if (fromBottom < EDGE_SLACK && shownTo < rows.length)
+      void slide(Math.min(shownFrom + PAGE, rows.length - MOST));
   }
 
   /**
-   * Puts the PAGE Rows before the page's first on it, keeping what's on
-   * screen where it is: the new Rows would otherwise push it down by their
-   * height. Done by hand because WebKit doesn't anchor scrolling itself.
+   * Moves the window to start at `to`, keeping what's on screen where it is:
+   * Rows coming or going above it would otherwise move it by their height.
+   * Done by hand because WebKit doesn't anchor scrolling itself.
    */
-  let addingEarlier = false;
-  async function showEarlier() {
+  let sliding = false;
+  async function slide(to: number) {
     const el = streamEl;
-    if (!el || addingEarlier || shownFrom === 0) return;
-    addingEarlier = true;
-    const fromBottom = el.scrollHeight - el.scrollTop;
-    start = Math.max(0, shownFrom - PAGE);
+    if (!el || sliding) return;
+    sliding = true;
+    // The first Row on both the page now and the page to come.
+    const anchor = el.querySelectorAll(":scope > .block")[Math.max(0, to - shownFrom)];
+    const top = anchor?.getBoundingClientRect().top ?? 0;
+    start = to;
     await tick();
-    el.scrollTop = el.scrollHeight - fromBottom;
+    if (anchor?.isConnected) el.scrollTop += anchor.getBoundingClientRect().top - top;
     lastScrollTop = el.scrollTop;
-    addingEarlier = false;
+    sliding = false;
   }
 
   function stickToBottom() {
@@ -174,11 +196,33 @@
   });
 
   /**
-   * Calls that open without a click: the newest Bash call, and every Write,
-   * so a file's new contents are in view as soon as it's written.
+   * The Write calls since the user's last prompt. They open themselves, so a
+   * file's new contents are in view as soon as it's written. An earlier
+   * Turn's stay folded: each is a whole file, highlighted, and a long
+   * transcript holds dozens.
    */
+  const turnWrites = $derived.by(() => {
+    const keys = new Set<string>();
+    for (let i = rows.length - 1; i >= 0 && rows[i].kind !== "prompt"; i--) {
+      const row = rows[i];
+      if (row.kind === "tools" && row.name === "Write") for (const c of row.calls) keys.add(c.key);
+    }
+    return keys;
+  });
+
+  /** Calls that open without a click: the newest Bash call, and this Turn's Writes. */
   function opensItself(c: ToolCall): boolean {
-    return c.key === lastBashKey || c.name === "Write";
+    return c.key === lastBashKey || turnWrites.has(c.key);
+  }
+
+  /**
+   * Whether the card under `key` is open: as the user last left it, or else
+   * `auto`. What's inside a card is only built while it is open — a
+   * transcript holds hundreds of them, and one Read alone can be a thousand
+   * highlighted lines nobody asked to see.
+   */
+  function isOpen(key: string, auto: boolean): boolean {
+    return toggled.get(`${store.selectedAgentId} ${key}`) ?? auto;
   }
 
   /**
@@ -195,9 +239,14 @@
     };
   }
 
-  function noteOpened(key: string) {
+  /** Records the user opening or folding the card under `key`. */
+  function remember(key: string) {
     return (e: Event) => {
-      if ((e.currentTarget as HTMLDetailsElement).open) opened.add(key);
+      const el = e.currentTarget as HTMLDetailsElement;
+      // `autoOpen` toggles it too, and that's no choice of the user's.
+      if (el.open === applied.get(el)) return;
+      applied.set(el, el.open);
+      toggled.set(`${store.selectedAgentId} ${key}`, el.open);
     };
   }
 </script>
@@ -221,14 +270,11 @@
   </div>
 {/snippet}
 
-<!-- A call's input and result, once there's been a reason to show them. A
-     call that opens itself is built straight away. -->
+<!-- A call's input and result, for a call whose card is open. -->
 {#snippet callBody(c: ToolCall)}
-  {#if opened.has(c.key) || opensItself(c)}
-    {@render callInput(c)}
-    {#if c.hasResult}
-      {@render callResult(c)}
-    {/if}
+  {@render callInput(c)}
+  {#if c.hasResult}
+    {@render callResult(c)}
   {/if}
 {/snippet}
 
@@ -284,11 +330,8 @@
         {:else if row.kind === "text"}
           <div class="block text"><Markdown text={row.text} /></div>
         {:else if row.kind === "tools"}
-          <details
-            class="block tool"
-            {@attach autoOpen(row.calls.some(opensItself))}
-            ontoggle={row.calls.length === 1 ? noteOpened(row.calls[0].key) : undefined}
-          >
+          {@const open = isOpen(row.key, row.calls.some(opensItself))}
+          <details class="block tool" {@attach autoOpen(open)} ontoggle={remember(row.key)}>
             <summary>
               <span class="tool-name">→ {row.name}</span>
               {#if row.calls.length > 1}<span class="count">×{row.calls.length}</span>{/if}
@@ -302,35 +345,40 @@
                 <span class="elapsed">{groupElapsed(row.calls)}</span>
               {/if}
             </summary>
-            {#if row.calls.length === 1}
+            {#if open && row.calls.length === 1}
               {@render callBody(row.calls[0])}
-            {:else}
+            {:else if open}
               <!-- A run of same-tool calls: the group is one row, each
-                   call inside it still opens on its own. -->
+                   call inside it still opens on its own. The row's own key
+                   is its first call's, so the calls take keys of their own. -->
               {#each row.calls as c (c.key)}
+                {@const callOpen = isOpen(`${c.key} call`, opensItself(c))}
                 <details
                   class="call"
-                  {@attach autoOpen(opensItself(c))}
-                  ontoggle={noteOpened(c.key)}
+                  {@attach autoOpen(callOpen)}
+                  ontoggle={remember(`${c.key} call`)}
                 >
                   <summary>
                     {truncate(callTarget(c.name, c.input), 80) || c.name}
                     {#if !c.hasResult}<span class="status-dot status-running running-dot"></span>{/if}
                     {#if elapsedLabel(c)}<span class="elapsed">{elapsedLabel(c)}</span>{/if}
                   </summary>
-                  {@render callBody(c)}
+                  {#if callOpen}{@render callBody(c)}{/if}
                 </details>
               {/each}
             {/if}
           </details>
         {:else if row.kind === "thinking"}
-          <details class="block thinking">
+          {@const open = isOpen(row.key, false)}
+          <details class="block thinking" {@attach autoOpen(open)} ontoggle={remember(row.key)}>
             <summary
               >thinking{#if row.parts.length > 1}<span class="count"
                   >×{row.parts.length}</span
                 >{/if}</summary
             >
-            <div class="thinking-body"><Markdown text={row.parts.join("\n\n")} /></div>
+            {#if open}
+              <div class="thinking-body"><Markdown text={row.parts.join("\n\n")} /></div>
+            {/if}
           </details>
         {:else if row.kind === "system"}
           <div class="block system">{systemLabel(row.subtype)}</div>
@@ -350,9 +398,10 @@
             {/if}
           </div>
         {:else}
-          <details class="block raw-detail">
+          {@const open = isOpen(row.key, false)}
+          <details class="block raw-detail" {@attach autoOpen(open)} ontoggle={remember(row.key)}>
             <summary>{humanize(row.type ?? "") || "Unrecognized event"}</summary>
-            <pre>{JSON.stringify(row.event, null, 2)}</pre>
+            {#if open}<pre>{JSON.stringify(row.event, null, 2)}</pre>{/if}
           </details>
         {/if}
       {/each}
