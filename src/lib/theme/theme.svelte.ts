@@ -33,7 +33,7 @@ export const OPACITY_KEY = "orchestrate:glass-opacity";
  */
 export const OPACITY_MIN = 0;
 export const OPACITY_MAX = 100;
-export const OPACITY_DEFAULT = 55;
+export const OPACITY_DEFAULT = 15;
 
 /**
  * The themes, in the order the menu lists them: the app's own first — Light,
