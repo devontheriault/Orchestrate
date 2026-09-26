@@ -7,23 +7,27 @@ import type { Window } from "@tauri-apps/api/window";
  * decorations (native traffic lights, hidden title) while every other platform
  * runs undecorated. The UI has to match that choice — reserve room for the
  * traffic lights on macOS, draw its own controls and resize edges everywhere
- * else — and reads it off the user agent rather than an async `invoke`, so the
- * header renders right on the first frame instead of shifting once an IPC call
- * lands.
+ * else.
  *
  * The one exception is a tiling compositor, which owns every window's frame
- * without drawing one. The backend flags that with an initialization script
- * that runs before this module, so it's just as synchronous.
+ * without drawing one. The backend flags that with an initialization script.
+ *
+ * The pre-paint script in `src/app.html` works out which it is and writes it to
+ * `<html data-frame>`, because the page arrives already rendered — without
+ * knowing the platform — and the stylesheet has to fit the header to the frame
+ * before the first paint. This reads it back rather than asking again. While
+ * rendering ahead of time there is no document, and the app's own frame is
+ * assumed.
  */
-export const isMac =
-  typeof navigator !== "undefined" && /Mac OS X|Macintosh/.test(navigator.userAgent);
+type Frame = "mac" | "compositor" | "app";
 
-const compositorOwnsFrame =
-  typeof window !== "undefined" &&
-  (window as { __COMPOSITOR_OWNS_FRAME__?: boolean }).__COMPOSITOR_OWNS_FRAME__ === true;
+const frame: Frame =
+  typeof document === "undefined"
+    ? "app"
+    : ((document.documentElement.dataset.frame as Frame | undefined) ?? "app");
 
 /** True where the app, not the OS or the compositor, owns the window frame. */
-export const ownsWindowFrame = !isMac && !compositorOwnsFrame;
+export const ownsWindowFrame = frame === "app";
 
 /**
  * The header's `data-tauri-drag-region` value. Pressing on it starts a move (or
@@ -31,7 +35,7 @@ export const ownsWindowFrame = !isMac && !compositorOwnsFrame;
  * a window goes where the layout puts it, and a drag pulls it out of the tile.
  * Tauri reads `"false"` as "no drag region", so the attribute stays on the element.
  */
-export const dragRegion = compositorOwnsFrame ? "false" : "true";
+export const dragRegion = frame === "compositor" ? "false" : "true";
 
 /**
  * Keep `set` told whether `win` is maximized: now, and after every resize.

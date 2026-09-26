@@ -232,7 +232,10 @@
   </header>
 
   {#if store.projects.length === 0}
-    {#if collapsed}
+    {#if !store.loaded}
+      <!-- The Host hasn't answered yet: saying "no projects" now would be
+           the first thing on screen, and wrong. -->
+    {:else if collapsed}
       <div class="empty-rail">
         <button onclick={pickAndAdd} title="Add a project" aria-label="Add a project">+</button>
       </div>

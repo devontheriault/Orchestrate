@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { getCurrentWindow } from "@tauri-apps/api/window";
+  import { getCurrentWindow, type Window } from "@tauri-apps/api/window";
   import { ownsWindowFrame, watchMaximized } from "./platform";
 
   /**
@@ -12,17 +12,16 @@
    * resize. Under a tiling compositor, which does the resizing itself,
    * `ownsWindowFrame` keeps them off entirely.
    */
-  const win = getCurrentWindow();
 
   // The API takes this as a string union it doesn't export, so borrow it back
   // off the method rather than restating the eight names as a second source.
-  type ResizeDirection = Parameters<typeof win.startResizeDragging>[0];
+  type ResizeDirection = Parameters<Window["startResizeDragging"]>[0];
 
   let maximized = $state(false);
 
   $effect(() => {
     if (!ownsWindowFrame) return;
-    return watchMaximized(win, (m) => (maximized = m));
+    return watchMaximized(getCurrentWindow(), (m) => (maximized = m));
   });
 
   const EDGES: readonly (readonly [string, ResizeDirection])[] = [
@@ -39,7 +38,7 @@
   function grab(e: PointerEvent, direction: ResizeDirection) {
     if (e.button !== 0) return;
     e.preventDefault();
-    win.startResizeDragging(direction);
+    getCurrentWindow().startResizeDragging(direction);
   }
 </script>
 

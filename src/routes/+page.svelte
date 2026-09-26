@@ -78,15 +78,7 @@
     store.orphans.length > 0 && !store.orphanBannerDismissed,
   );
 
-  // A hand-sized pane keeps its width once it collapses, so the seam carries on
-  // tracking the pointer through the rail instead of snapping to the stylesheet
-  // rail and sitting there for the rest of the drag. An untouched pane still
-  // gets the rail the stylesheet picked.
-  const paneStyle = $derived(
-    panes.width !== null
-      ? `--pane-projects: ${panes.width}px; --rail: ${panes.width}px`
-      : "",
-  );
+  panes.start();
 </script>
 
 {#if store.error}
@@ -114,7 +106,7 @@
   </div>
 {/if}
 
-<main style={paneStyle}>
+<main>
   <ProjectSidebar collapsed={panes.railed} />
   <PaneDivider
     label="Resize project list"

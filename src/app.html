@@ -13,7 +13,17 @@
          It does not check the stored name against the list of themes, which
          only the module has: an unknown one paints as Light for the moment
          before the module replaces it, and every known one is already right.
-         The Glass and Picture themes' sliders ride along for the same reason. -->
+         The Glass and Picture themes' sliders ride along for the same reason.
+
+         So does the window's frame, which `src/lib/layout/platform.ts` reads
+         back from here: the page arrives already rendered for the app's own
+         frame, and the stylesheet trims the header to macOS's, or to a tiling
+         compositor's, before anything is drawn.
+
+         And the project pane's width, when the user has dragged it: the
+         rendered page has the default, and would visibly snap to the chosen
+         width once the app took over. The keys and the variables are the ones
+         `src/lib/layout/panes.svelte.ts` reads and writes. -->
     <script>
       (() => {
         const pref = localStorage.getItem("orchestrate:theme");
@@ -27,6 +37,19 @@
           const value = localStorage.getItem(`orchestrate:${key}`);
           if (value) document.documentElement.style.setProperty(prop, value + unit);
         }
+        document.documentElement.dataset.frame = /Mac OS X|Macintosh/.test(navigator.userAgent)
+          ? "mac"
+          : window.__COMPOSITOR_OWNS_FRAME__ === true
+            ? "compositor"
+            : "app";
+        try {
+          const width = JSON.parse(localStorage.getItem("orchestrate:panes") ?? "{}").projects;
+          if (typeof width === "number") {
+            const px = `${Math.max(56, width)}px`;
+            document.documentElement.style.setProperty("--pane-projects", px);
+            document.documentElement.style.setProperty("--rail", px);
+          }
+        } catch {}
       })();
     </script>
     %sveltekit.head%
