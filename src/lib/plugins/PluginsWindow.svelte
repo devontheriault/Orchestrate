@@ -345,7 +345,9 @@
 
   /* A fixed height, so switching tabs or searching doesn't make it jump. */
   .dialog {
-    background: var(--surface);
+    background: var(--float-bg, var(--surface));
+    -webkit-backdrop-filter: var(--float-filter, none);
+    backdrop-filter: var(--float-filter, none);
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
     width: min(44rem, 100%);

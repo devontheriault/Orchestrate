@@ -18,11 +18,14 @@
  * the preview is the theme itself rather than a copy of it that can drift.
  *
  * Adding one: a block here and a row in `THEMES` in `theme.svelte.ts`.
+ *
+ * Glass is the one exception to "a palette and nothing else": its surfaces
+ * are see-through, and what they show is a backdrop only it paints.
  */
 
 /* ------------------------------------------------------------------- DARK */
 
-/* One of the two palettes with no upstream: the logo's own. Its bars are near-white
+/* One of the palettes with no upstream: the logo's own. Its bars are near-white
    on near-black and its centre bar is the signal green, so the page is a
    green-tinted black, the text that near-white, and the accent the signal
    itself — the same value as `--brand-signal` on a dark page. Completed
@@ -76,6 +79,94 @@
   --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.5);
   --shadow-popover: 0 10px 30px rgba(0, 0, 0, 0.6);
   --shadow-modal: 0 20px 60px rgba(0, 0, 0, 0.7);
+}
+
+/* Another palette with no upstream: frosted glass. The page and every
+   surface on it are clear, so the whole window is one pane over a backdrop of
+   colour, blurred by `--glass-blur` — which the user sets, and the store
+   writes onto the document over the default here. A panel is a faint lift
+   rather than a fill, and a line is white at low alpha, so both read on
+   whatever colour happens to be behind them.
+
+   Anything that floats over content gets `--float-bg`, a smoked fill that
+   blurs what is under it, since a clear popover over text is unreadable. Its
+   blur has a floor, so a crisp backdrop still leaves the menus legible. */
+[data-theme="glass"] {
+  color-scheme: dark;
+
+  --glass-blur: 32px;
+
+  --fg: #eef0f7;
+  --fg-muted: #a7adc2;
+  --surface: transparent;
+  --panel-bg: rgba(255, 255, 255, 0.045);
+  --border: rgba(255, 255, 255, 0.12);
+  --hover: rgba(255, 255, 255, 0.08);
+  --selected: rgba(165, 180, 252, 0.2);
+  --code-bg: rgba(255, 255, 255, 0.08);
+  --scrollbar-thumb: rgba(255, 255, 255, 0.22);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.36);
+
+  --accent: #a5b4fc;
+  --on-accent: #151a3a;
+
+  --danger: #fb7185;
+  --danger-text: #fda4af;
+  --danger-bg: rgba(251, 113, 133, 0.2);
+  --danger-border: rgba(251, 113, 133, 0.45);
+  --danger-fg: #ffd1d8;
+  --on-danger: #2a0a10;
+  --danger-soft-bg: rgba(251, 113, 133, 0.14);
+  --danger-soft-border: rgba(251, 113, 133, 0.4);
+
+  --success: #6ee7b7;
+  --on-success: #062a1d;
+  --warning: #fcd34d;
+  --warning-text: #fde68a;
+  --on-warning: #2a2006;
+  --warning-soft-bg: rgba(252, 211, 77, 0.14);
+  --warning-soft-border: rgba(252, 211, 77, 0.4);
+
+  --diff-add-fg: #a7f3d0;
+  --diff-add-bg: rgba(110, 231, 183, 0.16);
+  --diff-del-fg: #fecdd3;
+  --diff-del-bg: rgba(251, 113, 133, 0.16);
+
+  --running-bg: color-mix(in srgb, var(--accent) 20%, transparent);
+  --attention-bg: rgba(252, 211, 77, 0.2);
+  --completed: #7dd3fc;
+  --completed-bg: rgba(125, 211, 252, 0.2);
+  --delivered: #f0abfc;
+
+  --scrim: rgba(4, 6, 12, 0.45);
+  --float-bg: rgba(22, 25, 40, 0.72);
+  --float-filter: blur(max(16px, var(--glass-blur))) saturate(1.6);
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.35);
+  --shadow-popover: 0 10px 30px rgba(0, 0, 0, 0.45);
+  --shadow-modal: 0 20px 60px rgba(0, 0, 0, 0.55);
+}
+
+/* The backdrop: hard-edged discs of colour under a dark veil, so the blur has
+   edges to soften — at nothing they are crisp, turned up they melt into a
+   glow. On the document only, not on a swatch. Overhangs the window by more
+   than the widest blur reaches, so the edges never fade in from transparent,
+   and by a fixed amount, so the discs don't drift as the blur changes. */
+:root[data-theme="glass"]::before {
+  content: "";
+  position: fixed;
+  inset: -320px;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    linear-gradient(rgba(7, 9, 18, 0.5), rgba(7, 9, 18, 0.5)),
+    radial-gradient(circle 9vmax at 50% 12%, #f59e0b 99%, transparent 100%),
+    radial-gradient(circle 16vmax at 30% 80%, #3df58a 99%, transparent 100%),
+    radial-gradient(circle 20vmax at 88% 18%, #22d3ee 99%, transparent 100%),
+    radial-gradient(circle 24vmax at 56% 56%, #3b82f6 99%, transparent 100%),
+    radial-gradient(circle 30vmax at 16% 24%, #7c5cff 99%, transparent 100%),
+    radial-gradient(circle 28vmax at 86% 92%, #f472b6 99%, transparent 100%),
+    #0b0d1a;
+  filter: blur(var(--glass-blur));
 }
 
 [data-theme="catppuccin-mocha"] {

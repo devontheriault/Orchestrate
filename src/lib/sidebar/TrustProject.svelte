@@ -123,7 +123,9 @@
   }
 
   .dialog {
-    background: var(--surface);
+    background: var(--float-bg, var(--surface));
+    -webkit-backdrop-filter: var(--float-filter, none);
+    backdrop-filter: var(--float-filter, none);
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
     width: min(30rem, 100%);

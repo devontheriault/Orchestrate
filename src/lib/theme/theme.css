@@ -100,6 +100,13 @@
 
   /* Dims the app behind a modal. */
   --scrim: rgba(0, 0, 0, 0.4);
+  /* Not set here, and by no theme but Glass: `--float-bg` and
+     `--float-filter`, the fill and backdrop filter of anything that floats
+     over or sticks above other content — a popover, a dialog, a sticky
+     header. Where a theme's surfaces are opaque, a floating thing can wear
+     them like the page does, so each use falls back to the surface it sat on
+     before; where they are see-through, it needs a fill of its own or the
+     content under it reads through. */
   /* The close button's hover red is Windows', deliberately: it is the one
      control users identify by colour before they read the glyph. */
   --window-close-bg: #e81123;
@@ -610,7 +617,9 @@ samp {
 .popover {
   position: fixed;
   z-index: var(--z-popover);
-  background: var(--surface);
+  background: var(--float-bg, var(--surface));
+  -webkit-backdrop-filter: var(--float-filter, none);
+  backdrop-filter: var(--float-filter, none);
   border: var(--border-width) solid var(--border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-popover);
