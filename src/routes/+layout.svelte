@@ -15,6 +15,7 @@
   import { theme } from "$lib/theme/theme.svelte";
   import WindowChrome from "$lib/layout/WindowChrome.svelte";
   import WindowResizeEdges from "$lib/layout/WindowResizeEdges.svelte";
+  import Picture from "$lib/theme/Picture.svelte";
 
   let { children } = $props();
 
@@ -27,6 +28,7 @@
      src-tauri/src/lib.rs. It belongs to the layout rather than the page for the
      same reason the OS bar used to sit outside the document: it's the window,
      not what the window is showing. -->
+<Picture />
 <WindowChrome />
 <WindowResizeEdges />
 

@@ -14,6 +14,7 @@
  */
 
 import { blurBehindWindow } from "./backdrop";
+import { choosePicture, loadPicture, savePicture } from "./picture";
 
 export type Mode = "light" | "dark";
 export type ThemeId = (typeof THEMES)[number]["id"];
@@ -22,22 +23,71 @@ export type ThemePref = "system" | ThemeId;
 /** Shared with the pre-paint script in `app.html`. */
 export const STORAGE_KEY = "orchestrate:theme";
 
-/** Shared with the pre-paint script in `app.html`, like the theme's. */
-export const OPACITY_KEY = "orchestrate:glass-opacity";
-
 /**
- * How much the Glass theme tints the desktop behind the window, in percent:
- * 0 is clear, 100 is solid. The default has to match `--glass-opacity` in
- * the Glass block of `themes.css`, which is what a window wears before
- * anything is stored.
+ * A number the user sets with a slider in the settings menu: kept in
+ * localStorage, and written onto the document as a CSS property for the
+ * stylesheet to read. The Glass and Picture themes each have one or two.
+ *
+ * The keys are shared with the pre-paint script in `app.html`, like the
+ * theme's, and each default has to match the property's value in its theme's
+ * block of `themes.css`, which is what a window wears before anything is
+ * stored.
  */
-export const OPACITY_MIN = 0;
-export const OPACITY_MAX = 100;
-export const OPACITY_DEFAULT = 15;
+export class Dial {
+  readonly key: string;
+  readonly prop: string;
+  readonly unit: string;
+  readonly min: number;
+  readonly max: number;
+  readonly initial: number;
+  /** How far one arrow key moves it. */
+  readonly step: number;
+
+  value = $state(0);
+
+  constructor(d: {
+    key: string;
+    prop: string;
+    unit: string;
+    min: number;
+    max: number;
+    initial: number;
+    step: number;
+  }) {
+    this.key = d.key;
+    this.prop = d.prop;
+    this.unit = d.unit;
+    this.min = d.min;
+    this.max = d.max;
+    this.initial = d.initial;
+    this.step = d.step;
+    this.value = this.#stored();
+  }
+
+  #clamp(n: number): number {
+    return Math.min(this.max, Math.max(this.min, Math.round(n)));
+  }
+
+  #stored(): number {
+    if (typeof localStorage === "undefined") return this.initial;
+    const raw = Number.parseFloat(localStorage.getItem(this.key) ?? "");
+    return Number.isFinite(raw) ? this.#clamp(raw) : this.initial;
+  }
+
+  set(n: number) {
+    this.value = this.#clamp(n);
+    localStorage.setItem(this.key, String(this.value));
+  }
+
+  /** The value as the stylesheet wants it: `15%`, `16px`. */
+  get css(): string {
+    return `${this.value}${this.unit}`;
+  }
+}
 
 /**
  * The themes, in the order the menu lists them: the app's own first — Light,
- * Dark, Orchestrate, the logo's palette, dark then light, and Glass — then the named
+ * Dark, Orchestrate, the logo's palette, dark then light, Glass and Picture — then the named
  * palettes alphabetically, because after the app's own there is no ranking to
  * honour and alphabetical is the one order a reader can predict.
  *
@@ -51,6 +101,7 @@ export const THEMES = [
   { id: "orchestrate", name: "Orchestrate", mode: "dark" },
   { id: "orchestrate-light", name: "Orchestrate Light", mode: "light" },
   { id: "glass", name: "Glass", mode: "dark" },
+  { id: "picture", name: "Picture", mode: "dark" },
   { id: "catppuccin-latte", name: "Catppuccin Latte", mode: "light" },
   { id: "catppuccin-mocha", name: "Catppuccin Mocha", mode: "dark" },
   { id: "dracula", name: "Dracula", mode: "dark" },
@@ -77,16 +128,6 @@ function stored(): ThemePref {
   // Anything unrecognised — a theme that has since been removed, a value from
   // a future version — reads as System rather than as a broken window.
   return raw && BY_ID.has(raw) ? (raw as ThemeId) : "system";
-}
-
-function clampOpacity(pct: number): number {
-  return Math.min(OPACITY_MAX, Math.max(OPACITY_MIN, Math.round(pct)));
-}
-
-function storedOpacity(): number {
-  if (typeof localStorage === "undefined") return OPACITY_DEFAULT;
-  const raw = Number.parseFloat(localStorage.getItem(OPACITY_KEY) ?? "");
-  return Number.isFinite(raw) ? clampOpacity(raw) : OPACITY_DEFAULT;
 }
 
 function systemIsDark(): boolean {
@@ -146,12 +187,25 @@ class Theme {
       document.documentElement.dataset.theme = this.resolved;
     });
 
-    $effect(() => {
-      document.documentElement.style.setProperty("--glass-opacity", `${this.opacity}%`);
-    });
+    for (const dial of [this.glassOpacity, this.pictureOpacity, this.pictureBlur]) {
+      $effect(() => {
+        document.documentElement.style.setProperty(dial.prop, dial.css);
+      });
+    }
 
     const glass = $derived(this.resolved === "glass");
     $effect(() => blurBehindWindow(glass));
+
+    // The picture is read from storage the first time the Picture theme is
+    // worn — tried on counts — and kept from then on.
+    $effect(() => {
+      if (this.resolved === "picture" && !this.#pictureAsked) {
+        this.#pictureAsked = true;
+        loadPicture()
+          .then((file) => file && this.#show(file))
+          .catch((e) => console.warn("picture:", e));
+      }
+    });
 
     $effect(() => {
       const mq = matchMedia(DARK_QUERY);
@@ -182,14 +236,71 @@ class Theme {
   }
 
   /**
-   * How solid the Glass theme's tint over the desktop is, in percent. Kept
-   * whichever theme is on, so going back to Glass finds it where it was left.
+   * How solid the Glass theme's tint over the desktop is, in percent: 0 is
+   * clear, 100 is solid. Kept whichever theme is on, like each dial, so going
+   * back to Glass finds it where it was left.
    */
-  opacity = $state(storedOpacity());
+  glassOpacity = new Dial({
+    key: "orchestrate:glass-opacity",
+    prop: "--glass-opacity",
+    unit: "%",
+    min: 0,
+    max: 100,
+    initial: 15,
+    step: 5,
+  });
 
-  setOpacity(pct: number) {
-    this.opacity = clampOpacity(pct);
-    localStorage.setItem(OPACITY_KEY, String(this.opacity));
+  /**
+   * The Picture theme's tint over its picture. Its own rather than Glass's,
+   * and darker by default: a photo is brighter and busier than a desktop the
+   * user has already chosen to sit behind their windows.
+   */
+  pictureOpacity = new Dial({
+    key: "orchestrate:picture-opacity",
+    prop: "--picture-opacity",
+    unit: "%",
+    min: 0,
+    max: 100,
+    initial: 45,
+    step: 5,
+  });
+
+  /** How frosted the glass over the picture is: the blur radius, in pixels. */
+  pictureBlur = new Dial({
+    key: "orchestrate:picture-blur",
+    prop: "--picture-blur",
+    unit: "px",
+    min: 0,
+    max: 40,
+    initial: 16,
+    step: 2,
+  });
+
+  /** The Picture theme's picture, as a URL the page can load; null until there is one. */
+  picture = $state<string | null>(null);
+
+  /** The picked file's name, for the menu to say which picture is on. */
+  pictureName = $state<string | null>(null);
+
+  #pictureAsked = false;
+
+  #show(file: File) {
+    if (this.picture) URL.revokeObjectURL(this.picture);
+    this.picture = URL.createObjectURL(file);
+    this.pictureName = file.name;
+  }
+
+  /**
+   * Ask the user for a picture and wear it. Must be called from a click or
+   * key handler, which is the only place a page may open a file chooser.
+   */
+  async choosePicture() {
+    const file = await choosePicture();
+    if (!file) return;
+    this.#pictureAsked = true;
+    this.#show(file);
+    // Worn even if it can't be kept: the window shows it until it closes.
+    await savePicture(file).catch((e) => console.warn("picture:", e));
   }
 }
 

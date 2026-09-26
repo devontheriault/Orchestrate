@@ -19,8 +19,9 @@
  *
  * Adding one: a block here and a row in `THEMES` in `theme.svelte.ts`.
  *
- * Glass is the one exception to "a palette and nothing else": its surfaces
- * are see-through, and what they show is the desktop behind the window.
+ * Glass and Picture are the exceptions to "a palette and nothing else": their
+ * surfaces are see-through, and what they show is the desktop behind the
+ * window, or a picture the user picked.
  */
 
 /* ------------------------------------------------------------------- DARK */
@@ -94,11 +95,19 @@
    turned it on.
 
    Anything that floats over content gets `--float-bg`, a smoked fill that
-   blurs what is under it, since a clear popover over text is unreadable. */
-[data-theme="glass"] {
+   blurs what is under it, since a clear popover over text is unreadable.
+
+   Picture is the same glass over a picture instead of the desktop, so it
+   wears this palette too. The page paints the picture itself (see
+   `Picture.svelte`), so its blur and veil are the page's, and the defaults
+   of both are here. */
+[data-theme="glass"],
+[data-theme="picture"] {
   color-scheme: dark;
 
   --glass-opacity: 15%;
+  --picture-opacity: 45%;
+  --picture-blur: 16px;
 
   --fg: #eef0f7;
   --fg-muted: #a7adc2;
@@ -155,6 +164,12 @@
    wear it would stack. */
 :root[data-theme="glass"] {
   background: rgb(7 9 18 / var(--glass-opacity));
+}
+
+/* Under the picture, and what shows until it has loaded: solid, since the
+   window itself is see-through. */
+:root[data-theme="picture"] {
+  background: rgb(7 9 18);
 }
 
 [data-theme="catppuccin-mocha"] {
