@@ -61,6 +61,11 @@ export class Dial {
     this.max = d.max;
     this.initial = d.initial;
     this.step = d.step;
+    this.value = d.initial;
+  }
+
+  /** Take up the stored value. Not on construction: the page is rendered ahead of time. */
+  load() {
     this.value = this.#stored();
   }
 
@@ -69,7 +74,6 @@ export class Dial {
   }
 
   #stored(): number {
-    if (typeof localStorage === "undefined") return this.initial;
     const raw = Number.parseFloat(localStorage.getItem(this.key) ?? "");
     return Number.isFinite(raw) ? this.#clamp(raw) : this.initial;
   }
@@ -123,7 +127,6 @@ const BY_ID = new Map(THEMES.map((t) => [t.id as string, t]));
 const DARK_QUERY = "(prefers-color-scheme: dark)";
 
 function stored(): ThemePref {
-  if (typeof localStorage === "undefined") return "system";
   const raw = localStorage.getItem(STORAGE_KEY);
   // Anything unrecognised — a theme that has since been removed, a value from
   // a future version — reads as System rather than as a broken window.
@@ -131,7 +134,7 @@ function stored(): ThemePref {
 }
 
 function systemIsDark(): boolean {
-  return typeof matchMedia !== "undefined" && matchMedia(DARK_QUERY).matches;
+  return matchMedia(DARK_QUERY).matches;
 }
 
 function resolve(pref: ThemePref, system: ThemeId): ThemeId {
@@ -139,8 +142,12 @@ function resolve(pref: ThemePref, system: ThemeId): ThemeId {
 }
 
 class Theme {
-  /** What the user chose. `system` means "whatever the OS is doing". */
-  pref = $state<ThemePref>(stored());
+  /**
+   * What the user chose. `system` means "whatever the OS is doing". Read from
+   * storage by `start`, like the dials: the page is rendered ahead of time,
+   * where there is no storage, and hydrates as that render drew it.
+   */
+  pref = $state<ThemePref>("system");
 
   /**
    * A theme being tried on rather than chosen. The settings menu points this
@@ -151,7 +158,7 @@ class Theme {
   preview = $state<ThemePref | null>(null);
 
   /** What the OS is doing, kept live so `system` follows it without a reload. */
-  #systemDark = $state(systemIsDark());
+  #systemDark = $state(false);
 
   /**
    * What System resolves to right now — whatever the preference happens to
@@ -183,6 +190,13 @@ class Theme {
    * which way it goes in the one place it is written.
    */
   start() {
+    // First, so the effects below see the stored choice on their first run.
+    $effect(() => {
+      this.pref = stored();
+      this.#systemDark = systemIsDark();
+      for (const dial of [this.glassOpacity, this.pictureOpacity, this.pictureBlur]) dial.load();
+    });
+
     $effect(() => {
       document.documentElement.dataset.theme = this.resolved;
     });
