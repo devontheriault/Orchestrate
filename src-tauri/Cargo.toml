@@ -18,7 +18,9 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+# `macos-private-api` is what lets a macOS window be transparent (see
+# `build_main_window`); `app.macOSPrivateApi` in `tauri.conf.json` has to match.
+tauri = { version = "2", features = ["macos-private-api"] }
 tauri-plugin-dialog = "2"
 # Hands a URL to the OS browser, so links in an Agent's output go somewhere
 # other than this window — navigating it would replace the app with the page.

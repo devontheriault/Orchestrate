@@ -3,8 +3,8 @@
   import {
     theme,
     THEMES,
-    BLUR_MAX,
-    BLUR_MIN,
+    OPACITY_MAX,
+    OPACITY_MIN,
     type ThemePref,
   } from "$lib/theme/theme.svelte";
   import { usage } from "$lib/usage/usage.svelte";
@@ -29,7 +29,7 @@
   const uid = $props.id();
 
   /**
-   * The menu's own rows: Theme, which opens the themes beside it, the blur
+   * The menu's own rows: Theme, which opens the themes beside it, the opacity
    * slider while the theme is Glass, Usage, Plugins, the Hosts this window
    * talks to, and — when this machine's Host runs as a service — whether it
    * keeps the agents running while the user is logged out.
@@ -37,22 +37,22 @@
    * Named rather than numbered, because two of them come and go: the row the
    * keys are on stays that row when one appears above it.
    */
-  type Row = "theme" | "blur" | "usage" | "plugins" | "hosts" | "keep";
+  type Row = "theme" | "opacity" | "usage" | "plugins" | "hosts" | "keep";
 
   /** Asked of the Host each time the menu opens; null hides the row. */
   let keepRunning = $state<boolean | null>(null);
 
   const rows = $derived<Row[]>([
     "theme",
-    ...(theme.pref === "glass" ? (["blur"] as const) : []),
+    ...(theme.pref === "glass" ? (["opacity"] as const) : []),
     "usage",
     "plugins",
     "hosts",
     ...(keepRunning === null ? [] : (["keep"] as const)),
   ]);
 
-  /** How far one arrow key moves the blur, in px. */
-  const BLUR_STEP = 4;
+  /** How far one arrow key moves the opacity, in percent. */
+  const OPACITY_STEP = 5;
 
   /** The Hosts dialog is up. */
   let managingHosts = $state(false);
@@ -177,7 +177,7 @@
         toggleKeepRunning();
         return;
       // Nothing to pick: the slider is the whole row.
-      case "blur":
+      case "opacity":
         return;
       case "theme":
         openSub();
@@ -185,7 +185,7 @@
     }
   }
 
-  // The menu grows up from its trigger, so a row appearing — Blur, as Glass is
+  // The menu grows up from its trigger, so a row appearing — Opacity, as Glass is
   // picked, or Keep, once the Host answers — moves the Theme row, and the
   // themes hanging off it have to follow.
   $effect(() => {
@@ -271,18 +271,18 @@
       case "Tab":
         close(false);
         break;
-      // On the Blur row the arrows are the slider's. Handled here even when
+      // On the Opacity row the arrows are the slider's. Handled here even when
       // the slider itself has focus, from being dragged: this cancels its own
       // step, so one press is one step either way.
       case "ArrowRight":
         e.preventDefault();
         if (inSub) break;
         if (active === "theme") pick("theme");
-        else if (active === "blur") theme.setBlur(theme.blur + BLUR_STEP);
+        else if (active === "opacity") theme.setOpacity(theme.opacity + OPACITY_STEP);
         break;
       case "ArrowLeft":
         e.preventDefault();
-        if (!inSub && active === "blur") theme.setBlur(theme.blur - BLUR_STEP);
+        if (!inSub && active === "opacity") theme.setOpacity(theme.opacity - OPACITY_STEP);
         else closeSub();
         break;
       case "Enter":
@@ -398,37 +398,37 @@
       <span class="menu-more" aria-hidden="true">›</span>
     </div>
 
-    {#if rows.includes("blur")}
+    {#if rows.includes("opacity")}
       <!-- Glass's one setting, under the theme it belongs to. The slider is
            out of the tab order like every row here: the menu owns the keys,
            and on this row the arrows move it. -->
       <div
-        id={`${uid}-item-blur`}
+        id={`${uid}-item-opacity`}
         role="menuitem"
         tabindex="-1"
-        aria-label={`Glass blur, ${theme.blur}px`}
-        data-active={!inSub && active === "blur"}
-        class="menu-item blur"
+        aria-label={`Glass opacity, ${theme.opacity}%`}
+        data-active={!inSub && active === "opacity"}
+        class="menu-item opacity"
         onpointermove={() => {
-          active = "blur";
+          active = "opacity";
           closeSub();
         }}
-        title="How frosted the glass is (← →)"
+        title="How much the glass tints the desktop behind it (← →)"
       >
         <span class="menu-tick" aria-hidden="true"></span>
-        <span class="menu-label">Blur</span>
+        <span class="menu-label">Opacity</span>
         <input
           type="range"
-          class="blur-range"
-          min={BLUR_MIN}
-          max={BLUR_MAX}
+          class="opacity-range"
+          min={OPACITY_MIN}
+          max={OPACITY_MAX}
           step="1"
           tabindex="-1"
           aria-hidden="true"
-          value={theme.blur}
-          oninput={(e) => theme.setBlur(e.currentTarget.valueAsNumber)}
+          value={theme.opacity}
+          oninput={(e) => theme.setOpacity(e.currentTarget.valueAsNumber)}
         />
-        <span class="menu-note blur-value">{theme.blur}px</span>
+        <span class="menu-note opacity-value">{theme.opacity}%</span>
       </div>
     {/if}
 
@@ -639,11 +639,11 @@
   }
 
   /* The slider takes the room a note would, and the label keeps only its own. */
-  .blur .menu-label {
+  .opacity .menu-label {
     flex: none;
   }
 
-  .blur-range {
+  .opacity-range {
     flex: 1;
     min-width: 6rem;
     margin: 0;
@@ -651,8 +651,8 @@
     cursor: pointer;
   }
 
-  /* Wide enough for "100px", so the slider doesn't shift as the number grows. */
-  .blur-value {
+  /* Wide enough for "100%", so the slider doesn't shift as the number grows. */
+  .opacity-value {
     min-width: 5ch;
     text-align: right;
     font-variant-numeric: tabular-nums;
