@@ -13,6 +13,8 @@
  * lines and deliberately duplicates that rather than waiting on this module.
  */
 
+import { blurBehindWindow } from "./backdrop";
+
 export type Mode = "light" | "dark";
 export type ThemeId = (typeof THEMES)[number]["id"];
 export type ThemePref = "system" | ThemeId;
@@ -147,6 +149,9 @@ class Theme {
     $effect(() => {
       document.documentElement.style.setProperty("--glass-opacity", `${this.opacity}%`);
     });
+
+    const glass = $derived(this.resolved === "glass");
+    $effect(() => blurBehindWindow(glass));
 
     $effect(() => {
       const mq = matchMedia(DARK_QUERY);
