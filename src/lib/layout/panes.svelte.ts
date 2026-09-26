@@ -104,6 +104,30 @@ class Panes {
     this.save();
   }
 
+  /**
+   * Keep `--pane-projects` and `--rail` on `<html>` at the width, where the
+   * pre-paint script in `src/app.html` puts the stored one before the app runs;
+   * with neither set, the stylesheet's defaults stand. Called once, from the
+   * page.
+   *
+   * A hand-sized pane keeps its width once it collapses, so the seam carries on
+   * tracking the pointer through the rail instead of snapping to the stylesheet
+   * rail and sitting there for the rest of the drag. An untouched pane still
+   * gets the rail the stylesheet picked.
+   */
+  start() {
+    $effect(() => {
+      const root = document.documentElement.style;
+      if (this.width === null) {
+        root.removeProperty("--pane-projects");
+        root.removeProperty("--rail");
+      } else {
+        root.setProperty("--pane-projects", `${this.width}px`);
+        root.setProperty("--rail", `${this.width}px`);
+      }
+    });
+  }
+
   setProjects(w: number | null) {
     if (this.projects === w) return;
     this.projects = w;

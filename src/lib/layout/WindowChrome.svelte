@@ -1,11 +1,9 @@
 <script lang="ts">
   import { getCurrentWindow } from "@tauri-apps/api/window";
-  import { dragRegion, isMac, ownsWindowFrame, watchMaximized } from "./platform";
+  import { dragRegion, ownsWindowFrame, watchMaximized } from "./platform";
   import { panes } from "./panes.svelte";
   import Logo from "./Logo.svelte";
   import { store } from "$lib/state/store.svelte";
-
-  const win = getCurrentWindow();
 
   // Drives the maximize/restore glyph. Only tracked where this app draws the
   // button — macOS has its own and never asks.
@@ -20,14 +18,14 @@
 
   $effect(() => {
     if (!ownsWindowFrame) return;
-    return watchMaximized(win, (m) => (maximized = m));
+    return watchMaximized(getCurrentWindow(), (m) => (maximized = m));
   });
 </script>
 
 <!-- The whole bar is a drag handle, except under a tiling compositor (see
      `dragRegion`). The controls below opt out by not carrying the attribute, so
      a click on a button never starts a window drag. -->
-<header class="chrome" class:mac={isMac} data-tauri-drag-region={dragRegion}>
+<header class="chrome" data-tauri-drag-region={dragRegion}>
   <!-- The title sits in a segment as wide as the project pane and painted like
        it, so the bar reads as the top of the two panes below rather than as a
        band laid across them. -->
@@ -67,12 +65,12 @@
 
   {#if ownsWindowFrame}
     <div class="controls">
-      <button class="ctl" onclick={() => win.minimize()} aria-label="Minimize">
+      <button class="ctl" onclick={() => getCurrentWindow().minimize()} aria-label="Minimize">
         <svg viewBox="0 0 10 10" aria-hidden="true"><path d="M0 5h10" /></svg>
       </button>
       <button
         class="ctl"
-        onclick={() => win.toggleMaximize()}
+        onclick={() => getCurrentWindow().toggleMaximize()}
         aria-label={maximized ? "Restore" : "Maximize"}
       >
         {#if maximized}
@@ -85,7 +83,7 @@
           >
         {/if}
       </button>
-      <button class="ctl close" onclick={() => win.close()} aria-label="Close">
+      <button class="ctl close" onclick={() => getCurrentWindow().close()} aria-label="Close">
         <svg viewBox="0 0 10 10" aria-hidden="true"
           ><path d="M0.5 0.5l9 9M9.5 0.5l-9 9" /></svg
         >
@@ -115,8 +113,11 @@
   }
 
   /* Leave the traffic lights their corner, and never get shorter than they
-     are — at the small end of the root font scale the bar could clip them. */
-  .chrome.mac {
+     are — at the small end of the root font scale the bar could clip them.
+     Keyed off `<html data-frame>` rather than anything this component
+     decides, because the page arrives rendered without knowing the platform
+     (see `platform.ts`). */
+  :global(html[data-frame="mac"]) .chrome {
     height: max(var(--titlebar-h), 28px);
   }
 
@@ -138,7 +139,7 @@
   }
 
   /* The traffic lights live in this corner, so the title starts after them. */
-  .chrome.mac .lead {
+  :global(html[data-frame="mac"]) .lead {
     padding-left: 5rem;
   }
 
@@ -210,6 +211,13 @@
     align-items: stretch;
     flex: none;
     margin-left: auto;
+  }
+
+  /* The page arrives rendered for the app's own frame, controls and all, and
+     only drops them once the app takes over; until then they're hidden
+     wherever the OS or the compositor owns the frame. */
+  :global(html:not([data-frame="app"])) .controls {
+    display: none;
   }
 
   .ctl {

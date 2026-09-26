@@ -222,8 +222,11 @@ export class AppStore {
   /** Projects an event mentioned before this window had heard of them. */
   private unheardOf = new Set<string>();
 
-  /** Whether `refresh` has ever succeeded. */
-  private loaded = false;
+  /**
+   * Whether `refresh` has ever succeeded. Until it has, an empty list means
+   * "not heard yet" rather than "no projects", and the sidebar says nothing.
+   */
+  loaded = $state(false);
 
   /** The read `refresh` has out, and whether another was asked for meanwhile. */
   private refreshing: Promise<void> | null = null;
@@ -345,39 +348,38 @@ export class AppStore {
     if (this.started) return;
     this.started = true;
 
+    // Listening before reading, so nothing that happens between the two is
+    // missed. The three are independent, so they're asked for together: each
+    // is a round trip, and the window is empty until the read after them.
     this.unlisteners.push(
-      await events.onAgentEvent(({ agent_id, event }) => {
-        this.eventsByAgent.set(agent_id, [...(this.eventsByAgent.get(agent_id) ?? []), event]);
-      }),
-    );
-
-    this.unlisteners.push(
-      await events.onHostStatus(({ host, ...status }) => {
-        hosts.update(host, status as HostStatus);
-        this.onHostStatus(host, status as HostStatus);
-      }),
+      ...(await Promise.all([
+        events.onAgentEvent(({ agent_id, event }) => {
+          this.eventsByAgent.set(agent_id, [...(this.eventsByAgent.get(agent_id) ?? []), event]);
+        }),
+        events.onHostStatus(({ host, ...status }) => {
+          hosts.update(host, status as HostStatus);
+          this.onHostStatus(host, status as HostStatus);
+        }),
+        events.onAgentStateChanged((raw) => {
+          const agent = this.ingest(raw);
+          this.catchUpOn(agent);
+          const before = this.agents.find((a) => a.id === agent.id);
+          this.upsert(agent);
+          const notice = turnNotice(before, agent, this.agentName(agent));
+          if (notice) notify(notice, agent.id === this.selectedAgentId);
+          // An agent that just exited has a final diff worth showing.
+          if (agent.id === this.selectedAgentId && this.detailTab === "diff") {
+            this.review.load();
+          }
+          // A merged agent's worktree only changes because the agent ran, so a
+          // turn ending is the one moment its bucket can have moved. That is why
+          // nothing here polls git on a timer.
+          if (agent.state !== "running" && agent.merged_at) this.loadHoldingWork();
+        }),
+      ])),
     );
     await hosts.load();
     for (const h of hosts.list) this.onHostStatus(h.id, h.status);
-
-    this.unlisteners.push(
-      await events.onAgentStateChanged((raw) => {
-        const agent = this.ingest(raw);
-        this.catchUpOn(agent);
-        const before = this.agents.find((a) => a.id === agent.id);
-        this.upsert(agent);
-        const notice = turnNotice(before, agent, this.agentName(agent));
-        if (notice) notify(notice, agent.id === this.selectedAgentId);
-        // An agent that just exited has a final diff worth showing.
-        if (agent.id === this.selectedAgentId && this.detailTab === "diff") {
-          this.review.load();
-        }
-        // A merged agent's worktree only changes because the agent ran, so a
-        // turn ending is the one moment its bucket can have moved. That is why
-        // nothing here polls git on a timer.
-        if (agent.state !== "running" && agent.merged_at) this.loadHoldingWork();
-      }),
-    );
 
     // Not awaited: the model list only fills a picker, and blocking the first
     // paint on a network round-trip would be a poor trade.

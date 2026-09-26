@@ -1,0 +1,14 @@
+# The page is rendered ahead of time
+
+The app used to be a single-page app in the plain sense: `index.html` had an empty body, and nothing was drawn until every module had loaded and run and the app had mounted. The window is transparent (for the Glass theme), so until then it was see-through. In development, where each module is its own request to the dev server, that took about 0.5 s on an idle machine and over a second while agents were building.
+
+**The one page is now rendered ahead of time**: at build time into `build/index.html`, and in development by the dev server on each load (`prerender = true` in `src/routes/+layout.ts`). The window paints the app's frame — header, logo, project pane, settings — from the HTML itself, and the app then takes that markup over (hydration) rather than drawing its own. Measured under full CPU load, the first paint moved from about 1.25 s after launch to about 0.8 s; Host data still arrives when the app has started, since only the Host has it. adapter-static no longer writes a fallback page: there is one route, and a fallback would overwrite the rendered one.
+
+That puts two rules on the frontend:
+
+- **Nothing may touch the browser while rendering ahead of time**: no `window`, `document`, `localStorage` or Tauri API on import, or while a component is being set up. That work belongs in an `$effect`, `onMount` or an event handler, where it already mostly was; `getCurrentWindow()` is called where it's used rather than held from setup.
+- **What the page first draws must be what a window with no Host data draws.** Anything else jumps once the app takes over. The sidebar says nothing, rather than "No projects yet", until the Host has answered (`store.loaded`) — which also fixes that message flashing on every launch.
+
+The few stored settings that shape the layout ride the **pre-paint script in `app.html`**, as the theme already did (ADR 0006): the window frame (`<html data-frame>`: macOS, a tiling compositor's, or the app's own), which the header's styles key off and `platform.ts` reads back, and a dragged project pane's width (`--pane-projects` and `--rail` on `<html>`, where `panes.start()` keeps them from then on). The rendered page carries window controls for the app's own frame; the stylesheet hides them under macOS or a compositor until the app drops them.
+
+Considered and rejected: **Hiding the window until the app has drawn**, which trades the blank for a delay before anything shows. **Warming the dev server's transforms at start**, which helps only the first launch after `tauri dev` starts. **Loading the agent pane and dialogs lazily**, which saved 30–50 ms and would add a request the first time an agent is opened. **A snapshot of the last-drawn UI** replayed from storage, which would show stale state that looks live. **Preloading the fonts** the first screen uses: WebKit holds text back while a face loads, but asking for them from the head made no measurable difference.
