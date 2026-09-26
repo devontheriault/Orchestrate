@@ -369,6 +369,8 @@
         return commit(action.message);
       case "merge":
         return merge(action.branch);
+      case "push":
+        return push();
     }
   }
 
@@ -410,6 +412,19 @@
     // A conflict is shown where it can be handed to a resolver.
     if (review.conflicts[id]) return store.showTab("diff");
     say(review.error ?? "The merge didn't go through.", true);
+  }
+
+  /** `/push`: the Diff tab's Push, for a merge that isn't on the remote yet. */
+  async function push() {
+    if (!agent?.merged_branch) return say("Merge first: /merge, then /push.", true);
+    if (!agent.unpushed && !agent.push_error)
+      return say(`${agent.merged_branch} has nothing of this agent's to push.`);
+    if (review.pushing) return;
+    const branch = agent.merged_branch;
+    const after = await review.push();
+    if (!after) return say(review.error ?? "The push didn't go through.", true);
+    if (after.push_error) return say(`Couldn't push ${branch}: ${after.push_error}`, true);
+    say(`Pushed ${branch}.`);
   }
 
   /** The box is up and taking input — the only time a file has somewhere to go. */

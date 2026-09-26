@@ -156,6 +156,7 @@ mod tests {
             fail_reason: None,
             merged_branch: None,
             merged_at: None,
+            unpushed: false,
             push_error: None,
             resolves: None,
             queue: vec![],

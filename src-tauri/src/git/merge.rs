@@ -17,6 +17,8 @@ pub struct Branches {
     /// Local branches worth merging into: the current one first, then the rest
     /// alphabetically, with every Agent branch left out.
     pub names: Vec<String>,
+    /// Those of `names` that track a remote, so a Merge into them can push.
+    pub pushable: Vec<String>,
 }
 
 /// A completed Merge.
@@ -37,18 +39,30 @@ pub async fn branches(project_path: &Path) -> Result<Branches> {
 
     let listed = stdout(
         project_path,
-        &["for-each-ref", "--format=%(refname:short)", "refs/heads"],
+        &[
+            "for-each-ref",
+            "--format=%(refname:short)%09%(upstream:remotename)",
+            "refs/heads",
+        ],
     )
     .await?;
 
-    let mut names: Vec<String> = listed
-        .lines()
-        .map(str::trim)
-        .filter(|n| !n.is_empty())
-        .filter(|n| !n.starts_with(crate::domain::AGENT_BRANCH_PREFIX))
-        .map(str::to_owned)
-        .collect();
+    let mut names = Vec::new();
+    let mut pushable = Vec::new();
+    for line in listed.lines() {
+        let (name, remote) = line.split_once('\t').unwrap_or((line, ""));
+        let (name, remote) = (name.trim(), remote.trim());
+        if name.is_empty() || name.starts_with(crate::domain::AGENT_BRANCH_PREFIX) {
+            continue;
+        }
+        // `.` is a branch tracking another local branch: there is no remote.
+        if !remote.is_empty() && remote != "." {
+            pushable.push(name.to_owned());
+        }
+        names.push(name.to_owned());
+    }
     names.sort();
+    pushable.sort();
 
     // The branch you are on is the one you usually mean, so it leads.
     if let Some(cur) = &current {
@@ -58,7 +72,11 @@ pub async fn branches(project_path: &Path) -> Result<Branches> {
         }
     }
 
-    Ok(Branches { current, names })
+    Ok(Branches {
+        current,
+        names,
+        pushable,
+    })
 }
 
 /// Merge `agent_branch` into `target`, with `--no-ff` so the Agent's work stays

@@ -1063,6 +1063,7 @@ async fn resume_is_refused_for_an_agent_with_no_session() {
         fail_reason: None,
         merged_branch: None,
         merged_at: None,
+        unpushed: false,
         push_error: None,
         resolves: None,
         queue: vec![],
@@ -1152,6 +1153,7 @@ async fn adopt_orphans_transitions_running() {
         fail_reason: None,
         merged_branch: None,
         merged_at: None,
+        unpushed: false,
         push_error: None,
         resolves: None,
         queue: vec![],
@@ -1220,7 +1222,7 @@ exit 0
     std::fs::write(repo.path().join("shared.txt"), "the user\n").unwrap();
     git(repo.path(), &["commit", "-qam", "user: edit shared"]).await;
 
-    let conflict = merging::merge(&project.path, &mut agent.clone(), "main")
+    let conflict = merging::merge(&project.path, &mut agent.clone(), "main", false)
         .await
         .unwrap_err();
     assert!(
@@ -1248,14 +1250,15 @@ exit 0
     ));
     let files = vec!["shared.txt".to_string()];
     let resolver = rt
-        .spawn_resolver(&project, &conflicted, "main", &files, None, None)
+        .spawn_resolver(&project, &conflicted, "main", &files, false, None, None)
         .await
         .unwrap();
     assert_eq!(
         resolver.resolves,
         Some(Resolution {
             agent_id: conflicted.id.clone(),
-            target: "main".into()
+            target: "main".into(),
+            push: false,
         })
     );
     assert_eq!(
@@ -1269,6 +1272,10 @@ exit 0
     assert_eq!(done.state, AgentState::Completed);
     assert_eq!(done.merged_branch.as_deref(), Some("main"));
     assert!(done.merged_at.is_some());
+    assert!(
+        !done.unpushed,
+        "a project with no remote has nowhere to push"
+    );
 
     // The conflicted Agent is announced with its new record too.
     let announced = loop {
@@ -1316,7 +1323,7 @@ async fn a_resolver_that_did_not_merge_leaves_the_project_alone() {
     let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_ok());
     let files = vec!["shared.txt".to_string()];
     let resolver = rt
-        .spawn_resolver(&project, &conflicted, "main", &files, None, None)
+        .spawn_resolver(&project, &conflicted, "main", &files, false, None, None)
         .await
         .unwrap();
     let done = wait_for_exit(&mut rx).await;
@@ -1601,4 +1608,57 @@ async fn a_handoff_starts_an_agent_on_another_host_from_the_work_it_committed() 
     // The ref it travelled on is gone once picked up.
     let refs = git(origin.path(), &["for-each-ref", "--format=%(refname)"]).await;
     assert!(!refs.contains("handoff"), "{refs}");
+}
+
+#[tokio::test]
+async fn a_merge_pushes_only_when_asked() {
+    let _env = StateEnv::new();
+    let origin = TempDir::new().unwrap();
+    git(
+        origin.path(),
+        &["init", "--quiet", "--bare", "--initial-branch=main"],
+    )
+    .await;
+    let repo = init_repo().await;
+    let o = origin.path().to_str().unwrap();
+    git(repo.path(), &["remote", "add", "origin", o]).await;
+    git(repo.path(), &["push", "--quiet", "-u", "origin", "main"]).await;
+    let project = sample_project(repo.path().to_path_buf());
+
+    let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_writes_code());
+    rt.spawn(
+        &project,
+        "Build it".into(),
+        vec![],
+        None,
+        None,
+        None,
+        AgentOptions::default(),
+    )
+    .await
+    .unwrap();
+    let mut agent = wait_for_exit(&mut rx).await;
+    std::fs::remove_file(agent.worktree_path.join("dirty.txt")).unwrap();
+    let before = git(origin.path(), &["rev-parse", "main"]).await;
+
+    // Merged, but the remote is left alone and the push is offered.
+    let (merged, _) = merging::merge(&project.path, &mut agent, "main", false)
+        .await
+        .unwrap();
+    assert!(agent.unpushed);
+    assert_eq!(agent.push_error, None);
+    assert_eq!(git(origin.path(), &["rev-parse", "main"]).await, before);
+
+    assert_eq!(merging::push(&project.path, &agent).await.unwrap(), None);
+    assert_eq!(git(origin.path(), &["rev-parse", "main"]).await, merged.sha);
+
+    // Asked to, a Merge pushes as it lands.
+    std::fs::write(agent.worktree_path.join("more.txt"), "more\n").unwrap();
+    git(&agent.worktree_path, &["add", "-A"]).await;
+    git(&agent.worktree_path, &["commit", "--quiet", "-m", "more"]).await;
+    let (merged, _) = merging::merge(&project.path, &mut agent, "main", true)
+        .await
+        .unwrap();
+    assert!(!agent.unpushed);
+    assert_eq!(git(origin.path(), &["rev-parse", "main"]).await, merged.sha);
 }

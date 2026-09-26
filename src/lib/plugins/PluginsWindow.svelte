@@ -578,54 +578,7 @@
 
   /* On and off, the way Claude Code's own list toggles a plugin. */
   .switch {
-    position: relative;
-    display: inline-flex;
     margin-left: var(--space-3);
-    cursor: pointer;
-  }
-
-  .switch input {
-    position: absolute;
-    inset: 0;
-    margin: 0;
-    opacity: 0;
-    cursor: inherit;
-  }
-
-  .track {
-    width: 1.9rem;
-    height: 1.1rem;
-    border-radius: var(--radius-pill);
-    background: var(--border);
-    display: flex;
-    align-items: center;
-    padding: 0.125rem;
-    transition: background var(--transition-fast);
-  }
-
-  .thumb {
-    width: 0.85rem;
-    height: 0.85rem;
-    border-radius: 50%;
-    background: var(--surface);
-    box-shadow: 0 1px 2px rgb(0 0 0 / 0.25);
-    transition: transform var(--transition-fast);
-  }
-
-  .switch input:checked + .track {
-    background: var(--accent);
-  }
-
-  .switch input:checked + .track .thumb {
-    transform: translateX(0.8rem);
-  }
-
-  .switch input:focus-visible + .track {
-    box-shadow: var(--focus-ring);
-  }
-
-  .switch input:disabled + .track {
-    opacity: 0.5;
   }
 
   .confirm {

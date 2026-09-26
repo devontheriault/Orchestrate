@@ -6,8 +6,11 @@
 import { api, type Agent, type Branches, type Commit, type WorktreeDiff } from "$lib/api";
 import type { AppStore } from "./store.svelte";
 
-/** A Merge that hit conflicts: where it was headed and which files collided. */
-export type Conflict = { target: string; files: string[] };
+/**
+ * A Merge that hit conflicts: where it was headed, which files collided, and
+ * whether it was to push once it landed.
+ */
+export type Conflict = { target: string; files: string[]; push: boolean };
 
 export class Review {
   #app: AppStore;
@@ -19,7 +22,7 @@ export class Review {
   committing = $state<boolean>(false);
   merging = $state<boolean>(false);
 
-  /** A retried push of the selected agent's last merge is out. */
+  /** A push of the selected agent's last merge is out. */
   pushing = $state<boolean>(false);
 
   /**
@@ -149,19 +152,20 @@ export class Review {
   }
 
   /**
-   * Merge the selected agent's branch onto `target`. The agent survives — only
-   * a discard destroys anything — so this refreshes rather than clears.
+   * Merge the selected agent's branch onto `target`, pushing `target` after
+   * only if `push`. The agent survives — only a discard destroys anything — so
+   * this refreshes rather than clears.
    */
-  async merge(target: string) {
+  async merge(target: string, push = false) {
     const app = this.#app;
     const id = app.selectedAgentId;
     if (!id) return false;
     this.merging = true;
     this.error = null;
     try {
-      const outcome = await api.agentMerge(id, target);
+      const outcome = await api.agentMerge(id, target, push);
       if (outcome.outcome === "conflict") {
-        this.conflicts[id] = { target: outcome.target, files: outcome.files };
+        this.conflicts[id] = { target: outcome.target, files: outcome.files, push };
         return false;
       }
       delete this.conflicts[id];
@@ -180,18 +184,23 @@ export class Review {
   }
 
   /**
-   * Push the selected agent's last merge again, after its push failed. The
-   * merge itself already stands; this only carries it to the remote.
+   * Push the branch the selected agent was last merged into: a merge the user
+   * didn't push, or whose push failed. The merge itself already stands; this
+   * only carries it to the remote. The agent as it is now, or null if the
+   * call itself failed — and then `error` says why.
    */
-  async pushAgain() {
+  async push(): Promise<Agent | null> {
     const app = this.#app;
     const id = app.selectedAgentId;
-    if (!id) return;
+    if (!id) return null;
     this.pushing = true;
     try {
-      app.upsert(await api.pushMerge(id));
+      const agent = await api.pushMerge(id);
+      app.upsert(agent);
+      return agent;
     } catch (e) {
       if (app.selectedAgentId === id) this.error = String(e);
+      return null;
     } finally {
       this.pushing = false;
     }
@@ -221,6 +230,7 @@ export class Review {
         id,
         conflict.target,
         conflict.files,
+        conflict.push,
         app.prefs.spawnModel || null,
         app.prefs.spawnEffort || null,
       );

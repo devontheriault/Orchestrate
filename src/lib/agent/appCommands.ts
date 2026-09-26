@@ -6,8 +6,8 @@
  * session (`/model`, `/effort`) would reach a process that exits once it has
  * replied, and the next Turn would start without it. So the composer catches
  * those and does the app's version of each: `/model` moves the model picker,
- * `/color` tags the agent in the sidebar. `/commit` and `/merge` take the Diff
- * tab's Commit and Merge from the keyboard. `/plugin` is a whole screen in a
+ * `/color` tags the agent in the sidebar. `/commit`, `/merge` and `/push` take
+ * the Diff tab's Commit, Merge and Push from the keyboard. `/plugin` is a whole screen in a
  * terminal, and `claude --print` has none, so the app opens its own. The commands with no version here and
  * no use through the app are kept out of the menu, and turned back with the
  * reason if they are typed anyway.
@@ -31,8 +31,8 @@ function ours(name: string, description: string, argument_hint = "", aliases: st
 /**
  * The app's commands, under the names Claude Code gives the same things so they
  * are where a Claude Code user's fingers already go — plus `/theme`, which
- * Claude Code has no need of, and `/commit` and `/merge`, the app's own
- * actions. A `/commit` skill of the user's or the Project's is hidden by ours:
+ * Claude Code has no need of, and `/commit`, `/merge` and `/push`, the app's
+ * own actions. A `/commit` skill of the user's or the Project's is hidden by ours:
  * Commit is the user's action here, and asking the agent to commit in words
  * still works.
  */
@@ -45,6 +45,7 @@ export const APP_COMMANDS: MenuCommand[] = [
   ours("model", "Set the model this agent's next prompts run on", "<model>"),
   ours("output-style", "Set how this agent writes its replies", "<style>"),
   ours("plugin", "Browse, install and manage Claude Code plugins and marketplaces", "[install|marketplace|search…]", ["plugins"]),
+  ours("push", "Push the branch this agent was last merged into to the remote"),
   ours("rename", "Rename this agent — with no name, Claude names it again", "[name]"),
   ours("theme", "Change the app's theme — with no name, pick from the list", "[theme]"),
   ours("usage", "Open the usage window: tokens, cost and plan limits"),
@@ -98,6 +99,7 @@ export type Action =
   | { do: "commit"; message: string | null }
   /** Null merges into the default target, as the Diff tab's picker points. */
   | { do: "merge"; branch: string | null }
+  | { do: "push" }
   /** Not done, and why — a withheld command, or a choice there's no such thing as. */
   | { do: "refuse"; why: string };
 
@@ -171,6 +173,8 @@ export function interpret(prompt: string, choices: Choices): Action | null {
       return { do: "commit", message: arg || null };
     case "merge":
       return { do: "merge", branch: arg || null };
+    case "push":
+      return { do: "push" };
   }
   return null;
 }

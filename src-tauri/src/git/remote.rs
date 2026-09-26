@@ -1,7 +1,7 @@
 //! Keeping a Project in step with its remote, where it has one (ADR 0011).
 //! The remote is where work is meant to end up, and what Agents on other Hosts
 //! start from, so a Spawn fetches before it picks its Base and a Merge fetches
-//! before it merges and pushes after.
+//! before it merges — and pushes after, when the user asks (ADR 0014).
 //!
 //! A branch with no upstream — a Project with no remote, or a branch never
 //! pushed — is left entirely alone: everything here answers "nothing to do".
@@ -306,6 +306,11 @@ pub enum Pushed {
     Yes,
     /// It stays merged locally; this is why it didn't go.
     No(String),
+}
+
+/// Whether `branch` tracks a remote, so a Merge into it has somewhere to push.
+pub async fn tracks_remote(repo: &Path, branch: &str) -> bool {
+    upstream(repo, branch).await.is_some()
 }
 
 /// Push `target` to its upstream, after a Merge into it.

@@ -20,10 +20,17 @@
     if (!messageEdited) message = s;
   });
 
+  /**
+   * Whether the Merge pushes its target after. Off until the user turns it on,
+   * and off again for the next agent: a push is a write beyond the project.
+   */
+  let push = $state(false);
+
   // A new selection resets the editing state along with the message.
   $effect(() => {
     store.selectedAgentId;
     messageEdited = false;
+    push = false;
   });
 
   const running = $derived(store.selectedAgent?.state === "running");
@@ -82,6 +89,17 @@
   $effect(() => {
     if (!targets.includes(target)) target = review.defaultTarget ?? "";
   });
+
+  /** Only a target that tracks a remote has anywhere to push. */
+  const pushable = $derived(review.branches?.pushable.includes(target) ?? false);
+
+  /**
+   * The last merge isn't on the remote yet. A record from before `unpushed`
+   * existed says so only by its push error.
+   */
+  const unpushed = $derived(
+    !!(store.selectedAgent?.unpushed || store.selectedAgent?.push_error),
+  );
 
   // Only committed work merges, and not out from under a working agent.
   const canMerge = $derived(
@@ -210,20 +228,26 @@
         </div>
       {/if}
 
-      {#if store.selectedAgent?.push_error}
+      {#if unpushed && store.selectedAgent}
+        {@const failed = store.selectedAgent.push_error}
         <!-- The merge landed here but not on the remote, which is where other
-             machines look for it. -->
-        <div class="merge-box unpushed">
+             machines look for it. Only a failed push is a warning: not
+             pushing is the default. -->
+        <div class="merge-box" class:push-failed={!!failed}>
           <div class="merge-box-head">
-            <strong>Not pushed</strong>
+            <strong>{failed ? "Push failed" : "Not pushed"}</strong>
             <span class="sub">
               merged into <code>{store.selectedAgent.merged_branch}</code> on this machine only
             </span>
           </div>
           <div class="merge-box-foot">
-            <span class="sub why">{store.selectedAgent.push_error}</span>
+            {#if failed}
+              <span class="sub why">{failed}</span>
+            {:else}
+              <span class="sub">Push it to the remote when your other machines should have it.</span>
+            {/if}
             <div class="merge-controls">
-              <button class="btn btn-primary" disabled={review.pushing} onclick={() => review.pushAgain()}>
+              <button class="btn btn-primary" disabled={review.pushing} onclick={() => review.push()}>
                 {review.pushing ? "Pushing…" : "Push"}
               </button>
             </div>
@@ -337,12 +361,23 @@
                   disabled={!canMerge}
                   label="Branch to merge into"
                 />
+                {#if pushable}
+                  <label class="switch" title="Push {target} to the remote once merged">
+                    <input type="checkbox" role="switch" bind:checked={push} disabled={!canMerge} />
+                    <span class="track" aria-hidden="true"><span class="thumb"></span></span>
+                    Push
+                  </label>
+                {/if}
                 <button
                   class="btn btn-primary"
                   disabled={!canMerge || target.length === 0}
-                  onclick={() => review.merge(target)}
+                  onclick={() => review.merge(target, push && pushable)}
                 >
-                  {review.merging ? "Merging…" : "Merge"}
+                  {#if review.merging}
+                    {push && pushable ? "Merging and pushing…" : "Merging…"}
+                  {:else}
+                    {push && pushable ? "Merge and push" : "Merge"}
+                  {/if}
                 </button>
               </div>
             </div>
@@ -663,12 +698,12 @@
     padding: 0.55rem 0.85rem;
   }
 
-  .merge-box.unpushed {
+  .merge-box.push-failed {
     border-color: var(--warning-soft-border);
     background: var(--warning-soft-bg);
   }
 
-  .merge-box.unpushed .why {
+  .merge-box.push-failed .why {
     overflow-wrap: anywhere;
   }
 
@@ -696,6 +731,12 @@
     align-items: center;
     gap: var(--space-3);
     flex: none;
+  }
+
+  /* Its label reads as part of the controls, at their size. */
+  .merge-controls .switch {
+    font-size: var(--control-font-size);
+    margin: 0 var(--space-2);
   }
 
   .files {
