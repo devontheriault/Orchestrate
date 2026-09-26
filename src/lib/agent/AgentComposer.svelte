@@ -926,7 +926,7 @@
     border: none;
     border-radius: var(--radius-pill);
     background: var(--accent);
-    color: var(--surface);
+    color: var(--on-accent);
     cursor: pointer;
     transition:
       opacity var(--transition-fast),
