@@ -91,14 +91,14 @@
    The page can't blur the desktop — it only sees what it paints itself — so
    the blur is the OS's: `backdrop.ts` asks macOS and Windows for it while
    this theme is on, and on Linux it is the compositor's, where the user has
-   turned it on. A fine grain over the veil frosts it either way.
+   turned it on.
 
    Anything that floats over content gets `--float-bg`, a smoked fill that
    blurs what is under it, since a clear popover over text is unreadable. */
 [data-theme="glass"] {
   color-scheme: dark;
 
-  --glass-opacity: 55%;
+  --glass-opacity: 15%;
 
   --fg: #eef0f7;
   --fg-muted: #a7adc2;
@@ -150,14 +150,11 @@
   --shadow-modal: 0 20px 60px rgba(0, 0, 0, 0.55);
 }
 
-/* The veil over the desktop, and the grain that frosts it: white noise at a
-   few percent, tiled. On the document only, not on a swatch, and on the
-   document rather than in `--surface`, which the panels and rows that wear
-   it would stack. */
+/* The veil over the desktop. On the document only, not on a swatch, and on
+   the document rather than in `--surface`, which the panels and rows that
+   wear it would stack. */
 :root[data-theme="glass"] {
-  background:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0.09 0 0 0 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"),
-    rgb(7 9 18 / var(--glass-opacity));
+  background: rgb(7 9 18 / var(--glass-opacity));
 }
 
 [data-theme="catppuccin-mocha"] {
