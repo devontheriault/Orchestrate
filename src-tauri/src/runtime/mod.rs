@@ -200,7 +200,8 @@ impl AgentRuntime {
     /// Spawn a Resolver for a Merge of `conflicted` into `target` that hit
     /// conflicts in `files`: a new Agent on a branch cut from `conflicted`'s,
     /// told to merge `target` in and settle them. When its Turn Completes, the
-    /// supervisor finishes the Merge (see [`merging::finish_resolution`]).
+    /// supervisor finishes the Merge (see [`merging::finish_resolution`]),
+    /// pushing `target` after if `push`, as the Merge that conflicted was to.
     ///
     /// Always YOLO, whatever the user last picked: a Resolver that may not write
     /// cannot resolve anything. Its Base is `target`'s tip, so its diff reads as
@@ -211,6 +212,7 @@ impl AgentRuntime {
         conflicted: &Agent,
         target: &str,
         files: &[String],
+        push: bool,
         model: Option<String>,
         effort: Option<String>,
     ) -> Result<Agent> {
@@ -227,6 +229,7 @@ impl AgentRuntime {
         agent.resolves = Some(Resolution {
             agent_id: conflicted.id.clone(),
             target: target.to_owned(),
+            push,
         });
         self.start(project, &from, agent).await
     }
@@ -616,6 +619,7 @@ fn new_agent(
         // Nothing has merged yet; a Merge records itself here when it does.
         merged_branch: None,
         merged_at: None,
+        unpushed: false,
         push_error: None,
         resolves: None,
         queue: vec![],

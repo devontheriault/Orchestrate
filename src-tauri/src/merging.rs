@@ -19,9 +19,10 @@ use crate::storage;
 
 /// Merge `agent`'s branch into `target` and record the Merge on it.
 ///
-/// Where `target` tracks a remote, it is caught up with it first and pushed
-/// after (ADR 0011). A push that fails leaves the Merge in place and records
-/// why on the Agent, so it can be pushed again.
+/// Where `target` tracks a remote, it is caught up with it first, and pushed
+/// after if `push` (ADR 0014). Unpushed — not asked, or refused — the Merge
+/// stays in place, recorded on the Agent as not yet pushed so the push can be
+/// offered.
 ///
 /// When `agent` is a Resolver, the Agent it resolves is recorded as Merged too
 /// — but only if its branch tip really is in `target` now, so a conflicted
@@ -32,6 +33,7 @@ pub async fn merge(
     project_path: &Path,
     agent: &mut Agent,
     target: &str,
+    push: bool,
 ) -> Result<(Merged, Option<Agent>)> {
     git::catch_up(project_path, target).await?;
     let merged = git::merge(
@@ -42,12 +44,19 @@ pub async fn merge(
         &message(agent, target),
     )
     .await?;
-    let pushed = git::push(project_path, &merged.target).await;
+    let push_error = if push {
+        push_error(git::push(project_path, &merged.target).await)
+    } else {
+        None
+    };
+    let unpushed =
+        push_error.is_some() || (!push && git::tracks_remote(project_path, &merged.target).await);
 
     let now = OffsetDateTime::now_utc();
     agent.merged_branch = Some(merged.target.clone());
     agent.merged_at = Some(now);
-    agent.push_error = push_error(pushed);
+    agent.unpushed = unpushed;
+    agent.push_error = push_error.clone();
     storage::save_agent(agent)?;
 
     let mut resolved = None;
@@ -59,6 +68,8 @@ pub async fn merge(
             if delivered {
                 original.merged_branch = Some(merged.target.clone());
                 original.merged_at = Some(now);
+                original.unpushed = unpushed;
+                original.push_error = push_error;
                 storage::save_agent(&original)?;
                 resolved = Some(original);
             }
@@ -67,9 +78,9 @@ pub async fn merge(
     Ok((merged, resolved))
 }
 
-/// Push the branch `agent` was last Merged into, again: the retry for a Merge
-/// whose push failed. Returns why it still didn't go, if it didn't.
-pub async fn push_again(project_path: &Path, agent: &Agent) -> Result<Option<String>> {
+/// Push the branch `agent` was last Merged into: offered after a Merge the user
+/// didn't push, or whose push failed. Returns why it didn't go, if it didn't.
+pub async fn push(project_path: &Path, agent: &Agent) -> Result<Option<String>> {
     let target = agent.merged_branch.as_deref().ok_or_else(|| Error::Git {
         command: "push".into(),
         stderr: "this agent hasn't been merged anywhere".into(),
@@ -170,5 +181,6 @@ pub async fn finish_resolution(
             "`{target}` has not been merged into this branch"
         )));
     }
-    merge(&project_path, resolver, target).await
+    let push = resolver.resolves.as_ref().is_some_and(|r| r.push);
+    merge(&project_path, resolver, target, push).await
 }

@@ -187,9 +187,13 @@ pub struct Agent {
     pub merged_branch: Option<String>,
     #[serde(default, alias = "landed_at", with = "time::serde::rfc3339::option")]
     pub merged_at: Option<OffsetDateTime>,
-    /// Why the last Merge didn't reach the Project's remote, while it hasn't.
-    /// The Merge itself stands; the push is offered again. `None` once it's
-    /// pushed, and for a target with no remote to push to.
+    /// The last Merge went into a branch that tracks a remote and hasn't been
+    /// pushed there: the user didn't ask for a push, or it failed. The Merge
+    /// itself stands; the push is offered.
+    #[serde(default)]
+    pub unpushed: bool,
+    /// Why the last push of the Merge failed, while it hasn't gone. `None` once
+    /// it's pushed, and when no push was asked for.
     #[serde(default)]
     pub push_error: Option<String>,
     /// Set on a Resolver: the Agent whose Merge conflicted, and the branch that
@@ -256,6 +260,9 @@ pub struct Resolution {
     pub agent_id: Id,
     /// The branch its work was being merged into.
     pub target: String,
+    /// Whether that Merge was to push `target` once it landed.
+    #[serde(default)]
+    pub push: bool,
 }
 
 fn one() -> u32 {
@@ -336,10 +343,12 @@ mod tests {
                 fail_reason: None,
                 merged_branch: None,
                 merged_at: None,
+                unpushed: false,
                 push_error: None,
                 resolves: Some(Resolution {
                     agent_id: "b4e0d2ef".into(),
                     target: "main".into(),
+                    push: true,
                 }),
                 queue: vec![QueuedMessage {
                     id: "q1".into(),

@@ -151,19 +151,24 @@ pub enum Call {
     ProjectBranches {
         project_id: String,
     },
+    /// Merge the Agent into `target`, and push `target` after only if `push`.
     AgentMerge {
         agent_id: String,
         target: String,
+        push: bool,
     },
-    /// Push a Merge whose push failed, again.
+    /// Push the branch the Agent was last Merged into: after a Merge the user
+    /// didn't push, or whose push failed.
     PushMerge {
         agent_id: String,
     },
-    /// Spawn a Resolver for a Merge of the Agent into `target` that conflicted.
+    /// Spawn a Resolver for a Merge of the Agent into `target` that conflicted,
+    /// which was to push `target` after if `push`.
     ResolveConflict {
         agent_id: String,
         target: String,
         files: Vec<String>,
+        push: bool,
         model: Option<String>,
         effort: Option<String>,
     },
@@ -482,7 +487,11 @@ async fn handle(host: &Host, call: Call) -> Result<Value, String> {
             ok(git::branches(&project.path).await.map_err(err)?)
         }
 
-        Call::AgentMerge { agent_id, target } => {
+        Call::AgentMerge {
+            agent_id,
+            target,
+            push,
+        } => {
             // The one thing the app writes to the Project, and only ever
             // because the user asked. The Agent survives a Merge: only Discard
             // destroys anything, so the Merge is recorded on the Agent.
@@ -491,7 +500,7 @@ async fn handle(host: &Host, call: Call) -> Result<Value, String> {
                 return Err("cannot merge while the agent is running; stop it first".into());
             }
             let project = project_of(&agent, "merge")?;
-            match merging::merge(&project.path, &mut agent, &target).await {
+            match merging::merge(&project.path, &mut agent, &target, push).await {
                 Ok((merged, _)) => ok(MergeOutcome::Merged(merged)),
                 Err(Error::MergeConflict { target, files }) => {
                     ok(MergeOutcome::Conflict { target, files })
@@ -503,11 +512,12 @@ async fn handle(host: &Host, call: Call) -> Result<Value, String> {
         Call::PushMerge { agent_id } => {
             let agent = storage::load_agent(&agent_id).map_err(err)?;
             let project = project_of(&agent, "push")?;
-            let why = merging::push_again(&project.path, &agent)
-                .await
-                .map_err(err)?;
+            let why = merging::push(&project.path, &agent).await.map_err(err)?;
             ok(runtime
-                .edit(&agent_id, |a| a.push_error = why)
+                .edit(&agent_id, |a| {
+                    a.unpushed = why.is_some();
+                    a.push_error = why;
+                })
                 .await
                 .map_err(err)?)
         }
@@ -516,6 +526,7 @@ async fn handle(host: &Host, call: Call) -> Result<Value, String> {
             agent_id,
             target,
             files,
+            push,
             model,
             effort,
         } => {
@@ -527,7 +538,7 @@ async fn handle(host: &Host, call: Call) -> Result<Value, String> {
             }
             let project = project_of(&agent, "resolve")?;
             ok(runtime
-                .spawn_resolver(&project, &agent, &target, &files, model, effort)
+                .spawn_resolver(&project, &agent, &target, &files, push, model, effort)
                 .await
                 .map_err(err)?)
         }

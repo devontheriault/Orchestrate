@@ -33,7 +33,7 @@ pub use diff::{diff, holds_unmerged_work, resolve_base, ChangedFile, WorktreeDif
 pub use merge::{branches, merge, Branches, Merged};
 pub use remote::{
     catch_up, clone, fetch_published, handoff_branch, publish, push, remote_url, spawn_start,
-    unpublish, Pushed, Start,
+    tracks_remote, unpublish, Pushed, Start,
 };
 pub use setup::{has_commits, set_up};
 

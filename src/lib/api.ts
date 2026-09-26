@@ -99,9 +99,12 @@ export type Agent = {
   merged_branch?: string | null;
   merged_at?: string | null;
   /**
-   * Why the last merge didn't reach the project's remote, while it hasn't. The
-   * merge itself stands. Null once pushed, or when there's no remote.
+   * The last merge went into a branch that tracks a remote and isn't pushed
+   * there yet: the user didn't ask, or the push failed. The merge itself
+   * stands; the push is offered.
    */
+  unpushed?: boolean;
+  /** Why the last push of the merge failed, while it hasn't gone. */
   push_error?: string | null;
   /**
    * Set on a resolver: the agent whose merge conflicted, and the branch it was
@@ -159,6 +162,8 @@ export type AgentOptions = {
 export type Resolution = {
   agent_id: string;
   target: string;
+  /** Whether the merge was to push `target` once it landed. */
+  push?: boolean;
 };
 
 /**
@@ -276,6 +281,8 @@ export type Branches = {
   current: string | null;
   /** Mergeable branches: current first, then alphabetical, agent branches omitted. */
   names: string[];
+  /** Those of `names` that track a remote, so a merge into them can push. */
+  pushable: string[];
 };
 
 export type Merged = {
@@ -576,15 +583,20 @@ export const api = {
   agentDiff: (agentId: string) => host<WorktreeDiff>(on(agentId), "agent_diff", { agentId }),
   agentCommit: (agentId: string, message: string) =>
     host<Commit>(on(agentId), "agent_commit", { agentId, message }),
-  agentMerge: (agentId: string, target: string) =>
-    host<MergeOutcome>(on(agentId), "agent_merge", { agentId, target }),
-  /** Push the last merge again, after its push failed. */
+  /** Merge into `target`, pushing it after only if `push`. */
+  agentMerge: (agentId: string, target: string, push: boolean) =>
+    host<MergeOutcome>(on(agentId), "agent_merge", { agentId, target, push }),
+  /** Push the branch the last merge went into: not pushed then, or it failed. */
   pushMerge: (agentId: string) => host<Agent>(on(agentId), "push_merge", { agentId }),
-  /** Spawn a resolver for a merge of `agentId` into `target` that conflicted. */
+  /**
+   * Spawn a resolver for a merge of `agentId` into `target` that conflicted,
+   * which was to push `target` after if `push`.
+   */
   resolveConflict: async (
     agentId: string,
     target: string,
     files: string[],
+    push: boolean,
     model: string | null,
     effort: string | null,
   ): Promise<Agent> => ({
@@ -592,6 +604,7 @@ export const api = {
       agentId,
       target,
       files,
+      push,
       model,
       effort,
     })),

@@ -7,7 +7,7 @@ Any Host can take any remote-backed Project without setup: **if a Host has no ch
 Because an Agent's work lives on its Host, **the remote is the source of truth** for getting it anywhere else:
 
 - **Spawn fetches first**, then cuts from whichever of the local branch and its upstream is newer when one contains the other. On divergence it cuts from the local branch — the user sitting at that machine may have unpushed work they mean the Agent to have — and the transcript says what that leaves out. The Project's checkout is never moved.
-- **Merge fetches, merges, and pushes the target.** A target only behind its upstream is fast-forwarded first unless it is checked out with local changes; one that has diverged is refused and named, as a conflict is. A rejected push leaves the Merge in place, recorded as not yet pushed, and offers the push again. Pushing unasked is a write beyond the Project, but a Merge the user can't see from their other machines is not what they asked for.
+- **Merge fetches, merges, and pushes the target.** A target only behind its upstream is fast-forwarded first unless it is checked out with local changes; one that has diverged is refused and named, as a conflict is. A rejected push leaves the Merge in place, recorded as not yet pushed, and offers the push again. Pushing unasked is a write beyond the Project, but a Merge the user can't see from their other machines is not what they asked for. *(Superseded by ADR 0014: a Merge pushes only when the user asks.)*
 
 Removing a Project unregisters it on every reachable Host and names the ones it couldn't reach; as before, Agents and checkouts stay until Discarded.
 

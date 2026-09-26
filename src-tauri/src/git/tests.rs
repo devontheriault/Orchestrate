@@ -850,6 +850,24 @@ async fn a_branch_with_no_upstream_has_nothing_to_push() {
 }
 
 #[tokio::test]
+async fn only_branches_that_track_a_remote_are_pushable() {
+    let r = WithRemote::new().await;
+    stdout(r.path(), &["branch", "local-only"]).await.unwrap();
+    stdout(r.path(), &["branch", "--track", "follows-main", "main"])
+        .await
+        .unwrap();
+
+    let b = branches(r.path()).await.unwrap();
+
+    assert_eq!(b.names, vec!["main", "follows-main", "local-only"]);
+    // Tracking another local branch is no remote to push to.
+    assert_eq!(b.pushable, vec!["main"]);
+    assert!(tracks_remote(r.path(), "main").await);
+    assert!(!tracks_remote(r.path(), "local-only").await);
+    assert!(!tracks_remote(r.path(), "follows-main").await);
+}
+
+#[tokio::test]
 async fn a_projects_remote_is_the_one_its_branch_tracks() {
     let r = WithRemote::new().await;
     assert_eq!(
