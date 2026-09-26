@@ -53,6 +53,7 @@
   import { store } from "$lib/state/store.svelte";
   import { formatDuration, formatTokens } from "$lib/format";
   import Markdown from "$lib/markdown/Markdown.svelte";
+  import LinkedText from "$lib/markdown/LinkedText.svelte";
   import Attachments from "$lib/agent/Attachments.svelte";
   import HighlightedCode from "$lib/code/HighlightedCode.svelte";
   import NumberedCode from "$lib/code/NumberedCode.svelte";
@@ -261,11 +262,11 @@
   <div class="call-result">
     {#if read}
       <pre class="read"><NumberedCode lines={read.lines} lang={read.lang} /></pre>
-      {#if read.rest}<pre>{read.rest}</pre>{/if}
+      {#if read.rest}<pre><LinkedText text={read.rest} /></pre>{/if}
     {:else if printed}
       <pre class="read"><HighlightedCode code={resultText(c)} lang={printed} /></pre>
     {:else}
-      <pre>{resultText(c)}</pre>
+      <pre><LinkedText text={resultText(c)} /></pre>
     {/if}
   </div>
 {/snippet}
@@ -301,7 +302,7 @@
     {#if store.selectedAgent?.state === "failed" && store.selectedAgent.fail_reason}
       <div class="fail-banner">
         <span class="label">Failed</span>
-        <span class="reason">{store.selectedAgent.fail_reason}</span>
+        <span class="reason"><LinkedText text={store.selectedAgent.fail_reason} /></span>
       </div>
     {/if}
 
@@ -326,7 +327,7 @@
         {#if row.kind === "prompt"}
           <!-- One line on purpose: the block is pre-wrap, so any whitespace
                between these tags would show up as blank space. -->
-          <div class="block prompt-block">{#if row.attachments.length}<div class="prompt-files"><Attachments paths={row.attachments} /></div>{/if}{row.text}</div>
+          <div class="block prompt-block">{#if row.attachments.length}<div class="prompt-files"><Attachments paths={row.attachments} /></div>{/if}<LinkedText text={row.text} /></div>
         {:else if row.kind === "text"}
           <div class="block text"><Markdown text={row.text} /></div>
         {:else if row.kind === "tools"}
@@ -394,7 +395,7 @@
               · {formatTokens(row.output_tokens)} tok
             {/if}
             {#if row.is_error && row.result}
-              — {row.result}
+              — <LinkedText text={row.result} />
             {/if}
           </div>
         {:else}

@@ -13,7 +13,8 @@
 <style>
   /* One stylesheet for the whole rendered document: `MarkdownBlocks` and
      `MarkdownInline` render inside this element and carry no styles of their
-     own, so the look lives in one place and nesting costs nothing. */
+     own, so the look lives in one place and nesting costs nothing. Links are
+     the exception: they show in plain output too, so `Link` styles itself. */
   .md {
     min-width: 0;
   }
@@ -169,13 +170,6 @@
   .md :global(th) {
     background: var(--panel-bg);
     font-weight: var(--weight-semibold);
-  }
-
-  .md :global(a) {
-    color: var(--accent);
-    text-decoration: underline;
-    text-underline-offset: 2px;
-    overflow-wrap: anywhere;
   }
 
   .md :global(strong) {

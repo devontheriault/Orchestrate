@@ -57,3 +57,43 @@ export function safeHref(href: string | null | undefined): string | null {
   const h = (href ?? "").trim();
   return /^(https?:|mailto:)/i.test(h) ? h : null;
 }
+
+/** A run of plain text, and where it points if it is a URL. */
+export type Linked = { text: string; href?: string };
+
+/** What a URL can't hold. The quote and backtick end one written in prose or code. */
+const URL = /\bhttps?:\/\/[^\s<>"'`]+/gi;
+
+/**
+ * Plain text — a command's output, a prompt, an inline code span — split so
+ * the web addresses in it can be links. Punctuation that ends the sentence
+ * around a URL isn't part of it, and nor is a closing bracket it never
+ * opened: `(see https://x.dev/a)`.
+ */
+export function linkify(text: string): Linked[] {
+  if (!/https?:\/\//i.test(text)) return [{ text }];
+  const out: Linked[] = [];
+  let last = 0;
+  for (const m of text.matchAll(URL)) {
+    const href = trimUrl(m[0]);
+    if (!href.includes("://") || href.endsWith("://")) continue;
+    if (m.index > last) out.push({ text: text.slice(last, m.index) });
+    out.push({ text: href, href });
+    last = m.index + href.length;
+  }
+  if (last < text.length) out.push({ text: text.slice(last) });
+  return out;
+}
+
+const CLOSERS: Record<string, string> = { ")": "(", "]": "[", "}": "{" };
+
+function trimUrl(url: string): string {
+  const count = (c: string) => url.split(c).length - 1;
+  for (;;) {
+    const end = url.at(-1) ?? "";
+    const opener = CLOSERS[end];
+    const unbalanced = opener !== undefined && count(opener) < count(end);
+    if (/[.,;:!?*_~]/.test(end) || unbalanced) url = url.slice(0, -1);
+    else return url;
+  }
+}

@@ -1,18 +1,10 @@
 <script lang="ts">
-  import { openUrl } from "@tauri-apps/plugin-opener";
   import MarkdownInline from "./MarkdownInline.svelte";
+  import Link from "./Link.svelte";
+  import LinkedText from "./LinkedText.svelte";
   import { decodeEntities, safeHref, type Token } from "./markdown";
 
   let { tokens }: { tokens?: Token[] } = $props();
-
-  /**
-   * The transcript lives in the app's only window, so letting a link navigate
-   * would replace the app with the page. Links go to the OS browser instead.
-   */
-  function open(e: MouseEvent, href: string) {
-    e.preventDefault();
-    openUrl(href).catch(() => {});
-  }
 </script>
 
 {#each tokens ?? [] as token}
@@ -28,19 +20,14 @@
   {:else if t.type === "del"}
     <del><MarkdownInline tokens={t.tokens} /></del>
   {:else if t.type === "codespan"}
-    <code>{t.text ?? ""}</code>
+    <!-- `http://localhost:5173` is how a dev server gets named. -->
+    <code><LinkedText text={t.text ?? ""} /></code>
   {:else if t.type === "br"}
     <br />
   {:else if t.type === "link"}
     {@const href = safeHref(t.href)}
     {#if href}
-      <a
-        {href}
-        title={t.title || href}
-        target="_blank"
-        rel="noreferrer noopener"
-        onclick={(e) => open(e, href)}><MarkdownInline tokens={t.tokens} /></a
-      >
+      <Link {href} title={t.title}><MarkdownInline tokens={t.tokens} /></Link>
     {:else}
       <MarkdownInline tokens={t.tokens} />
     {/if}
@@ -49,13 +36,7 @@
          whatever host the agent's output names. -->
     {@const href = safeHref(t.href)}
     {#if href}
-      <a
-        {href}
-        title={t.title || href}
-        target="_blank"
-        rel="noreferrer noopener"
-        onclick={(e) => open(e, href)}>🖼 {t.text || href}</a
-      >
+      <Link {href} title={t.title}>🖼 {t.text || href}</Link>
     {:else}{t.text ?? ""}{/if}
   {:else if t.type === "escape"}
     {t.text ?? ""}
