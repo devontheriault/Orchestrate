@@ -48,10 +48,16 @@ use host::hosts::Hosts;
 /// the window at its minimum anyway and the compositor crops the rest, which
 /// cuts off the composer and the settings button at the bottom. The UI copes
 /// with any size it's given.
+///
+/// The window is always transparent, because a window can only be made so
+/// when it is built and the Glass theme can be picked at any time. Every other
+/// theme paints the page opaque, so it looks the same as a window that isn't;
+/// Glass paints only a veil, and the desktop shows through.
 fn build_main_window(app: &tauri::AppHandle) -> tauri::Result<()> {
     let win = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
         .title("Orchestrate")
-        .inner_size(1280.0, 800.0);
+        .inner_size(1280.0, 800.0)
+        .transparent(true);
 
     #[cfg(target_os = "macos")]
     let win = win

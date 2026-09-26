@@ -21,16 +21,17 @@ export type ThemePref = "system" | ThemeId;
 export const STORAGE_KEY = "orchestrate:theme";
 
 /** Shared with the pre-paint script in `app.html`, like the theme's. */
-export const BLUR_KEY = "orchestrate:glass-blur";
+export const OPACITY_KEY = "orchestrate:glass-opacity";
 
 /**
- * How far the Glass theme blurs its backdrop, in px. The default has to match
- * `--glass-blur` in the Glass block of `themes.css`, which is what a window
- * wears before anything is stored.
+ * How much the Glass theme tints the desktop behind the window, in percent:
+ * 0 is clear, 100 is solid. The default has to match `--glass-opacity` in
+ * the Glass block of `themes.css`, which is what a window wears before
+ * anything is stored.
  */
-export const BLUR_MIN = 0;
-export const BLUR_MAX = 100;
-export const BLUR_DEFAULT = 32;
+export const OPACITY_MIN = 0;
+export const OPACITY_MAX = 100;
+export const OPACITY_DEFAULT = 55;
 
 /**
  * The themes, in the order the menu lists them: the app's own first — Light,
@@ -76,14 +77,14 @@ function stored(): ThemePref {
   return raw && BY_ID.has(raw) ? (raw as ThemeId) : "system";
 }
 
-function clampBlur(px: number): number {
-  return Math.min(BLUR_MAX, Math.max(BLUR_MIN, Math.round(px)));
+function clampOpacity(pct: number): number {
+  return Math.min(OPACITY_MAX, Math.max(OPACITY_MIN, Math.round(pct)));
 }
 
-function storedBlur(): number {
-  if (typeof localStorage === "undefined") return BLUR_DEFAULT;
-  const raw = Number.parseFloat(localStorage.getItem(BLUR_KEY) ?? "");
-  return Number.isFinite(raw) ? clampBlur(raw) : BLUR_DEFAULT;
+function storedOpacity(): number {
+  if (typeof localStorage === "undefined") return OPACITY_DEFAULT;
+  const raw = Number.parseFloat(localStorage.getItem(OPACITY_KEY) ?? "");
+  return Number.isFinite(raw) ? clampOpacity(raw) : OPACITY_DEFAULT;
 }
 
 function systemIsDark(): boolean {
@@ -144,7 +145,7 @@ class Theme {
     });
 
     $effect(() => {
-      document.documentElement.style.setProperty("--glass-blur", `${this.blur}px`);
+      document.documentElement.style.setProperty("--glass-opacity", `${this.opacity}%`);
     });
 
     $effect(() => {
@@ -176,14 +177,14 @@ class Theme {
   }
 
   /**
-   * How much the Glass theme blurs what is behind it, in px. Kept whichever
-   * theme is on, so going back to Glass finds it where it was left.
+   * How solid the Glass theme's tint over the desktop is, in percent. Kept
+   * whichever theme is on, so going back to Glass finds it where it was left.
    */
-  blur = $state(storedBlur());
+  opacity = $state(storedOpacity());
 
-  setBlur(px: number) {
-    this.blur = clampBlur(px);
-    localStorage.setItem(BLUR_KEY, String(this.blur));
+  setOpacity(pct: number) {
+    this.opacity = clampOpacity(pct);
+    localStorage.setItem(OPACITY_KEY, String(this.opacity));
   }
 }
 
