@@ -12,12 +12,15 @@
 
          It does not check the stored name against the list of themes, which
          only the module has: an unknown one paints as Light for the moment
-         before the module replaces it, and every known one is already right. -->
+         before the module replaces it, and every known one is already right.
+         The Glass theme's blur rides along for the same reason. -->
     <script>
       (() => {
         const pref = localStorage.getItem("orchestrate:theme");
         document.documentElement.dataset.theme =
           pref || (matchMedia("(prefers-color-scheme: dark)").matches ? "orchestrate" : "orchestrate-light");
+        const blur = localStorage.getItem("orchestrate:glass-blur");
+        if (blur) document.documentElement.style.setProperty("--glass-blur", `${blur}px`);
       })();
     </script>
     %sveltekit.head%

@@ -468,7 +468,9 @@
     place-items: center;
     border: 1px solid var(--border);
     border-radius: var(--radius-circle);
-    background: var(--panel-bg);
+    background: var(--float-bg, var(--panel-bg));
+    -webkit-backdrop-filter: var(--float-filter, none);
+    backdrop-filter: var(--float-filter, none);
     color: var(--fg-muted);
     box-shadow: var(--shadow-sm);
     cursor: pointer;

@@ -20,9 +20,21 @@ export type ThemePref = "system" | ThemeId;
 /** Shared with the pre-paint script in `app.html`. */
 export const STORAGE_KEY = "orchestrate:theme";
 
+/** Shared with the pre-paint script in `app.html`, like the theme's. */
+export const BLUR_KEY = "orchestrate:glass-blur";
+
+/**
+ * How far the Glass theme blurs its backdrop, in px. The default has to match
+ * `--glass-blur` in the Glass block of `themes.css`, which is what a window
+ * wears before anything is stored.
+ */
+export const BLUR_MIN = 0;
+export const BLUR_MAX = 100;
+export const BLUR_DEFAULT = 32;
+
 /**
  * The themes, in the order the menu lists them: the app's own first — Light,
- * Dark, and Orchestrate, the logo's palette, dark then light — then the named
+ * Dark, Orchestrate, the logo's palette, dark then light, and Glass — then the named
  * palettes alphabetically, because after the app's own there is no ranking to
  * honour and alphabetical is the one order a reader can predict.
  *
@@ -35,6 +47,7 @@ export const THEMES = [
   { id: "dark", name: "Dark", mode: "dark" },
   { id: "orchestrate", name: "Orchestrate", mode: "dark" },
   { id: "orchestrate-light", name: "Orchestrate Light", mode: "light" },
+  { id: "glass", name: "Glass", mode: "dark" },
   { id: "catppuccin-latte", name: "Catppuccin Latte", mode: "light" },
   { id: "catppuccin-mocha", name: "Catppuccin Mocha", mode: "dark" },
   { id: "dracula", name: "Dracula", mode: "dark" },
@@ -61,6 +74,16 @@ function stored(): ThemePref {
   // Anything unrecognised — a theme that has since been removed, a value from
   // a future version — reads as System rather than as a broken window.
   return raw && BY_ID.has(raw) ? (raw as ThemeId) : "system";
+}
+
+function clampBlur(px: number): number {
+  return Math.min(BLUR_MAX, Math.max(BLUR_MIN, Math.round(px)));
+}
+
+function storedBlur(): number {
+  if (typeof localStorage === "undefined") return BLUR_DEFAULT;
+  const raw = Number.parseFloat(localStorage.getItem(BLUR_KEY) ?? "");
+  return Number.isFinite(raw) ? clampBlur(raw) : BLUR_DEFAULT;
 }
 
 function systemIsDark(): boolean {
@@ -121,6 +144,10 @@ class Theme {
     });
 
     $effect(() => {
+      document.documentElement.style.setProperty("--glass-blur", `${this.blur}px`);
+    });
+
+    $effect(() => {
       const mq = matchMedia(DARK_QUERY);
       const onChange = (e: MediaQueryListEvent) => (this.#systemDark = e.matches);
       mq.addEventListener("change", onChange);
@@ -146,6 +173,17 @@ class Theme {
     // a later change to what the default means then reaches existing users.
     if (pref === "system") localStorage.removeItem(STORAGE_KEY);
     else localStorage.setItem(STORAGE_KEY, pref);
+  }
+
+  /**
+   * How much the Glass theme blurs what is behind it, in px. Kept whichever
+   * theme is on, so going back to Glass finds it where it was left.
+   */
+  blur = $state(storedBlur());
+
+  setBlur(px: number) {
+    this.blur = clampBlur(px);
+    localStorage.setItem(BLUR_KEY, String(this.blur));
   }
 }
 

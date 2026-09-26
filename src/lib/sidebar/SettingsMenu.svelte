@@ -1,6 +1,12 @@
 <script lang="ts">
-  import { tick } from "svelte";
-  import { theme, THEMES, type ThemePref } from "$lib/theme/theme.svelte";
+  import { tick, untrack } from "svelte";
+  import {
+    theme,
+    THEMES,
+    BLUR_MAX,
+    BLUR_MIN,
+    type ThemePref,
+  } from "$lib/theme/theme.svelte";
   import { usage } from "$lib/usage/usage.svelte";
   import { plugins } from "$lib/plugins/plugins.svelte";
   import { api } from "$lib/api";
@@ -23,19 +29,30 @@
   const uid = $props.id();
 
   /**
-   * The menu's own rows: Theme, which opens the themes beside it, Usage,
-   * Plugins, the Hosts this window talks to, and — when this machine's Host runs as a
-   * service — whether it keeps the agents running while the user is logged out.
+   * The menu's own rows: Theme, which opens the themes beside it, the blur
+   * slider while the theme is Glass, Usage, Plugins, the Hosts this window
+   * talks to, and — when this machine's Host runs as a service — whether it
+   * keeps the agents running while the user is logged out.
+   *
+   * Named rather than numbered, because two of them come and go: the row the
+   * keys are on stays that row when one appears above it.
    */
-  const THEME = 0;
-  const USAGE = 1;
-  const PLUGINS = 2;
-  const HOSTS = 3;
-  const KEEP = 4;
+  type Row = "theme" | "blur" | "usage" | "plugins" | "hosts" | "keep";
 
   /** Asked of the Host each time the menu opens; null hides the row. */
   let keepRunning = $state<boolean | null>(null);
-  const count = $derived(keepRunning === null ? 4 : 5);
+
+  const rows = $derived<Row[]>([
+    "theme",
+    ...(theme.pref === "glass" ? (["blur"] as const) : []),
+    "usage",
+    "plugins",
+    "hosts",
+    ...(keepRunning === null ? [] : (["keep"] as const)),
+  ]);
+
+  /** How far one arrow key moves the blur, in px. */
+  const BLUR_STEP = 4;
 
   /** The Hosts dialog is up. */
   let managingHosts = $state(false);
@@ -83,8 +100,8 @@
   const SUB_WIDTH_REM = 17;
 
   let open = $state(false);
-  /** Index the keyboard is on while the menu is up. */
-  let active = $state(0);
+  /** The row the keyboard is on while the menu is up. */
+  let active = $state<Row>("theme");
   /** Whether the themes submenu is showing, and where the keys are in it. */
   let subOpen = $state(false);
   let subActive = $state(0);
@@ -109,7 +126,7 @@
 
   function openMenu() {
     loadKeepRunning();
-    active = THEME;
+    active = "theme";
     closeSub();
     place();
     open = true;
@@ -123,7 +140,7 @@
   }
 
   function openSub() {
-    const row = menuEl?.querySelector<HTMLElement>(`#${CSS.escape(`${uid}-item-${THEME}`)}`);
+    const row = menuEl?.querySelector<HTMLElement>(`#${CSS.escape(`${uid}-item-theme`)}`);
     if (!row || !menuEl) return;
     if (!subOpen) {
       subActive = Math.max(
@@ -141,30 +158,42 @@
     inSub = false;
   }
 
-  function pick(i: number) {
-    if (i === USAGE) {
-      close();
-      usage.show();
-      return;
+  function pick(row: Row) {
+    switch (row) {
+      case "usage":
+        close();
+        usage.show();
+        return;
+      case "plugins":
+        close();
+        plugins.show();
+        return;
+      case "hosts":
+        close();
+        managingHosts = true;
+        return;
+      // Stays open, so the tick can be seen to move.
+      case "keep":
+        toggleKeepRunning();
+        return;
+      // Nothing to pick: the slider is the whole row.
+      case "blur":
+        return;
+      case "theme":
+        openSub();
+        inSub = true;
     }
-    if (i === PLUGINS) {
-      close();
-      plugins.show();
-      return;
-    }
-    if (i === HOSTS) {
-      close();
-      managingHosts = true;
-      return;
-    }
-    // Stays open, so the tick can be seen to move.
-    if (i === KEEP) {
-      toggleKeepRunning();
-      return;
-    }
-    openSub();
-    inSub = true;
   }
+
+  // The menu grows up from its trigger, so a row appearing — Blur, as Glass is
+  // picked, or Keep, once the Host answers — moves the Theme row, and the
+  // themes hanging off it have to follow.
+  $effect(() => {
+    void rows.length;
+    untrack(() => {
+      if (subOpen) tick().then(openSub);
+    });
+  });
 
   /**
    * Wear the theme the user is on. `subActive` is what the pointer is over and
@@ -187,7 +216,7 @@
     if (requests === requestsSeen) return;
     requestsSeen = requests;
     openMenu();
-    tick().then(() => pick(THEME));
+    tick().then(() => pick("theme"));
   });
 
   // The menus are pinned to the trigger's position, so anything that moves it
@@ -223,12 +252,12 @@
     // the Theme row closes the submenu hanging off it.
     const next = inSub
       ? stepActive(e.key, subActive, themes.length)
-      : stepActive(e.key, active, count);
+      : stepActive(e.key, rows.indexOf(active), rows.length);
     if (next !== null) {
       e.preventDefault();
       if (inSub) subActive = next;
       else {
-        active = next;
+        active = rows[next];
         closeSub();
       }
       return;
@@ -242,13 +271,19 @@
       case "Tab":
         close(false);
         break;
+      // On the Blur row the arrows are the slider's. Handled here even when
+      // the slider itself has focus, from being dragged: this cancels its own
+      // step, so one press is one step either way.
       case "ArrowRight":
         e.preventDefault();
-        if (!inSub && active === THEME) pick(THEME);
+        if (inSub) break;
+        if (active === "theme") pick("theme");
+        else if (active === "blur") theme.setBlur(theme.blur + BLUR_STEP);
         break;
       case "ArrowLeft":
         e.preventDefault();
-        closeSub();
+        if (!inSub && active === "blur") theme.setBlur(theme.blur - BLUR_STEP);
+        else closeSub();
         break;
       case "Enter":
       case " ":
@@ -337,17 +372,17 @@
   >
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div
-      id={`${uid}-item-${THEME}`}
+      id={`${uid}-item-theme`}
       role="menuitem"
       aria-haspopup="menu"
       aria-expanded={subOpen}
       tabindex="-1"
-      data-active={!inSub && active === THEME}
+      data-active={!inSub && active === "theme"}
       class="menu-item"
       class:sub-open={subOpen}
-      onclick={() => pick(THEME)}
+      onclick={() => pick("theme")}
       onpointermove={() => {
-        active = THEME;
+        active = "theme";
         inSub = false;
         if (!subOpen) openSub();
       }}
@@ -363,16 +398,50 @@
       <span class="menu-more" aria-hidden="true">›</span>
     </div>
 
+    {#if rows.includes("blur")}
+      <!-- Glass's one setting, under the theme it belongs to. The slider is
+           out of the tab order like every row here: the menu owns the keys,
+           and on this row the arrows move it. -->
+      <div
+        id={`${uid}-item-blur`}
+        role="menuitem"
+        tabindex="-1"
+        aria-label={`Glass blur, ${theme.blur}px`}
+        data-active={!inSub && active === "blur"}
+        class="menu-item blur"
+        onpointermove={() => {
+          active = "blur";
+          closeSub();
+        }}
+        title="How frosted the glass is (← →)"
+      >
+        <span class="menu-tick" aria-hidden="true"></span>
+        <span class="menu-label">Blur</span>
+        <input
+          type="range"
+          class="blur-range"
+          min={BLUR_MIN}
+          max={BLUR_MAX}
+          step="1"
+          tabindex="-1"
+          aria-hidden="true"
+          value={theme.blur}
+          oninput={(e) => theme.setBlur(e.currentTarget.valueAsNumber)}
+        />
+        <span class="menu-note blur-value">{theme.blur}px</span>
+      </div>
+    {/if}
+
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div
-      id={`${uid}-item-${USAGE}`}
+      id={`${uid}-item-usage`}
       role="menuitem"
       tabindex="-1"
-      data-active={!inSub && active === USAGE}
+      data-active={!inSub && active === "usage"}
       class="menu-item usage"
-      onclick={() => pick(USAGE)}
+      onclick={() => pick("usage")}
       onpointermove={() => {
-        active = USAGE;
+        active = "usage";
         closeSub();
       }}
       title="Token usage (Ctrl+Shift+U)"
@@ -390,14 +459,14 @@
 
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div
-      id={`${uid}-item-${PLUGINS}`}
+      id={`${uid}-item-plugins`}
       role="menuitem"
       tabindex="-1"
-      data-active={!inSub && active === PLUGINS}
+      data-active={!inSub && active === "plugins"}
       class="menu-item"
-      onclick={() => pick(PLUGINS)}
+      onclick={() => pick("plugins")}
       onpointermove={() => {
-        active = PLUGINS;
+        active = "plugins";
         closeSub();
       }}
       title="Browse, install and manage Claude Code plugins (/plugin)"
@@ -408,14 +477,14 @@
 
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div
-      id={`${uid}-item-${HOSTS}`}
+      id={`${uid}-item-hosts`}
       role="menuitem"
       tabindex="-1"
-      data-active={!inSub && active === HOSTS}
+      data-active={!inSub && active === "hosts"}
       class="menu-item"
-      onclick={() => pick(HOSTS)}
+      onclick={() => pick("hosts")}
       onpointermove={() => {
-        active = HOSTS;
+        active = "hosts";
         closeSub();
       }}
       title="Your other machines, whose agents this window shows too"
@@ -428,15 +497,15 @@
     {#if keepRunning !== null}
       <!-- svelte-ignore a11y_click_events_have_key_events -->
       <div
-        id={`${uid}-item-${KEEP}`}
+        id={`${uid}-item-keep`}
         role="menuitemcheckbox"
         aria-checked={keepRunning}
         tabindex="-1"
-        data-active={!inSub && active === KEEP}
+        data-active={!inSub && active === "keep"}
         class="menu-item"
-        onclick={() => pick(KEEP)}
+        onclick={() => pick("keep")}
         onpointermove={() => {
-          active = KEEP;
+          active = "keep";
           closeSub();
         }}
         title="Agents on this machine keep working after you log out, and the Host starts at boot"
@@ -567,6 +636,26 @@
       var(--accent) 33.34% 66.67%,
       var(--success) 66.67% 100%
     );
+  }
+
+  /* The slider takes the room a note would, and the label keeps only its own. */
+  .blur .menu-label {
+    flex: none;
+  }
+
+  .blur-range {
+    flex: 1;
+    min-width: 6rem;
+    margin: 0;
+    accent-color: var(--accent);
+    cursor: pointer;
+  }
+
+  /* Wide enough for "100px", so the slider doesn't shift as the number grows. */
+  .blur-value {
+    min-width: 5ch;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
   }
 
   .gauge {

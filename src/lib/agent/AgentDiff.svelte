@@ -762,7 +762,9 @@
   .patch-file summary {
     cursor: pointer;
     padding: 0.4rem 0.7rem;
-    background: var(--panel-bg);
+    background: var(--float-bg, var(--panel-bg));
+    -webkit-backdrop-filter: var(--float-filter, none);
+    backdrop-filter: var(--float-filter, none);
     font-size: var(--text-md);
     color: var(--fg-muted);
     overflow-wrap: anywhere;

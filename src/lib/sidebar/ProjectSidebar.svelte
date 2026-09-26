@@ -666,7 +666,7 @@
     max-width: calc(100vw - var(--rail) - 1rem);
     display: flex;
     flex-direction: column;
-    background: var(--panel-bg);
+    background: var(--float-bg, var(--panel-bg));
     overflow: hidden;
   }
 
@@ -704,7 +704,9 @@
      so it doesn't change the row's height mid-drag. */
   li.lifted {
     z-index: 1;
-    background: var(--surface);
+    background: var(--float-bg, var(--surface));
+    -webkit-backdrop-filter: var(--float-filter, none);
+    backdrop-filter: var(--float-filter, none);
     box-shadow:
       0 0 0 var(--border-width) var(--border),
       var(--shadow-popover);
