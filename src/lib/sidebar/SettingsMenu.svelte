@@ -1,12 +1,6 @@
 <script lang="ts">
   import { tick, untrack } from "svelte";
-  import {
-    theme,
-    THEMES,
-    OPACITY_MAX,
-    OPACITY_MIN,
-    type ThemePref,
-  } from "$lib/theme/theme.svelte";
+  import { theme, THEMES, type Dial, type ThemePref } from "$lib/theme/theme.svelte";
   import { usage } from "$lib/usage/usage.svelte";
   import { plugins } from "$lib/plugins/plugins.svelte";
   import { api } from "$lib/api";
@@ -30,14 +24,15 @@
 
   /**
    * The menu's own rows: Theme, which opens the themes beside it, the opacity
-   * slider while the theme is Glass, Usage, Plugins, the Hosts this window
-   * talks to, and — when this machine's Host runs as a service — whether it
-   * keeps the agents running while the user is logged out.
+   * slider while the theme is Glass or Picture — and Picture's blur slider
+   * and the picture itself — Usage, Plugins, the Hosts this window talks to,
+   * and — when this machine's Host runs as a service — whether it keeps the
+   * agents running while the user is logged out.
    *
-   * Named rather than numbered, because two of them come and go: the row the
+   * Named rather than numbered, because some of them come and go: the row the
    * keys are on stays that row when one appears above it.
    */
-  type Row = "theme" | "opacity" | "usage" | "plugins" | "hosts" | "keep";
+  type Row = "theme" | "opacity" | "blur" | "picture" | "usage" | "plugins" | "hosts" | "keep";
 
   /** Asked of the Host each time the menu opens; null hides the row. */
   let keepRunning = $state<boolean | null>(null);
@@ -45,14 +40,21 @@
   const rows = $derived<Row[]>([
     "theme",
     ...(theme.pref === "glass" ? (["opacity"] as const) : []),
+    ...(theme.pref === "picture" ? (["opacity", "blur", "picture"] as const) : []),
     "usage",
     "plugins",
     "hosts",
     ...(keepRunning === null ? [] : (["keep"] as const)),
   ]);
 
-  /** How far one arrow key moves the opacity, in percent. */
-  const OPACITY_STEP = 5;
+  /** The setting a slider row moves; null on every other row. */
+  function dial(row: Row): Dial | null {
+    if (row === "opacity") {
+      return theme.pref === "picture" ? theme.pictureOpacity : theme.glassOpacity;
+    }
+    if (row === "blur") return theme.pictureBlur;
+    return null;
+  }
 
   /** The Hosts dialog is up. */
   let managingHosts = $state(false);
@@ -176,8 +178,13 @@
       case "keep":
         toggleKeepRunning();
         return;
+      case "picture":
+        close();
+        theme.choosePicture();
+        return;
       // Nothing to pick: the slider is the whole row.
       case "opacity":
+      case "blur":
         return;
       case "theme":
         openSub();
@@ -185,9 +192,9 @@
     }
   }
 
-  // The menu grows up from its trigger, so a row appearing — Opacity, as Glass is
-  // picked, or Keep, once the Host answers — moves the Theme row, and the
-  // themes hanging off it have to follow.
+  // The menu grows up from its trigger, so a row appearing — Opacity, as Glass
+  // is picked, Picture's three, or Keep, once the Host answers — moves the Theme
+  // row, and the themes hanging off it have to follow.
   $effect(() => {
     void rows.length;
     untrack(() => {
@@ -271,20 +278,24 @@
       case "Tab":
         close(false);
         break;
-      // On the Opacity row the arrows are the slider's. Handled here even when
+      // On a slider's row the arrows are the slider's. Handled here even when
       // the slider itself has focus, from being dragged: this cancels its own
       // step, so one press is one step either way.
-      case "ArrowRight":
+      case "ArrowRight": {
         e.preventDefault();
         if (inSub) break;
-        if (active === "theme") pick("theme");
-        else if (active === "opacity") theme.setOpacity(theme.opacity + OPACITY_STEP);
+        const d = dial(active);
+        if (d) d.set(d.value + d.step);
+        else if (active === "theme") pick("theme");
         break;
-      case "ArrowLeft":
+      }
+      case "ArrowLeft": {
         e.preventDefault();
-        if (!inSub && active === "opacity") theme.setOpacity(theme.opacity - OPACITY_STEP);
+        const d = inSub ? null : dial(active);
+        if (d) d.set(d.value - d.step);
         else closeSub();
         break;
+      }
       case "Enter":
       case " ":
         e.preventDefault();
@@ -325,6 +336,41 @@
   </span>
   {#if !collapsed}<span class="label">Settings</span>{/if}
 </button>
+
+<!-- A setting's slider, under the theme it belongs to. The slider is out of
+     the tab order like every row here: the menu owns the keys, and on this
+     row the arrows move it. -->
+{#snippet slider(id: "opacity" | "blur", label: string, title: string)}
+  {@const d = dial(id)!}
+  <div
+    id={`${uid}-item-${id}`}
+    role="menuitem"
+    tabindex="-1"
+    aria-label={`${label}, ${d.css}`}
+    data-active={!inSub && active === id}
+    class="menu-item slider"
+    onpointermove={() => {
+      active = id;
+      closeSub();
+    }}
+    {title}
+  >
+    <span class="menu-tick" aria-hidden="true"></span>
+    <span class="menu-label">{label}</span>
+    <input
+      type="range"
+      class="slider-range"
+      min={d.min}
+      max={d.max}
+      step="1"
+      tabindex="-1"
+      aria-hidden="true"
+      value={d.value}
+      oninput={(e) => d.set(e.currentTarget.valueAsNumber)}
+    />
+    <span class="menu-note slider-value">{d.css}</span>
+  </div>
+{/snippet}
 
 <!-- One theme row. The menu owns the keyboard: the rows aren't focusable, so
      a key handler on each one would never fire. -->
@@ -399,36 +445,31 @@
     </div>
 
     {#if rows.includes("opacity")}
-      <!-- Glass's one setting, under the theme it belongs to. The slider is
-           out of the tab order like every row here: the menu owns the keys,
-           and on this row the arrows move it. -->
+      {@render slider("opacity", "Opacity", "How much the glass tints what is behind it (← →)")}
+    {/if}
+
+    {#if rows.includes("blur")}
+      {@render slider("blur", "Blur", "How frosted the glass over the picture is (← →)")}
+    {/if}
+
+    {#if rows.includes("picture")}
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
       <div
-        id={`${uid}-item-opacity`}
+        id={`${uid}-item-picture`}
         role="menuitem"
         tabindex="-1"
-        aria-label={`Glass opacity, ${theme.opacity}%`}
-        data-active={!inSub && active === "opacity"}
-        class="menu-item opacity"
+        data-active={!inSub && active === "picture"}
+        class="menu-item"
+        onclick={() => pick("picture")}
         onpointermove={() => {
-          active = "opacity";
+          active = "picture";
           closeSub();
         }}
-        title="How much the glass tints the desktop behind it (← →)"
+        title="The picture behind the glass"
       >
         <span class="menu-tick" aria-hidden="true"></span>
-        <span class="menu-label">Opacity</span>
-        <input
-          type="range"
-          class="opacity-range"
-          min={OPACITY_MIN}
-          max={OPACITY_MAX}
-          step="1"
-          tabindex="-1"
-          aria-hidden="true"
-          value={theme.opacity}
-          oninput={(e) => theme.setOpacity(e.currentTarget.valueAsNumber)}
-        />
-        <span class="menu-note opacity-value">{theme.opacity}%</span>
+        <span class="menu-label">Picture…</span>
+        <span class="menu-note picture-name">{theme.pictureName ?? "Choose"}</span>
       </div>
     {/if}
 
@@ -639,11 +680,13 @@
   }
 
   /* The slider takes the room a note would, and the label keeps only its own. */
-  .opacity .menu-label {
+  .slider .menu-label {
     flex: none;
+    /* The longest label's width, "Opacity", so stacked sliders line up. */
+    min-width: 7ch;
   }
 
-  .opacity-range {
+  .slider-range {
     flex: 1;
     min-width: 6rem;
     margin: 0;
@@ -652,10 +695,18 @@
   }
 
   /* Wide enough for "100%", so the slider doesn't shift as the number grows. */
-  .opacity-value {
+  .slider-value {
     min-width: 5ch;
     text-align: right;
     font-variant-numeric: tabular-nums;
+  }
+
+  /* A file name can be anything long: cut it, don't let it widen the menu. */
+  .picture-name {
+    max-width: 12rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .gauge {
