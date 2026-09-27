@@ -106,12 +106,44 @@ fn is_tiling_compositor(var: impl Fn(&str) -> Option<String>) -> bool {
 /// WebKitGTK's DMA-BUF renderer crashes under Wayland on some drivers (notably
 /// NVIDIA), killing the process at startup with
 /// `Gdk-Message: Error 71 (Protocol error) dispatching to Wayland display.`
-/// Fall back to the plain renderer unless the user set the variable themselves.
+/// It's the GPU buffers it hands the compositor that do it, so keep the
+/// renderer but have it hand over shared memory instead.
+///
+/// Turning the renderer off, as this used to, is worse. Its fallback in
+/// WebKitGTK 2.50, which the AppImage bundles, never clears a frame before
+/// drawing the next one into a transparent window, so anything see-through
+/// piles up: Glass darkens with every repaint, and a closed menu or old text
+/// stays on screen. It is also slower, dropping frames whenever the theme
+/// changes. And 2.50 turns the renderer off by itself under NVIDIA's driver,
+/// so there it has to be forced back on.
+///
+/// Left alone if the user set any of these themselves.
 #[cfg(target_os = "linux")]
 fn apply_linux_webkit_workarounds() {
-    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
-        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+    let nvidia = std::path::Path::new("/sys/module/nvidia").exists();
+    for (key, value) in webkit_renderer_env(|k| std::env::var_os(k).is_some(), nvidia) {
+        std::env::set_var(key, value);
     }
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn webkit_renderer_env(
+    is_set: impl Fn(&str) -> bool,
+    nvidia: bool,
+) -> Vec<(&'static str, &'static str)> {
+    const KEYS: [&str; 3] = [
+        "WEBKIT_DISABLE_DMABUF_RENDERER",
+        "WEBKIT_FORCE_DMABUF_RENDERER",
+        "WEBKIT_DMABUF_RENDERER_FORCE_SHM",
+    ];
+    if KEYS.iter().any(|k| is_set(k)) {
+        return vec![];
+    }
+    let mut env = vec![("WEBKIT_DMABUF_RENDERER_FORCE_SHM", "1")];
+    if nvidia {
+        env.push(("WEBKIT_FORCE_DMABUF_RENDERER", "1"));
+    }
+    env
 }
 
 /// The app's entry point: this machine's Host with `--host`, a window
@@ -166,7 +198,37 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::is_tiling_compositor;
+    use super::{is_tiling_compositor, webkit_renderer_env};
+
+    #[test]
+    fn webkit_renders_to_shared_memory() {
+        assert_eq!(
+            webkit_renderer_env(|_| false, false),
+            [("WEBKIT_DMABUF_RENDERER_FORCE_SHM", "1")]
+        );
+    }
+
+    #[test]
+    fn nvidia_forces_the_renderer_back_on() {
+        assert_eq!(
+            webkit_renderer_env(|_| false, true),
+            [
+                ("WEBKIT_DMABUF_RENDERER_FORCE_SHM", "1"),
+                ("WEBKIT_FORCE_DMABUF_RENDERER", "1")
+            ]
+        );
+    }
+
+    #[test]
+    fn the_users_own_renderer_choice_stands() {
+        for key in [
+            "WEBKIT_DISABLE_DMABUF_RENDERER",
+            "WEBKIT_FORCE_DMABUF_RENDERER",
+            "WEBKIT_DMABUF_RENDERER_FORCE_SHM",
+        ] {
+            assert!(webkit_renderer_env(|k| k == key, true).is_empty());
+        }
+    }
 
     fn env<'a>(pairs: &'a [(&str, &str)]) -> impl Fn(&str) -> Option<String> + 'a {
         move |k| {
