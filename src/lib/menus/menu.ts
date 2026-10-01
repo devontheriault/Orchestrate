@@ -19,6 +19,16 @@ const GAP = 6;
 const EDGE = 8;
 
 /**
+ * The highest a menu may reach. The window bar is drawn over every menu (it
+ * stays above the usage overlay), so a menu running up past its bottom edge
+ * would lose its top rows under it — on a phone, under the status bar too.
+ */
+function topEdge(): number {
+  const bar = document.querySelector("header.chrome");
+  return (bar ? bar.getBoundingClientRect().bottom : 0) + EDGE;
+}
+
+/**
  * Place a menu against `trigger`, below it or above it.
  *
  * With a `maxHeight`, the menu drops down unless only the space above has room
@@ -37,7 +47,7 @@ export function placeMenu(
 ): Placement {
   const r = trigger.getBoundingClientRect();
   const below = window.innerHeight - r.bottom - GAP - EDGE;
-  const above = r.top - GAP - EDGE;
+  const above = r.top - GAP - topEdge();
   const up = maxHeight === undefined ? above >= below : below < Math.min(maxHeight, above);
   const room = up ? above : below;
   const width = Math.max(r.width, minWidth);
@@ -62,21 +72,28 @@ const SUB_INSET = 5;
  * Hang a submenu off `row`, one of the rows of `menu`: beside the menu on
  * whichever side has the room, and level with the row — growing down from its
  * top, or up from its bottom when the row is in the lower half of the window.
- * It takes all the height that side has and scrolls inside it.
+ * It takes all the height that side has, or `cap` if that's less, and scrolls
+ * inside it.
  */
-export function placeSubmenu(row: HTMLElement, menu: HTMLElement, width: number): Placement {
+export function placeSubmenu(
+  row: HTMLElement,
+  menu: HTMLElement,
+  width: number,
+  cap = Infinity,
+): Placement {
   const r = row.getBoundingClientRect();
   const m = menu.getBoundingClientRect();
   // No gap: the pointer has to cross from the row into the submenu, and a gap
   // there is a dead zone that closes it mid-travel.
   const left = m.right + width <= window.innerWidth - EDGE ? m.right : m.left - width;
   const up = r.top + r.bottom > window.innerHeight;
-  const top = Math.max(EDGE, r.top - SUB_INSET);
+  const ceiling = topEdge();
+  const top = Math.max(ceiling, r.top - SUB_INSET);
   const bottom = Math.min(window.innerHeight - EDGE, r.bottom + SUB_INSET);
   return {
     width,
     left: Math.max(EDGE, left),
-    maxHeight: up ? bottom - EDGE : window.innerHeight - EDGE - top,
+    maxHeight: Math.min(cap, up ? bottom - ceiling : window.innerHeight - EDGE - top),
     y: up
       ? `bottom: ${Math.round(window.innerHeight - bottom)}px`
       : `top: ${Math.round(top)}px`,

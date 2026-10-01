@@ -336,11 +336,19 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: var(--space-6);
+    --gutter: var(--space-6);
+    padding: var(--gutter);
     /* Below the title bar, which sits over the scrim (see UsageWindow). */
-    padding-top: calc(max(var(--titlebar-h), 28px) + var(--space-6));
+    padding-top: calc(max(var(--titlebar-h), 28px) + var(--safe-top) + var(--gutter));
+    /* And on a phone, clear of the home indicator. */
+    padding-bottom: calc(var(--gutter) + var(--safe-bottom));
     z-index: var(--z-overlay);
     backdrop-filter: blur(2px);
+  }
+
+  /* A phone spends its narrow screen on the window, not on scrim round it. */
+  :global(html[data-frame="mobile"]) .backdrop {
+    --gutter: var(--space-3);
   }
 
   /* A fixed height, so switching tabs or searching doesn't make it jump. */
