@@ -5,6 +5,9 @@
 # Runs with every release tag, like release.yml, and by hand from the Actions
 # tab to try a build. The app is a window onto other machines' Hosts only: a
 # phone can't run `claude` (ADR 0016).
+#
+# Actions are pinned to commit SHAs, not tags, as in release.yml: this job
+# holds the App Store Connect key, and a moved tag could read it.
 name: ios
 
 on:
@@ -37,18 +40,18 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: lts/*
           cache: npm
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
           targets: aarch64-apple-ios
 
-      - uses: swatinem/rust-cache@v2
+      - uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: "./src-tauri -> target"
 
@@ -82,7 +85,7 @@ jobs:
 
       - name: Keep the app with the run
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: orchestrate-ios
           path: src-tauri/gen/apple/build/arm64/*.ipa
