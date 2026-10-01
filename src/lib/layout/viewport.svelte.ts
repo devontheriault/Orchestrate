@@ -77,12 +77,17 @@ class Viewport {
     // the top whenever iOS has scrolled it.
     const visual = mobile ? window.visualViewport : null;
     // While the keyboard is up it covers the home indicator too, so nothing
-    // needs to keep clear of that (`html[data-keyboard]` in theme.css).
+    // needs to keep clear of that (`html[data-keyboard]` in theme.css). It's
+    // up when the visible height is well short of the most it has been at
+    // this width: `window.innerHeight` can't say, since iOS shrinks that too.
+    let full = { width: 0, height: 0 };
     const fitVisible = () => {
       if (!visual) return;
+      if (visual.width !== full.width) full = { width: visual.width, height: 0 };
+      full.height = Math.max(full.height, visual.height);
       const root = document.documentElement;
       root.style.setProperty("--visible-h", `${visual.height}px`);
-      root.toggleAttribute("data-keyboard", window.innerHeight - visual.height > KEYBOARD_AT);
+      root.toggleAttribute("data-keyboard", full.height - visual.height > KEYBOARD_AT);
       if (window.scrollY) window.scrollTo(0, 0);
     };
     fitVisible();

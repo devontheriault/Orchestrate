@@ -461,13 +461,21 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: var(--space-6);
+    --gutter: var(--space-6);
+    padding: var(--gutter);
     /* The title bar sits over the scrim (WindowChrome), so the dialog has to
        fit in what's left below it — or a short window hides its header and
        close button. The 28px is the Mac bar's floor. */
-    padding-top: calc(max(var(--titlebar-h), 28px) + var(--space-6));
+    padding-top: calc(max(var(--titlebar-h), 28px) + var(--safe-top) + var(--gutter));
+    /* And on a phone, clear of the home indicator. */
+    padding-bottom: calc(var(--gutter) + var(--safe-bottom));
     z-index: var(--z-overlay);
     backdrop-filter: blur(2px);
+  }
+
+  /* A phone spends its narrow screen on the window, not on scrim round it. */
+  :global(html[data-frame="mobile"]) .backdrop {
+    --gutter: var(--space-3);
   }
 
   .dialog {

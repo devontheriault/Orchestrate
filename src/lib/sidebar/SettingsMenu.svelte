@@ -6,6 +6,7 @@
   import { api } from "$lib/api";
   import { store } from "$lib/state/store.svelte";
   import { hosts } from "$lib/state/hosts.svelte";
+  import { viewport } from "$lib/layout/viewport.svelte";
   import HostsDialog from "./HostsDialog.svelte";
   import {
     dismissOnMove,
@@ -151,7 +152,10 @@
       );
     }
     const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
-    subPlacement = placeSubmenu(row, menuEl, SUB_WIDTH_REM * rem);
+    // On a phone the list would cover the whole screen; half of it, scrolling,
+    // leaves the menu it came from in sight.
+    const cap = viewport.phone ? Math.round(window.innerHeight * 0.5) : Infinity;
+    subPlacement = placeSubmenu(row, menuEl, SUB_WIDTH_REM * rem, cap);
     subOpen = true;
   }
 

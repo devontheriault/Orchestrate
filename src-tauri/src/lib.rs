@@ -93,6 +93,39 @@ fn build_main_window(app: &tauri::AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
+/// iOS puts a bar of ↑ ↓ ✓ above the keyboard for any field in a web page.
+/// It's for stepping through a form, which the composer isn't, and it takes a
+/// row of the screen. The page can't turn it off: the bar comes from WebKit's
+/// content view, so that view is made to answer that it has none. Capacitor's
+/// Keyboard plugin makes the same swap.
+#[cfg(target_os = "ios")]
+fn hide_form_bar() {
+    use objc2::runtime::{AnyClass, AnyObject, Imp, Sel};
+    use objc2::sel;
+
+    extern "C-unwind" fn no_bar(_this: *mut AnyObject, _cmd: Sel) -> *mut AnyObject {
+        std::ptr::null_mut()
+    }
+
+    // A private WebKit class: if a later iOS renames it, the bar just stays.
+    let Some(view) = AnyClass::get(c"WKContentView") else {
+        return;
+    };
+    // SAFETY: `inputAccessoryView` takes no arguments and returns an object or
+    // nil (type encoding `@@:`), which is exactly `no_bar`'s shape.
+    unsafe {
+        let imp: Imp = std::mem::transmute(
+            no_bar as extern "C-unwind" fn(*mut AnyObject, Sel) -> *mut AnyObject,
+        );
+        objc2::ffi::class_replaceMethod(
+            view as *const AnyClass as *mut AnyClass,
+            sel!(inputAccessoryView),
+            imp,
+            c"@@:".as_ptr(),
+        );
+    }
+}
+
 /// Whether the session is a tiling Wayland compositor or X11 window manager,
 /// read off the variables each one exports into the programs it launches.
 #[cfg(any(target_os = "linux", test))]
@@ -182,6 +215,8 @@ pub fn run() {
             }
 
             build_main_window(app.handle())?;
+            #[cfg(target_os = "ios")]
+            hide_form_bar();
 
             // A phone can't run `claude`, so it has no Host of its own.
             #[cfg(desktop)]

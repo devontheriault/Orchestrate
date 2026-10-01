@@ -51,6 +51,11 @@ base64 = "0.22"
 arboard = { version = "3", features = ["wayland-data-control"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
 
+# Takes iOS's form bar off the keyboard (see `hide_form_bar`). Already in the
+# build through Tauri's own iOS code; this names it so the app can use it too.
+[target.'cfg(target_os = "ios")'.dependencies]
+objc2 = "0.6"
+
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
