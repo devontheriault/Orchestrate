@@ -1,0 +1,92 @@
+# Builds the iPhone app, signs it, and uploads it to TestFlight, from where it
+# installs on a phone. All of it happens on GitHub's macOS runner, so no Mac is
+# needed (docs/releasing.md has the one-time Apple setup).
+#
+# Runs with every release tag, like release.yml, and by hand from the Actions
+# tab to try a build. The app is a window onto other machines' Hosts only: a
+# phone can't run `claude` (ADR 0016).
+#
+# Actions are pinned to commit SHAs, not tags, as in release.yml: this job
+# holds the App Store Connect key, and a moved tag could read it.
+name: ios
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  testflight:
+    runs-on: macos-latest
+    env:
+      # Tauri signs automatically with an App Store Connect API key: Xcode makes
+      # the certificate and provisioning profile itself. altool uploads with
+      # the same key, found by its id in ~/.appstoreconnect/private_keys.
+      APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+      APPLE_API_KEY: ${{ secrets.APPLE_API_KEY_ID }}
+      APPLE_DEVELOPMENT_TEAM: ${{ secrets.APPLE_TEAM_ID }}
+    steps:
+      - name: Check the Apple secrets are set
+        env:
+          KEY_FILE: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          missing=()
+          [ -n "$APPLE_API_ISSUER" ] || missing+=(APPLE_API_ISSUER)
+          [ -n "$APPLE_API_KEY" ] || missing+=(APPLE_API_KEY_ID)
+          [ -n "$KEY_FILE" ] || missing+=(APPLE_API_KEY_P8)
+          [ -n "$APPLE_DEVELOPMENT_TEAM" ] || missing+=(APPLE_TEAM_ID)
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::Set these repository secrets first (see docs/releasing.md): ${missing[*]}"
+            exit 1
+          fi
+
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          targets: aarch64-apple-ios
+
+      - uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: "./src-tauri -> target"
+
+      - run: npm ci
+
+      - name: Install the App Store Connect key
+        env:
+          KEY_FILE: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          dir="$HOME/.appstoreconnect/private_keys"
+          mkdir -p "$dir"
+          printf '%s\n' "$KEY_FILE" > "$dir/AuthKey_$APPLE_API_KEY.p8"
+          echo "APPLE_API_KEY_PATH=$dir/AuthKey_$APPLE_API_KEY.p8" >> "$GITHUB_ENV"
+
+      # The Xcode project is generated fresh from tauri.conf.json each time
+      # rather than committed: nobody here has a Mac to keep it in step with.
+      - run: npx tauri ios init --ci
+
+      # Into the project just generated, on the app's own dark surface.
+      - run: npx tauri icon src-tauri/icons/ios.svg --ios-color "#0e110f"
+
+      # Each upload needs a build number App Store Connect hasn't seen for this
+      # version; the run number only goes up.
+      - run: npx tauri ios build --ci --export-method app-store-connect --build-number ${{ github.run_number }}
+
+      - name: Upload to TestFlight
+        run: |
+          xcrun altool --upload-app --type ios \
+            --file src-tauri/gen/apple/build/arm64/Orchestrate.ipa \
+            --apiKey "$APPLE_API_KEY" --apiIssuer "$APPLE_API_ISSUER"
+
+      - name: Keep the app with the run
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: orchestrate-ios
+          path: src-tauri/gen/apple/build/arm64/*.ipa
+          if-no-files-found: ignore

@@ -261,6 +261,28 @@
   --pad-y: clamp(0.5rem, 0.8vh, 0.8rem);
   /* Prose stops growing past a comfortable measure on a wide window. */
   --measure: 96ch;
+  /* The screen edges a phone keeps for itself: the notch or island above,
+     the home indicator below, and the sides in landscape. Zero everywhere
+     else, so anything may pad by them unconditionally. */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+}
+
+/* A phone is held close and read in one column, so the type is fixed at a
+   size that reads there rather than scaled down with the narrow screen, and
+   the gutters are a thumb's width rather than a sliver of it. */
+html[data-frame="mobile"] {
+  --font-size-root: 15px;
+  --pad-x: 1rem;
+  --pad-y: 0.7rem;
+  --titlebar-h: 3.1rem;
+}
+
+/* The keyboard covers the home indicator, so nothing keeps clear of it. */
+html[data-keyboard] {
+  --safe-bottom: 0px;
 }
 
 [data-theme="dark"] {
@@ -341,6 +363,10 @@ body {
   flex-direction: column;
   height: 100vh;
   height: 100dvh;
+  /* On a phone, only what the on-screen keyboard leaves (see viewport.svelte.ts). */
+  height: var(--visible-h, 100dvh);
+  /* Clear of the notch when a phone is turned on its side. */
+  padding: 0 var(--safe-right) 0 var(--safe-left);
 }
 
 button,
@@ -355,6 +381,12 @@ kbd,
 pre,
 samp {
   font-family: var(--font-mono);
+}
+
+/* A shortcut hint — "Esc to close", "Tab complete" — is noise on a phone,
+   which has no keys to press. */
+html[data-frame="mobile"] .keys-only {
+  display: none;
 }
 
 /* Motion is decoration here — nothing in the UI depends on an animation to be

@@ -617,8 +617,8 @@ export const api = {
   projectBranches: (hostId: string, projectId: string) =>
     host<Branches>(hostId, "project_branches", { projectId }),
 
-  /** The models the account can run: one account, so this machine's Host answers. */
-  listModels: () => host<ModelInfo[]>(LOCAL, "list_models"),
+  /** The models the account can run: one account, so any Host can answer. */
+  listModels: (hostId: string) => host<ModelInfo[]>(hostId, "list_models"),
   /** The slash commands `claude` offers in `dir`, on the Host that has it. */
   slashCommands: (hostId: string, dir: string) =>
     host<Offered>(hostId, "slash_commands", { dir }),

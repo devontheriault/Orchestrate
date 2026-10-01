@@ -1,10 +1,12 @@
 <script lang="ts">
-  import { LOCAL } from "$lib/api";
   import { hosts } from "$lib/state/hosts.svelte";
-  import { hostNotice, HOST_NOTICE_DELAY } from "./hostNotice";
+  import { hostNotice, phoneNotice, HOST_NOTICE_DELAY } from "./hostNotice";
 
-  const notice = $derived(hostNotice(hosts.status(LOCAL) ?? { state: "connecting", error: null }));
-  const waits = $derived((hosts.status(LOCAL)?.state ?? "connecting") === "connecting");
+  const own = hosts.own;
+  const notice = $derived(
+    own ? hostNotice(hosts.status(own) ?? { state: "connecting", error: null }) : phoneNotice(hosts.list),
+  );
+  const waits = $derived(!own || (hosts.status(own)?.state ?? "connecting") === "connecting");
 
   // Shown only once it has held for a moment, so a quick reconnect never
   // flashes a banner.

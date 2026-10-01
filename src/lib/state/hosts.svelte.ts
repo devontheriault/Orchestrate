@@ -5,9 +5,27 @@
  */
 
 import { api, LOCAL, type HostInfo, type HostStatus } from "$lib/api";
+import { mobile } from "$lib/layout/platform";
 
 class Hosts {
   list = $state<HostInfo[]>([]);
+
+  /**
+   * This machine's Host, which the window always asks — it starts if it isn't
+   * running. Null on a phone, which has none and only reaches the Hosts added.
+   */
+  readonly own: string | null = mobile ? null : LOCAL;
+
+  /**
+   * The Host to ask when nothing says which: this machine's, or on a phone the
+   * first that can be reached.
+   */
+  home = $derived(
+    this.own ??
+      this.list.find((h) => h.status.state === "connected")?.id ??
+      this.list[0]?.id ??
+      LOCAL,
+  );
 
   /**
    * Whether more than one Host can be reached right now — only then is there

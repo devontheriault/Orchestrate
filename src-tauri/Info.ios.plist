@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Merged into the iPhone app's Info.plist by Tauri.
+
+     ITSAppUsesNonExemptEncryption: the app encrypts nothing itself. It talks to
+     Hosts over the tailnet, which Tailscale's own app encrypts. Saying so here
+     stops App Store Connect asking about export compliance on every build. -->
+<plist version="1.0">
+<dict>
+  <key>ITSAppUsesNonExemptEncryption</key>
+  <false/>
+</dict>
+</plist>

@@ -445,7 +445,7 @@
     </div>
 
     <footer>
-      <span class="hint">Ctrl+Shift+U or Esc to close</span>
+      <span class="hint keys-only">Ctrl+Shift+U or Esc to close</span>
       <button onclick={() => usage.refresh()} disabled={usage.refreshing}>
         {usage.refreshing ? "Refreshing…" : "Refresh"}
       </button>
@@ -940,6 +940,8 @@
   }
 
   footer button {
+    /* Stays right on a phone, where the hint beside it is hidden. */
+    margin-left: auto;
     border-radius: var(--radius-sm);
     border: 1px solid var(--border);
     background: var(--surface);

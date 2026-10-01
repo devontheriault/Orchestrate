@@ -126,6 +126,7 @@ pub fn save(name: &str, bytes: &[u8]) -> Result<PathBuf> {
 /// Save the image on the OS clipboard as a PNG named `name`, or `None` if the
 /// clipboard holds no image. For when the webview's paste event came up empty:
 /// WebKitGTK never passes clipboard image data to the page, only file paths.
+#[cfg(desktop)]
 pub fn save_clipboard_image(name: &str) -> Result<Option<PathBuf>> {
     let clipboard_err = |e: arboard::Error| Error::Clipboard(e.to_string());
     let image = match arboard::Clipboard::new()
@@ -143,7 +144,15 @@ pub fn save_clipboard_image(name: &str) -> Result<Option<PathBuf>> {
     .map(Some)
 }
 
+/// A phone's webview puts a pasted image in the paste event itself, so an
+/// empty one means there was no image.
+#[cfg(mobile)]
+pub fn save_clipboard_image(_name: &str) -> Result<Option<PathBuf>> {
+    Ok(None)
+}
+
 /// Encode RGBA pixels, as arboard hands them over, as a PNG.
+#[cfg(desktop)]
 fn png(width: usize, height: usize, rgba: Vec<u8>) -> Result<Vec<u8>> {
     let bad = || Error::Clipboard(format!("the image on it is not {width}×{height} RGBA"));
     let width = u32::try_from(width).map_err(|_| bad())?;
@@ -248,6 +257,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(desktop)]
     fn clipboard_pixels_become_a_png() {
         let png = png(2, 1, vec![255, 0, 0, 255, 0, 0, 255, 128]).unwrap();
         let back = image::load_from_memory(&png).unwrap().to_rgba8();

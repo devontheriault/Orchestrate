@@ -8,7 +8,7 @@
  * climbs in front of the user.
  */
 
-import { api, LOCAL, type UsageSummary } from "$lib/api";
+import { api, type UsageSummary } from "$lib/api";
 import { hosts } from "$lib/state/hosts.svelte";
 import { combineUsage } from "./combine";
 
@@ -78,12 +78,12 @@ class UsageWindow {
     this.loading = true;
     try {
       // One account across every machine: add up what each reachable Host saw.
+      const own = hosts.own;
       const reachable = hosts.list
         .map((h) => h.id)
-        .filter((id) => id === LOCAL || hosts.reachable(id));
-      this.summary = combineUsage(
-        await Promise.all((reachable.length ? reachable : [LOCAL]).map((id) => api.usageSummary(id))),
-      );
+        .filter((id) => id === own || hosts.reachable(id));
+      const asked = reachable.length ? reachable : own ? [own] : [];
+      this.summary = combineUsage(await Promise.all(asked.map((id) => api.usageSummary(id))));
       this.error = null;
     } catch (e) {
       this.error = String(e);

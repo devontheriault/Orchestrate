@@ -29,12 +29,6 @@ tauri-plugin-opener = "2"
 # queued, a Fail, or a Queue held. The window may be buried or on another
 # workspace, which is exactly when it matters.
 tauri-plugin-notification = "2"
-# Reads a pasted image straight off the OS clipboard. WebKitGTK only hands a
-# paste event the clipboard's file paths, never its image data, so on Linux a
-# screenshot can't be pasted through the webview at all. `image` encodes the
-# pixels arboard hands back as a PNG for `claude` to read.
-arboard = { version = "3", features = ["wayland-data-control"] }
-image = { version = "0.25", default-features = false, features = ["png"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 time = { version = "0.3", features = ["serde-well-known", "formatting", "macros"] }
@@ -47,6 +41,15 @@ reqwest = { version = "0.13", features = ["json", "rustls"] }
 tokio = { version = "1", features = ["process", "io-util", "sync", "time", "macros", "rt-multi-thread", "net", "signal"] }
 # Attachments cross to the Host inside JSON, which has no bytes of its own.
 base64 = "0.22"
+
+# Reads a pasted image straight off the OS clipboard. WebKitGTK only hands a
+# paste event the clipboard's file paths, never its image data, so on Linux a
+# screenshot can't be pasted through the webview at all. `image` encodes the
+# pixels arboard hands back as a PNG for `claude` to read. A phone's webview
+# hands the page the image itself, and arboard doesn't build for one.
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+arboard = { version = "3", features = ["wayland-data-control"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

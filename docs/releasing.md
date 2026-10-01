@@ -33,6 +33,61 @@ notarized by Apple, using these repository secrets:
 The certificate expires after five years. To replace it, make a new one the same
 way and update the first three secrets.
 
+## iPhone
+
+`.github/workflows/ios.yml` builds the iPhone app on GitHub's macOS runner,
+signs it, and uploads it to TestFlight, with every release tag. You can also run
+it by hand from the Actions tab. No Mac is needed at any step. The app is only a
+window: it shows the Hosts on your other machines, reached over Tailscale
+(ADR 0016).
+
+### One-time setup
+
+Everything happens in a browser and in GitHub's settings. It needs a paid Apple
+Developer Program membership, the same one that signs the macOS app.
+
+1. **Register the app's ID.** At developer.apple.com → Certificates, Identifiers
+   & Profiles → Identifiers, add an App ID with the bundle ID
+   `io.github.devontheriault.orchestrate` (the `identifier` in
+   `src-tauri/tauri.conf.json`).
+2. **Create the app record.** At appstoreconnect.apple.com → Apps → +, choose
+   New App, platform iOS, and pick that bundle ID. The name and SKU can be
+   anything.
+3. **Make an API key.** At App Store Connect → Users and Access → Integrations →
+   App Store Connect API, generate a Team key with the **Admin** role. Xcode
+   uses it to make the distribution certificate and profile, which a lesser
+   role can't. Download the `.p8` file. Apple only offers the download once.
+4. **Add the repository secrets** (Settings → Secrets and variables → Actions):
+
+   | Secret | Value |
+   |---|---|
+   | `APPLE_API_KEY_P8` | the whole contents of the `.p8` file |
+   | `APPLE_API_KEY_ID` | the key's ID, shown beside it in App Store Connect |
+   | `APPLE_API_ISSUER` | the Issuer ID, shown above the list of keys |
+   | `APPLE_TEAM_ID` | the 10-character Team ID (shared with macOS signing) |
+
+The workflow stops at its first step and names any secret that's missing.
+
+### Getting it on a phone
+
+1. Run the `ios` workflow, or push a release tag.
+2. Wait for the upload to finish processing in App Store Connect → TestFlight.
+   That takes a few minutes to an hour. You'll get an email.
+3. Under TestFlight → Internal Testing, add yourself as a tester once. After
+   that, every new build shows up in the TestFlight app on your phone.
+4. On the phone, install Tailscale and sign in as the same Tailscale user as
+   your other machines. Then open Orchestrate, tap +, and add a machine by its
+   Tailscale name. That machine's Host has to be running and listening on the
+   tailnet.
+
+Each run uploads a build number taken from the workflow's run number, so
+uploads never clash. The `.ipa` is also kept with the run, as an artifact.
+
+The Xcode project isn't committed. The workflow generates it (`tauri ios init`)
+on every run. Anything the app needs in its Info.plist goes in
+`src-tauri/Info.ios.plist`, which Tauri merges in. The icon comes from
+`src-tauri/icons/ios.svg`.
+
 ## Why Linux doesn't ship from a laptop
 
 An AppImage bundles its libraries but not glibc, and the `.deb`/`.rpm` link

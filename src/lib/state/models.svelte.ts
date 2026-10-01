@@ -6,6 +6,7 @@
 
 import { api, type ModelInfo } from "$lib/api";
 import { modelLabel } from "$lib/picks";
+import { hosts } from "./hosts.svelte";
 
 class Models {
   /** The models this account can run, newest first. Empty until loaded. */
@@ -23,7 +24,7 @@ class Models {
     this.loading = true;
     this.error = null;
     try {
-      this.list = await api.listModels();
+      this.list = await api.listModels(hosts.home);
     } catch (e) {
       this.list = [];
       this.error = String(e);

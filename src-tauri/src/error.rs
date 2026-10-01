@@ -31,6 +31,7 @@ pub enum Error {
     )]
     AttachmentTooLarge { path: PathBuf, megabytes: u64 },
 
+    #[cfg(desktop)]
     #[error("could not read the clipboard: {0}")]
     Clipboard(String),
 
