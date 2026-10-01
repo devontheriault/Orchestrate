@@ -1,19 +1,21 @@
 <!doctype html>
 <!--
-  PROTOTYPE — the launch page's hero: a scrolling story beside the real app,
-  live in a glass window. The app is the visitor's from the start; scrolling
-  only changes the page around it.
+  The launch page: a scrolling story beside the real app, live in a glass
+  window. The app is the visitor's from the start; scrolling only changes the
+  page around it.
 
   The app in the window is the real frontend (`vite build`), talking to
-  demo-host.js instead of a Host. Run with `npm run site:prototype`.
+  demo-host.js instead of a Host. Preview with `npm run site`; build.mjs says
+  where everything comes from.
 -->
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Orchestrate — run a fleet of Claude Code agents</title>
-    <link rel="stylesheet" href="/node_modules/@fontsource-variable/geist/index.css" />
-    <link rel="stylesheet" href="/node_modules/@fontsource-variable/jetbrains-mono/index.css" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/fonts/geist/index.css" />
+    <link rel="stylesheet" href="/fonts/jetbrains-mono/index.css" />
     <link rel="stylesheet" href="hero.css" />
   </head>
   <body>
@@ -21,7 +23,7 @@
     <div id="wall" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
 
     <nav class="top">
-      <a class="brand" href="#"><img src="/docs/assets/logo-dark.svg" alt="" width="22" height="22" /> Orchestrate</a>
+      <a class="brand" href="#"><img src="/logo-dark.svg" alt="" width="22" height="22" /> Orchestrate</a>
       <span class="alpha">alpha · v0.1.0</span>
       <span class="spacer"></span>
       <a class="github" href="https://github.com/devontheriault/Orchestrate">GitHub</a>

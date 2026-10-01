@@ -1,4 +1,4 @@
-// PROTOTYPE — the launch-page hero's behaviour. See index.html.
+// The launch page's behaviour. See index.html.
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];

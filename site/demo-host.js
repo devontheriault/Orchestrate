@@ -1,6 +1,6 @@
-// PROTOTYPE — a stand-in Host for the real Orchestrate frontend, so the app can
+// A stand-in Host for the real Orchestrate frontend, so the app can
 // run inside a web page. Loaded into the app's index.html before anything else
-// (serve.mjs puts it there). It answers every IPC call from a staged fleet, and
+// (build.mjs puts it there). It answers every IPC call from a staged fleet, and
 // keeps that fleet alive: running agents play scripted turns, follow-ups the
 // visitor sends get answered, Commit and Merge work.
 (() => {
