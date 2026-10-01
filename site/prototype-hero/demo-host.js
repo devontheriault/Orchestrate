@@ -3,8 +3,6 @@
 // (serve.mjs puts it there). It answers every IPC call from a staged fleet, and
 // keeps that fleet alive: running agents play scripted turns, follow-ups the
 // visitor sends get answered, Commit and Merge work.
-//
-// The page around the app talks to it through `window.demo` (same origin).
 (() => {
   const NOW = Date.now();
   const ago = (s) => new Date(NOW - s * 1000).toISOString();
@@ -15,15 +13,13 @@
   // frame leaves the buttons to the OS, which isn't here to draw them.
   Object.defineProperty(navigator, "userAgent", { value: "Mozilla/5.0 (X11; Linux x86_64)" });
   localStorage.setItem("orchestrate:theme", "glass");
-  localStorage.setItem("orchestrate:glass-opacity", String(window.parent?.__GLASS ?? 22));
+  localStorage.setItem("orchestrate:glass-opacity", "22");
   localStorage.setItem("orchestrate:panes", JSON.stringify({ projects: 300 }));
   sessionStorage.setItem(
     "cw:resume-selection",
     JSON.stringify({ project: "github.com/acme/storefront", agent: "a1c0d4e2" }),
   );
 
-  const parentPage = () => (window.parent !== window ? window.parent : null);
-  const tell = (what, data) => parentPage()?.postMessage({ demo: what, ...data }, "*");
 
   const projects = [
     { id: "p1", name: "storefront", path: "/home/dev/code/storefront", added_at: ago(9e5), cloned: false, remote: "git@github.com:acme/storefront.git" },
@@ -414,7 +410,6 @@ index 0000000..a41c9e2
     { id: "claude-haiku-4-5-20251001", display_name: "Claude Haiku 4.5" },
   ];
 
-  let spawned = 0;
   const hex = () => Math.random().toString(16).slice(2, 10).padEnd(8, "0");
   const hostCalls = {
     list_projects: () => projects,
@@ -438,7 +433,6 @@ index 0000000..a41c9e2
       agents.push(a);
       visited.add(id);
       events[id] = [];
-      spawned++;
       // Claude names the agent a moment in, as it does for real.
       setTimeout(() => {
         a.title = prompt.split(/[.\n]/)[0].slice(0, 48);
@@ -512,7 +506,6 @@ index 0000000..a41c9e2
       const a = byId(agentId);
       a.merged_branch = target;
       a.merged_at = now();
-      setTimeout(() => tell("merged", { title: a.title, target }), 200);
       return { outcome: "merged", target, sha: hex() };
     },
   };
@@ -543,54 +536,19 @@ index 0000000..a41c9e2
         return args.handler;
       }
       if (cmd === "plugin:notification|is_permission_granted") return true;
-      // The window's own buttons move the window on the page.
-      if (cmd === "plugin:window|minimize") return void tell("minimize");
-      if (cmd === "plugin:window|toggle_maximize") return void tell("maximize");
-      if (cmd === "plugin:window|close") return void tell("close");
-      if (cmd === "plugin:window|is_maximized") return !!window.demo.maximized;
+      if (cmd === "plugin:window|is_maximized") return false;
       if (cmd === "tailnet_machines") return [];
       return null;
     },
   };
   window.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener() {} };
 
-  // Notifications become the page's own toasts.
+  // The app's notifications go nowhere: the page beside it stays still.
   window.Notification = class {
     static permission = "granted";
     static requestPermission = async () => "granted";
-    constructor(title, opts) {
-      tell("notification", { title, body: opts?.body ?? "" });
-    }
     close() {}
   };
-
-  // Dragging the title bar drags the window across the page, as Tauri's
-  // drag regions do on the desktop.
-  addEventListener(
-    "mousedown",
-    (e) => {
-      if (e.button !== 0 || window.demo.maximized) return;
-      const region = e.target.closest?.("[data-tauri-drag-region]");
-      if (!region || region.getAttribute("data-tauri-drag-region") === "false") return;
-      if (e.target.closest("button, a, input, textarea, select")) return;
-      if (e.detail === 2) return void tell("maximize");
-      let x = e.screenX, y = e.screenY;
-      const move = (m) => {
-        tell("drag", { dx: m.screenX - x, dy: m.screenY - y });
-        x = m.screenX;
-        y = m.screenY;
-      };
-      const up = () => {
-        removeEventListener("mousemove", move, true);
-        removeEventListener("mouseup", up, true);
-        tell("dragend");
-      };
-      addEventListener("mousemove", move, true);
-      addEventListener("mouseup", up, true);
-      e.preventDefault();
-    },
-    true,
-  );
 
   // Running agents pick up where their logs left off once the page is open.
   addEventListener("load", () => {
@@ -598,10 +556,4 @@ index 0000000..a41c9e2
       for (const a of agents) if (a.state === "running" && scripts[a.id]) play(a);
     }, 1200);
   });
-
-  window.demo = {
-    maximized: false,
-    agents,
-    spawned: () => spawned,
-  };
 })();
