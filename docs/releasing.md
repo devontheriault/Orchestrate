@@ -13,10 +13,25 @@ To try a build without releasing it, run the `release` workflow by hand from the
 Actions tab on any branch. Each platform's installers are kept as an artifact of
 the run instead.
 
-The macOS and Windows builds aren't signed, so the first launch is stopped by
-Gatekeeper (right-click the app and choose Open, or
-`xattr -dr com.apple.quarantine /Applications/Orchestrate.app`) and SmartScreen
-(More info → Run anyway).
+The Windows build isn't signed, so SmartScreen stops the first launch (More
+info → Run anyway).
+
+## macOS signing
+
+The macOS build is signed with a Developer ID Application certificate and
+notarized by Apple, using these repository secrets:
+
+| Secret | Value |
+|---|---|
+| `APPLE_CERTIFICATE` | the certificate and its private key as a base64 `.p12` |
+| `APPLE_CERTIFICATE_PASSWORD` | the `.p12` password |
+| `APPLE_SIGNING_IDENTITY` | `Developer ID Application: <name> (<team id>)` |
+| `APPLE_ID` | the Apple ID email of the developer account |
+| `APPLE_PASSWORD` | an app-specific password for that Apple ID |
+| `APPLE_TEAM_ID` | the 10-character Team ID |
+
+The certificate expires after five years. To replace it, make a new one the same
+way and update the first three secrets.
 
 ## iPhone
 
