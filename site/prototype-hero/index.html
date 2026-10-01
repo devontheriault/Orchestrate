@@ -1,0 +1,130 @@
+<!doctype html>
+<!--
+  PROTOTYPE — three heroes for the launch page, switchable with ?variant=A|B|C
+  (or ← →), to answer: is a live, interactive app worth it over a picture?
+
+    A  Playground  the real app, live, in a glass window you can drag, maximise
+                   and minimise, over a wallpaper you pick
+    B  Picture     a still of the same window, beside the pitch
+    C  Story       the live app pinned while the page scrolls, each section
+                   driving it; it's yours to use at the end
+
+  The app in the window is the real frontend (`vite build`), talking to
+  demo-host.js instead of a Host. Run with `npm run site:prototype`.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Orchestrate — run a fleet of Claude Code agents</title>
+    <link rel="stylesheet" href="/node_modules/@fontsource-variable/geist/index.css" />
+    <link rel="stylesheet" href="/node_modules/@fontsource-variable/jetbrains-mono/index.css" />
+    <link rel="stylesheet" href="hero.css" />
+  </head>
+  <body>
+    <!-- The "desktop" the glass shows. -->
+    <div id="wall" aria-hidden="true">
+      <div class="aurora"><i></i><i></i><i></i><i></i></div>
+      <pre class="code"></pre>
+      <div class="photo"></div>
+    </div>
+
+    <nav class="top">
+      <a class="brand" href="#"><img src="/docs/assets/logo-dark.svg" alt="" width="22" height="22" /> Orchestrate</a>
+      <span class="alpha">alpha · v0.1.0</span>
+      <span class="spacer"></span>
+      <a href="https://github.com/devontheriault/DevCode">GitHub</a>
+      <a class="download" href="https://github.com/devontheriault/DevCode/releases">Download</a>
+    </nav>
+
+    <!-- A: Playground ------------------------------------------------------>
+    <main class="variant" data-variant="A" hidden>
+      <header class="pitch centered">
+        <h1>All your Claude Code agents,<br /><em>in one window.</em></h1>
+        <p>
+          Run Claude Code agents side by side, each in its own Git worktree. Watch them work, send
+          follow-ups, and merge what you want to keep.
+        </p>
+      </header>
+      <div class="stage" data-slot="window"></div>
+      <div class="dock glass-pill" data-slot="dock"></div>
+      <p class="hint">This is the real app, running in your browser. Drag the title bar, send an agent a follow-up, merge something.</p>
+    </main>
+
+    <!-- B: Picture --------------------------------------------------------->
+    <main class="variant" data-variant="B" hidden>
+      <div class="split">
+        <header class="pitch">
+          <h1>All your Claude Code agents,<br /><em>in one window.</em></h1>
+          <p>
+            Orchestrate runs Claude Code agents side by side, each in its own Git worktree, so they
+            never step on each other. Watch them work, nudge them when they drift, and merge the work
+            you want to keep.
+          </p>
+          <div class="ctas" data-slot="download"></div>
+          <p class="fine">Free and open source · Needs Claude Code installed and logged in</p>
+        </header>
+        <figure class="still">
+          <div class="tilt">
+            <div class="glass-window"><img src="still.png" alt="Orchestrate in the Glass theme: three projects in the sidebar, an agent adding dark mode to a storefront" /></div>
+          </div>
+        </figure>
+      </div>
+    </main>
+
+    <!-- C: Story ----------------------------------------------------------->
+    <main class="variant" data-variant="C" hidden>
+      <div class="story">
+        <div class="steps">
+          <section class="step intro" data-step="fleet">
+            <h1>All your Claude Code agents,<br /><em>in one window.</em></h1>
+            <p>Every project, every agent, and what each one is doing right now.</p>
+            <span class="scroll-cue">Scroll ↓</span>
+          </section>
+          <section class="step" data-step="work">
+            <span class="kicker">01</span>
+            <h2>Watch every agent work, live.</h2>
+            <p>Each one runs the real <code>claude</code> CLI under your own login, in its own worktree and branch. Your checkout stays untouched.</p>
+          </section>
+          <section class="step" data-step="queue">
+            <span class="kicker">02</span>
+            <h2>Send a follow-up anytime.<br />It waits its turn.</h2>
+            <p>Stop an agent mid-turn, correct it, or queue up what's next while it's still busy.</p>
+          </section>
+          <section class="step" data-step="diff">
+            <span class="kicker">03</span>
+            <h2>Review the changes.<br />Keep what you like.</h2>
+            <p>Everything an agent changed, as one diff. Nothing lands in your project until you merge it.</p>
+          </section>
+          <section class="step" data-step="merge">
+            <span class="kicker">04</span>
+            <h2>Merge it in one click.</h2>
+            <p>If it conflicts, a separate agent resolves it in its own worktree, so your project is never left half-merged.</p>
+          </section>
+          <section class="step" data-step="yours">
+            <span class="kicker">05</span>
+            <h2>Now it's yours.</h2>
+            <p>The window is live. Click around, send an agent a follow-up, start a new one.</p>
+            <div class="ctas" data-slot="download"></div>
+          </section>
+        </div>
+        <div class="pinned">
+          <div class="pinned-inner" data-slot="window"></div>
+          <button class="take-wheel glass-pill" hidden>Take the wheel</button>
+        </div>
+      </div>
+    </main>
+
+    <div class="toasts" aria-live="polite"></div>
+    <button class="relaunch glass-pill" hidden><img src="/docs/assets/logo-dark.svg" alt="" width="18" height="18" /> Orchestrate</button>
+
+    <!-- Prototype switcher: not part of the design. -->
+    <div class="proto-switcher">
+      <button data-go="-1" aria-label="Previous variant">←</button>
+      <span class="label"></span>
+      <button data-go="1" aria-label="Next variant">→</button>
+    </div>
+
+    <script type="module" src="hero.js"></script>
+  </body>
+</html>
