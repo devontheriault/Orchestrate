@@ -1,0 +1,62 @@
+# Publishes the website (site/) to GitHub Pages on every push to main that
+# could change it. The page embeds the app's own web build, so app changes
+# count too. Run it by hand from the Actions tab to republish.
+#
+# The custom domain and HTTPS are set in Settings → Pages, not here.
+#
+# Actions are pinned to commit SHAs, not tags, as in release.yml.
+
+name: site
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - "src/**"
+      - "static/**"
+      - "docs/assets/**"
+      - "src-tauri/icons/icon.svg"
+      - "package.json"
+      - "package-lock.json"
+      - "svelte.config.js"
+      - "vite.config.*"
+      - ".github/workflows/site.yml"
+  workflow_dispatch:
+
+# One publish at a time; a newer push replaces one that's still waiting.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run site:build
+
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: site/dist
+
+  deploy:
+    needs: build
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
