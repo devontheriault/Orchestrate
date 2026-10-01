@@ -14,6 +14,7 @@
   --c4: #2563eb;
   --base: #04050c;
   --hue: 0deg;
+  --nav-h: 84px; /* the nav's bottom edge plus a gap: what content keeps clear of */
 }
 
 * {
@@ -38,43 +39,20 @@ code {
   border-radius: 5px;
   background: rgb(255 255 255 / 0.08);
 }
-[hidden] {
-  display: none !important;
-}
 
 /* ---- the wallpaper -------------------------------------------------------- */
 
+/* Four slow-drifting blobs of colour, tinted by each step as it's read. */
 #wall {
   position: fixed;
   inset: 0;
   z-index: -1;
   overflow: hidden;
   background: var(--base);
-}
-#wall > * {
-  position: absolute;
-  inset: 0;
-  opacity: 0;
-  transition: opacity 0.8s ease;
-}
-body[data-wall="aurora"] #wall .aurora,
-body[data-wall="dusk"] #wall .aurora,
-body[data-wall="code"] #wall .code,
-body[data-wall="photo"] #wall .photo {
-  opacity: 1;
-}
-body[data-wall="dusk"] {
-  --c1: #f97316;
-  --c2: #be185d;
-  --c3: #7c3aed;
-  --c4: #f59e0b;
-  --base: #0c0408;
-}
-.aurora {
   filter: hue-rotate(var(--hue)) saturate(1.15);
-  transition: filter 1.4s ease, opacity 0.8s ease !important;
+  transition: filter 1.4s ease;
 }
-.aurora i {
+#wall i {
   position: absolute;
   width: 70vmax;
   height: 70vmax;
@@ -82,26 +60,26 @@ body[data-wall="dusk"] {
   opacity: 0.75;
   animation: drift 38s ease-in-out infinite alternate;
 }
-.aurora i:nth-child(1) {
+#wall i:nth-child(1) {
   background: radial-gradient(circle, var(--c1) 0, transparent 62%);
   left: -18vmax;
   top: -24vmax;
 }
-.aurora i:nth-child(2) {
+#wall i:nth-child(2) {
   background: radial-gradient(circle, var(--c2) 0, transparent 62%);
   right: -20vmax;
   top: -10vmax;
   animation-duration: 46s;
   animation-delay: -12s;
 }
-.aurora i:nth-child(3) {
+#wall i:nth-child(3) {
   background: radial-gradient(circle, var(--c3) 0, transparent 60%);
   left: 18vmax;
   bottom: -40vmax;
   animation-duration: 52s;
   animation-delay: -20s;
 }
-.aurora i:nth-child(4) {
+#wall i:nth-child(4) {
   background: radial-gradient(circle, var(--c4) 0, transparent 60%);
   right: -10vmax;
   bottom: -30vmax;
@@ -115,41 +93,7 @@ body[data-wall="dusk"] {
   }
 }
 
-body[data-wall="code"] #wall {
-  background: #0b0d16;
-}
-.code {
-  bottom: auto !important; /* as tall as its text, so -50% is exactly three copies */
-  margin: 0;
-  padding: 80px 48px;
-  font: 15px/1.7 var(--mono);
-  color: #8b93b5;
-  white-space: pre;
-  animation: scroll 120s linear infinite;
-}
-.code .k { color: #c792ea; }
-.code .s { color: #c3e88d; }
-.code .f { color: #82aaff; }
-.code .c { color: #546083; }
-@keyframes scroll {
-  to {
-    transform: translateY(-50%);
-  }
-}
-.photo {
-  background: center / cover no-repeat var(--photo, none);
-}
-
-/* ---- shared --------------------------------------------------------------- */
-
-.glass-pill {
-  background: rgb(14 16 28 / 0.45);
-  backdrop-filter: blur(20px) saturate(160%);
-  -webkit-backdrop-filter: blur(20px) saturate(160%);
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  box-shadow: 0 10px 40px -10px rgb(0 0 0 / 0.5);
-}
+/* ---- the nav -------------------------------------------------------------- */
 
 nav.top {
   position: fixed;
@@ -200,15 +144,37 @@ nav.top .download {
   font-weight: 550;
 }
 
+/* ---- the story ------------------------------------------------------------ */
+
+/* Steps on the left, the app pinned on the right. Everything clears the nav:
+   a step's content is centred in the height below it, and the window fills
+   that height. Type shrinks with short screens as well as narrow ones. */
+.story {
+  display: grid;
+  grid-template-columns: minmax(340px, 0.7fr) 1.3fr;
+  gap: 40px;
+  padding: 0 32px 0 clamp(24px, 4vw, 64px);
+}
+.step {
+  min-height: 100svh;
+  padding: var(--nav-h) 0 24px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  opacity: 0.4;
+  transition: opacity 0.5s ease;
+}
+.step.active {
+  opacity: 1;
+}
 h1 {
   margin: 0;
-  font-size: clamp(40px, 5.4vw, 76px);
+  font-size: clamp(32px, min(5.4vw, 8.5vh), 76px);
   line-height: 1.02;
   letter-spacing: -0.04em;
   font-weight: 620;
 }
-h1 em,
-h2 em {
+h1 em {
   font-style: normal;
   background: linear-gradient(100deg, #9ff3e6 0%, #c4b5fd 45%, #f9a8d4 100%);
   -webkit-background-clip: text;
@@ -217,63 +183,38 @@ h2 em {
 }
 h2 {
   margin: 0;
-  font-size: clamp(30px, 3.2vw, 46px);
+  font-size: clamp(26px, min(3.2vw, 6vh), 46px);
   line-height: 1.08;
   letter-spacing: -0.035em;
   font-weight: 600;
 }
-.pitch p,
 .step p {
-  font-size: 18px;
+  font-size: clamp(15px, 2.6vh, 18px);
   color: var(--ink-2);
   max-width: 34em;
-  margin: 20px 0 0;
+  margin: clamp(10px, 2.4vh, 20px) 0 0;
 }
-.pitch.centered {
-  text-align: center;
-  padding: 0 24px;
+.kicker {
+  font: 12px var(--mono);
+  color: var(--ink-3);
+  letter-spacing: 0.1em;
+  margin-bottom: 16px;
 }
-.pitch.centered p {
-  margin-inline: auto;
+.scroll-cue {
+  margin-top: clamp(16px, 5vh, 48px);
+  font: 12px var(--mono);
+  color: var(--ink-3);
 }
-
-/* The app's window. The page blurs what's behind it, as the compositor would;
-   the app inside paints its veil and panels over that. */
-.glass-window {
-  position: relative;
+.step .live-note {
+  font-size: 15px;
+  margin-top: 24px;
+  padding: 12px 16px;
   border-radius: 12px;
-  overflow: hidden;
-  background: rgb(255 255 255 / 0.015);
-  backdrop-filter: blur(30px) saturate(170%);
-  -webkit-backdrop-filter: blur(30px) saturate(170%);
-  box-shadow:
-    inset 0 0 0 1px rgb(255 255 255 / 0.13),
-    0 0 0 1px rgb(0 0 0 / 0.35),
-    0 50px 120px -30px rgb(0 0 0 / 0.75);
+  border: 1px solid var(--line);
+  background: rgb(14 16 28 / 0.35);
 }
-.glass-window iframe {
-  display: block;
-  width: 100%;
-  height: 100%;
-  border: 0;
-  background: transparent;
-  color-scheme: dark;
-}
-.glass-window .poster {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  object-position: left top;
-  pointer-events: none;
-  transition: opacity 0.6s ease;
-}
-.glass-window.live .poster {
-  opacity: 0;
-}
-.glass-window.locked iframe {
-  pointer-events: none;
+.live-note .below {
+  display: none;
 }
 
 .ctas {
@@ -300,423 +241,104 @@ h2 {
   color: var(--ink);
   background: rgb(255 255 255 / 0.04);
 }
-.fine {
-  font: 12.5px var(--mono) !important;
-  color: var(--ink-3) !important;
-  margin-top: 16px !important;
-}
-
-.toasts {
-  position: fixed;
-  z-index: 60;
-  top: 84px;
-  right: 20px;
-  display: grid;
-  gap: 10px;
-  width: 320px;
-}
-.toast {
-  padding: 12px 14px;
-  border-radius: 12px;
-  background: rgb(20 22 36 / 0.55);
-  backdrop-filter: blur(24px) saturate(160%);
-  -webkit-backdrop-filter: blur(24px) saturate(160%);
-  border: 1px solid var(--line);
-  box-shadow: 0 20px 50px -20px rgb(0 0 0 / 0.6);
-  font-size: 13.5px;
-  animation: toast-in 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.2);
-}
-.toast b {
-  display: block;
-  font-weight: 600;
-}
-.toast span {
-  color: var(--ink-2);
-}
-.toast small {
-  font: 10.5px var(--mono);
-  color: var(--ink-3);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-@keyframes toast-in {
-  from {
-    opacity: 0;
-    transform: translateX(30px);
-  }
-}
-
-.relaunch {
-  position: fixed;
-  z-index: 40;
-  left: 50%;
-  bottom: 72px;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 18px;
-  color: var(--ink);
-  font: 500 14px var(--sans);
-  cursor: pointer;
-  animation: toast-in 0.3s ease;
-}
-
-/* ---- A: Playground -------------------------------------------------------- */
-
-[data-variant="A"] {
-  padding-top: 116px;
-  padding-bottom: 120px;
-}
-[data-variant="A"] h1 {
-  font-size: clamp(36px, 4.4vw, 62px);
-}
-[data-variant="A"] .pitch p {
-  margin-top: 14px;
-}
-.stage {
-  position: relative;
-  margin-top: 36px;
-  height: var(--win-h, 760px);
-}
-.stage .glass-window {
-  position: absolute;
-  width: var(--win-w, 1200px);
-  height: var(--win-h, 760px);
-  transition:
-    width 0.35s ease,
-    height 0.35s ease,
-    left 0.35s ease,
-    top 0.35s ease,
-    opacity 0.3s ease,
-    transform 0.3s ease;
-}
-.stage .glass-window.dragging {
-  transition: none;
-}
-.glass-window.max {
-  position: fixed;
-  z-index: 30;
-  left: 10px !important;
-  top: 10px !important;
-  width: calc(100vw - 20px);
-  height: calc(100vh - 20px);
-}
-.glass-window.gone {
-  opacity: 0;
-  transform: translateY(80px) scale(0.6);
-  pointer-events: none;
-}
-.dock {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  width: fit-content;
-  margin: 28px auto 0;
-  padding: 8px 10px 8px 18px;
-  font-size: 13px;
-  color: var(--ink-2);
-}
-.dock .group {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.dock .sep {
-  width: 1px;
-  height: 20px;
-  background: var(--line);
-}
-.swatch {
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  border: 1px solid rgb(255 255 255 / 0.25);
-  cursor: pointer;
-  padding: 0;
-  outline-offset: 2px;
-}
-.swatch[aria-pressed="true"] {
-  outline: 2px solid var(--ink);
-}
-.swatch.aurora-sw {
-  background: conic-gradient(#14b8a6, #7c3aed, #db2777, #2563eb, #14b8a6);
-}
-.swatch.dusk-sw {
-  background: conic-gradient(#f97316, #be185d, #7c3aed, #f59e0b, #f97316);
-}
-.swatch.code-sw {
-  background: #0b0d16 repeating-linear-gradient(0deg, #546083 0 2px, transparent 2px 6px);
-}
-.swatch.photo-sw {
-  background: rgb(255 255 255 / 0.08);
-  color: var(--ink);
-  font-size: 13px;
-  line-height: 20px;
-}
-.dock input[type="range"] {
-  width: 110px;
-  accent-color: #c4b5fd;
-}
-.dock select,
-.dock button.plain {
-  font: 13px var(--sans);
-  color: var(--ink);
-  background: rgb(255 255 255 / 0.06);
-  border: 1px solid var(--line);
-  border-radius: 99px;
-  padding: 5px 12px;
-  cursor: pointer;
-}
-.dock select option {
-  background: #12131c;
-}
-.hint {
-  text-align: center;
+.step .fine {
   font: 12.5px var(--mono);
   color: var(--ink-3);
-  margin-top: 18px;
+  margin-top: 16px;
 }
 
-/* ---- B: Picture ----------------------------------------------------------- */
+/* ---- the window ----------------------------------------------------------- */
 
-.split {
-  display: grid;
-  grid-template-columns: minmax(380px, 0.8fr) 1.25fr;
-  align-items: center;
-  gap: 56px;
-  min-height: 100vh;
-  padding: 120px 0 80px 64px;
-  overflow: hidden;
-}
-.still {
-  margin: 0;
-  perspective: 2200px;
-}
-.still .tilt {
-  transform: rotateY(-16deg) rotateX(5deg) translateX(0);
-  transform-style: preserve-3d;
-  transition: transform 0.6s cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-.still .glass-window img {
-  display: block;
-  width: 100%;
-  height: auto;
-}
-
-/* ---- C: Story ------------------------------------------------------------- */
-
-.story {
-  display: grid;
-  grid-template-columns: minmax(340px, 0.7fr) 1.3fr;
-  gap: 40px;
-  padding: 0 40px 0 64px;
-}
-.step {
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  opacity: 0.28;
-  transition: opacity 0.5s ease;
-}
-.step.active {
-  opacity: 1;
-}
-.step.intro {
-  padding-top: 40px;
-}
-.kicker {
-  font: 12px var(--mono);
-  color: var(--ink-3);
-  letter-spacing: 0.1em;
-  margin-bottom: 16px;
-}
-.scroll-cue {
-  margin-top: 48px;
-  font: 12px var(--mono);
-  color: var(--ink-3);
-}
 .pinned {
   position: sticky;
   top: 0;
-  height: 100vh;
+  height: 100svh;
   display: flex;
   align-items: center;
-  padding-top: 64px;
-}
-.pinned-inner {
-  width: 100%;
-}
-.pinned .glass-window {
-  width: 100%;
-  height: min(800px, calc(100vh - 140px));
-}
-.take-wheel {
-  position: absolute;
-  right: 16px;
-  bottom: 28px;
-  padding: 8px 16px;
-  font: 500 13px var(--sans);
-  color: var(--ink);
-  cursor: pointer;
-}
-
-/* ---- D: Side by side ----------------------------------------------------- */
-
-/* Layout and steps are C's (.story, .step, .pinned). */
-[data-variant="D"] .step {
-  opacity: 0.4;
-}
-[data-variant="D"] .step.active {
-  opacity: 1;
-}
-.try {
-  font-size: 15px !important;
-  margin-top: 24px !important;
-  padding: 12px 16px;
-  border-radius: 12px;
-  border: 1px solid var(--line);
-  background: rgb(14 16 28 / 0.35);
-  color: var(--ink-2);
-}
-.try b {
-  font: 600 11px var(--mono);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--ink);
-  margin-right: 8px;
-}
-.try i {
-  font-style: normal;
-  color: var(--ink);
-}
-/* Everything clears the nav: a step's content is centred in the height below
-   it, and the window fills that height. Type shrinks with short screens as
-   well as narrow ones. */
-[data-variant="D"] {
-  --nav-h: 84px;
-}
-[data-variant="D"] .story {
-  padding: 0 32px 0 clamp(24px, 4vw, 64px);
-}
-[data-variant="D"] .step {
-  min-height: 100svh;
-  padding: var(--nav-h) 0 24px;
-}
-[data-variant="D"] .step.intro {
-  padding-top: var(--nav-h);
-}
-[data-variant="D"] h1 {
-  font-size: clamp(32px, min(5.4vw, 8.5vh), 76px);
-}
-[data-variant="D"] h2 {
-  font-size: clamp(26px, min(3.2vw, 6vh), 46px);
-}
-[data-variant="D"] .step p:not(.fine) {
-  font-size: clamp(15px, 2.6vh, 18px);
-  margin-top: clamp(10px, 2.4vh, 20px);
-}
-[data-variant="D"] .scroll-cue {
-  margin-top: clamp(16px, 5vh, 48px);
-}
-[data-variant="D"] .pinned {
-  height: 100svh;
   padding: var(--nav-h) 0 16px;
 }
-[data-variant="D"] .pinned .glass-window {
+
+/* The app's window. The page blurs what's behind it, as the compositor would;
+   the app inside paints its veil and panels over that. */
+.glass-window {
+  width: 100%;
   height: min(860px, calc(100svh - var(--nav-h) - 16px));
+  border-radius: 12px;
+  overflow: hidden;
+  background: rgb(255 255 255 / 0.015);
+  backdrop-filter: blur(30px) saturate(170%);
+  -webkit-backdrop-filter: blur(30px) saturate(170%);
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 0.13),
+    0 0 0 1px rgb(0 0 0 / 0.35),
+    0 50px 120px -30px rgb(0 0 0 / 0.75);
+}
+.glass-window iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  color-scheme: dark;
+  opacity: 0;
+  transition: opacity 0.5s ease;
+}
+.glass-window.live iframe {
+  opacity: 1;
 }
 
-.try .below {
-  display: none;
-}
+/* ---- narrow screens ------------------------------------------------------- */
 
 /* Too narrow for two columns: the window sits under the intro at its own
    height, and the steps follow as plain sections. */
 @media (max-width: 900px) {
-  [data-variant="D"] .story {
+  .story {
     grid-template-columns: 1fr;
     gap: 0;
     padding: 0 16px;
   }
-  [data-variant="D"] .steps {
+  .steps {
     display: contents;
   }
-  [data-variant="D"] .step {
+  .step {
     min-height: 0;
     padding: 56px 0 0;
     opacity: 1;
     order: 2;
   }
-  [data-variant="D"] .step.intro {
+  .step.intro {
     order: 0;
     padding: calc(var(--nav-h) + 24px) 0 32px;
   }
-  [data-variant="D"] .step:last-child {
+  .step:last-child {
     padding-bottom: 96px;
   }
-  [data-variant="D"] .scroll-cue,
-  .try .beside {
+  .scroll-cue,
+  .live-note .beside {
     display: none;
   }
-  .try .below {
+  .live-note .below {
     display: inline;
   }
-  [data-variant="D"] .pinned {
+  .pinned {
     order: 1;
     position: static;
     height: auto;
     padding: 0;
   }
-  [data-variant="D"] .pinned .glass-window {
+  .glass-window {
     height: min(720px, 80svh);
   }
-  [data-variant="D"] h1 {
+  h1 {
     font-size: clamp(34px, 9vw, 56px);
   }
-  [data-variant="D"] h2 {
+  h2 {
     font-size: clamp(26px, 7vw, 40px);
   }
 }
 @media (max-width: 560px) {
   nav.top .alpha,
-  nav.top a[href*="github.com/devontheriault/Orchestrate"]:not(.download) {
+  nav.top .github {
     display: none;
   }
-}
-
-/* ---- the prototype switcher (not part of the design) ---------------------- */
-
-.proto-switcher {
-  position: fixed;
-  z-index: 1000;
-  left: 50%;
-  bottom: 16px;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px;
-  background: #000;
-  color: #fff;
-  border: 2px solid #ffe14d;
-  border-radius: 99px;
-  font: 600 12px var(--mono);
-  box-shadow: 0 6px 24px rgb(0 0 0 / 0.6);
-}
-.proto-switcher button {
-  background: #222;
-  color: #fff;
-  border: 0;
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  cursor: pointer;
-  font: inherit;
-}
-.proto-switcher .label {
-  padding: 0 10px;
-  min-width: 170px;
-  text-align: center;
 }
