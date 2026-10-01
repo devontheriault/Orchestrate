@@ -11,7 +11,8 @@
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
     "tauri": "tauri",
-    "build:linux": "NO_STRIP=true APPIMAGE_EXTRACT_AND_RUN=1 tauri build"
+    "build:linux": "NO_STRIP=true APPIMAGE_EXTRACT_AND_RUN=1 tauri build",
+    "site:prototype": "node site/prototype-hero/serve.mjs"
   },
   "license": "MIT",
   "dependencies": {
