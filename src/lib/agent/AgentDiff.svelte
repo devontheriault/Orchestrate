@@ -448,7 +448,8 @@
     min-height: 0;
     overflow-y: auto;
     overflow-x: hidden;
-    padding: 0.85rem var(--pad-x) 2rem;
+    /* The last lines scroll clear of a phone's home indicator. */
+    padding: 0.85rem var(--pad-x) calc(2rem + var(--safe-bottom));
     display: flex;
     flex-direction: column;
     gap: var(--space-5);

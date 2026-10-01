@@ -10,7 +10,8 @@ import type { Window } from "@tauri-apps/api/window";
  * else.
  *
  * The one exception is a tiling compositor, which owns every window's frame
- * without drawing one. The backend flags that with an initialization script.
+ * without drawing one. The backend flags that with an initialization script,
+ * and a phone the same way: the app fills the screen and has no frame at all.
  *
  * The pre-paint script in `src/app.html` works out which it is and writes it to
  * `<html data-frame>`, because the page arrives already rendered — without
@@ -19,7 +20,7 @@ import type { Window } from "@tauri-apps/api/window";
  * rendering ahead of time there is no document, and the app's own frame is
  * assumed.
  */
-type Frame = "mac" | "compositor" | "app";
+type Frame = "mac" | "compositor" | "mobile" | "app";
 
 const frame: Frame =
   typeof document === "undefined"
@@ -30,12 +31,19 @@ const frame: Frame =
 export const ownsWindowFrame = frame === "app";
 
 /**
+ * True on a phone or tablet. It runs no Host of its own — it can't run
+ * `claude` — so the window there only reaches other machines' Hosts.
+ */
+export const mobile = frame === "mobile";
+
+/**
  * The header's `data-tauri-drag-region` value. Pressing on it starts a move (or
  * a maximize on double-click) everywhere except under a tiling compositor. There
  * a window goes where the layout puts it, and a drag pulls it out of the tile.
+ * A phone's window doesn't move at all.
  * Tauri reads `"false"` as "no drag region", so the attribute stays on the element.
  */
-export const dragRegion = frame === "compositor" ? "false" : "true";
+export const dragRegion = frame === "compositor" || mobile ? "false" : "true";
 
 /**
  * Keep `set` told whether `win` is maximized: now, and after every resize.

@@ -1,5 +1,8 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
+  import { fly } from "svelte/transition";
+  import { cubicOut } from "svelte/easing";
+  import { isBackSwipe, type Point } from "$lib/layout/backSwipe";
   import ProjectSidebar from "$lib/sidebar/ProjectSidebar.svelte";
   import AgentPane from "$lib/agent/AgentPane.svelte";
   import UsageWindow from "$lib/usage/UsageWindow.svelte";
@@ -78,6 +81,32 @@
     store.orphans.length > 0 && !store.orphanBannerDismissed,
   );
 
+  /**
+   * On a phone the agent, or a new one being drafted, takes the whole screen,
+   * and the list comes back when it's left (`store.closeDetail`).
+   */
+  const detailOnPhone = $derived(
+    viewport.phone && (!!store.selectedAgent || store.drafting),
+  );
+
+  /** Where a touch began, while it might yet be a swipe back to the list. */
+  let swipeFrom: Point | null = null;
+
+  function touchStart(e: TouchEvent) {
+    const t = e.touches[0];
+    swipeFrom = detailOnPhone && e.touches.length === 1 ? { x: t.clientX, y: t.clientY } : null;
+  }
+
+  function touchEnd(e: TouchEvent) {
+    const t = e.changedTouches[0];
+    if (swipeFrom && t && isBackSwipe(swipeFrom, { x: t.clientX, y: t.clientY })) {
+      store.closeDetail();
+    }
+    swipeFrom = null;
+  }
+
+  const slide = { x: 40, duration: 200, easing: cubicOut };
+
   panes.start();
 </script>
 
@@ -106,16 +135,25 @@
   </div>
 {/if}
 
-<main>
-  <ProjectSidebar collapsed={panes.railed} />
-  <PaneDivider
-    label="Resize project list"
-    min={MIN_PROJECTS_DRAG}
-    minLast={MIN_DETAIL}
-    onresize={(w) => panes.setProjects(w)}
-    onreset={() => panes.setProjects(null)}
-  />
-  <AgentPane />
+<main ontouchstart={touchStart} ontouchend={touchEnd}>
+  {#if viewport.phone}
+    <!-- One screen at a time, sliding in from the side they're going to. -->
+    {#if detailOnPhone}
+      <div class="screen" in:fly={slide}><AgentPane /></div>
+    {:else}
+      <div class="screen" in:fly={{ ...slide, x: -slide.x }}><ProjectSidebar phone /></div>
+    {/if}
+  {:else}
+    <ProjectSidebar collapsed={panes.railed} />
+    <PaneDivider
+      label="Resize project list"
+      min={MIN_PROJECTS_DRAG}
+      minLast={MIN_DETAIL}
+      onresize={(w) => panes.setProjects(w)}
+      onreset={() => panes.setProjects(null)}
+    />
+    <AgentPane />
+  {/if}
 </main>
 
 {#if usage.open}
@@ -132,6 +170,12 @@
     flex: 1;
     min-height: 0;
     overflow: hidden;
+  }
+
+  .screen {
+    flex: 1;
+    min-width: 0;
+    display: flex;
   }
 
   .error {

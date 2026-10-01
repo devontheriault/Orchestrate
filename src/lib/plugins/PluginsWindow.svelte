@@ -319,7 +319,7 @@
       {#if plugins.notice}
         <span class="notice" class:failed={plugins.notice.failed} role="status">{plugins.notice.text}</span>
       {:else}
-        <span class="hint">Agents pick up changes from their next prompt · Esc to close</span>
+        <span class="hint">Agents pick up changes from their next prompt<span class="keys-only"> · Esc to close</span></span>
       {/if}
       <button class="btn btn-sm" onclick={() => plugins.load(true)} disabled={plugins.loading}>
         {plugins.loading && catalog ? "Refreshing…" : "Refresh"}

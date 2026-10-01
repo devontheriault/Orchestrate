@@ -582,6 +582,15 @@
     background: var(--hover);
   }
 
+  /* On a touch screen, rows a thumb can land on. */
+  :global(html[data-frame="mobile"]) .agent {
+    padding-block: 0.75rem 0.8rem;
+  }
+
+  :global(html[data-frame="mobile"]) .new {
+    padding-block: 0.7rem;
+  }
+
   /* A running agent's row has a band of its accent sweeping through it, so the
      work shows across the whole row. It sits under the text and over the
      hover/selected tint, so both still show. */

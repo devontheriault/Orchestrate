@@ -322,12 +322,12 @@ export class AppStore {
   /** Where a new agent in the selected project would start. */
   draftHost = $derived.by(() => {
     const group = this.selectedProject;
-    if (!group) return LOCAL;
+    if (!group) return hosts.home;
     // A pick that has since gone offline gives way to the default, not least
     // because the picker hides when only one machine is left online.
     const picked = this.pickedHost;
     if (picked && canSpawnOn(group, picked) && hosts.reachable(picked)) return picked;
-    return defaultHost(group, this.prefs.hosts[group.id], (h) => hosts.reachable(h), LOCAL);
+    return defaultHost(group, this.prefs.hosts[group.id], (h) => hosts.reachable(h), hosts.own);
   });
 
   eventsForSelected = $derived(
@@ -429,15 +429,16 @@ export class AppStore {
 
   /**
    * Read everything from every Host that can answer. This machine's Host is
-   * always asked — it starts if it isn't running. Another machine's is asked
+   * always asked, where there is one — it starts if it isn't running. Another machine's is asked
    * only while connected; until then its agents stay as it last listed them.
    */
   private async load() {
     this.error = null;
-    const ids = new Set([LOCAL, ...hosts.list.map((h) => h.id)]);
+    const own = hosts.own;
+    const ids = new Set([...(own ? [own] : []), ...hosts.list.map((h) => h.id)]);
     await Promise.all(
       [...ids].map(async (id) => {
-        if (id !== LOCAL && !hosts.reachable(id)) return;
+        if (id !== own && !hosts.reachable(id)) return;
         try {
           const [projects, agents, orphans, holding] = await Promise.all([
             api.listProjects(id),
@@ -446,12 +447,15 @@ export class AppStore {
             api.agentsHoldingWork(id),
           ]);
           this.perHost[id] = { projects, agents, orphans, holding };
-          if (id === LOCAL) this.loaded = true;
+          if (id === own) this.loaded = true;
         } catch (e) {
-          if (id === LOCAL) this.error = String(e);
+          if (id === own) this.error = String(e);
         }
       }),
     );
+    // On a phone there's no Host of its own to wait for: what the others
+    // could answer is everything there is.
+    if (!own) this.loaded = true;
     // A Host the user removed takes its agents with it.
     for (const id of Object.keys(this.perHost)) {
       if (!ids.has(id)) delete this.perHost[id];
@@ -523,6 +527,8 @@ export class AppStore {
    */
   private onHostStatus(id: string, status: HostStatus) {
     if (status.state !== "connected") return;
+    // On a phone the model list waits on whichever Host answers first.
+    if (models.error) models.load();
     const previous = this.hostInstances[id];
     if (previous === status.instance) return;
     this.hostInstances[id] = status.instance;
@@ -553,8 +559,9 @@ export class AppStore {
 
   /** Ask every reachable Host which of its merged agents hold work. */
   private async readHoldingWork(): Promise<string[]> {
-    const reachable = [...new Set([LOCAL, ...hosts.list.map((h) => h.id)])].filter(
-      (id) => id === LOCAL || hosts.reachable(id),
+    const own = hosts.own;
+    const reachable = [...new Set([...(own ? [own] : []), ...hosts.list.map((h) => h.id)])].filter(
+      (id) => id === own || hosts.reachable(id),
     );
     const answers = await Promise.all(reachable.map((id) => api.agentsHoldingWork(id)));
     for (const [i, id] of reachable.entries()) {
@@ -715,6 +722,15 @@ export class AppStore {
 
   cancelDraft() {
     this.drafting = false;
+  }
+
+  /**
+   * Leave the agent, or the draft, for the list it was opened from: a phone's
+   * way back, where the two take turns on one screen.
+   */
+  closeDetail() {
+    if (this.drafting) this.cancelDraft();
+    else this.selectAgent(null);
   }
 
   /**

@@ -2,6 +2,7 @@
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { dragRegion, ownsWindowFrame, watchMaximized } from "./platform";
   import { panes } from "./panes.svelte";
+  import { viewport } from "./viewport.svelte";
   import Logo from "./Logo.svelte";
   import { store } from "$lib/state/store.svelte";
 
@@ -25,43 +26,64 @@
 <!-- The whole bar is a drag handle, except under a tiling compositor (see
      `dragRegion`). The controls below opt out by not carrying the attribute, so
      a click on a button never starts a window drag. -->
-<header class="chrome" data-tauri-drag-region={dragRegion}>
-  <!-- The title sits in a segment as wide as the project pane and painted like
-       it, so the bar reads as the top of the two panes below rather than as a
-       band laid across them. -->
-  <div
-    class="lead"
-    class:railed={panes.railed}
-    style="width: {panes.cssWidth}"
-    data-tauri-drag-region={dragRegion}
-  >
-    <Logo markOnly={panes.railed} />
-  </div>
-
-  <!-- The detail pane's heading, in the bar that continues it: the name Claude
-       gave the work, with the prompt behind it a hover away. -->
-  <div class="title" data-tauri-drag-region={dragRegion}>
-    {#if agent}
-      <span class="name" title={agent.task.prompt} data-tauri-drag-region={dragRegion}>
-        {#if projectName}
-          <span class="project">{projectName}</span>
-          <span class="sep">/</span>
-        {/if}
-        {store.agentName(agent)}
-      </span>
-    {:else if drafting}
-      <!-- Cancel sits up here rather than in a pane header of its own, which
-           would have held nothing else. Its label is smaller than the title,
-           so centring the two boxes leaves its text sitting high; the label
-           shares the title's baseline instead. -->
-      <div class="draft" data-tauri-drag-region={dragRegion}>
-        <span class="name" data-tauri-drag-region={dragRegion}>New agent</span>
-        <button class="cancel" onclick={() => store.cancelDraft()}>Cancel</button>
+<header
+  class="chrome"
+  class:over-list={viewport.phone && !agent && !drafting}
+  data-tauri-drag-region={dragRegion}
+>
+  {#if viewport.phone}
+    <!-- A phone shows the list or an agent, not both (see +page.svelte): over
+         the list the bar is the app's name, over an agent it's the way back
+         and what's open. -->
+    {#if agent || drafting}
+      <button class="back" onclick={() => store.closeDetail()} aria-label="Back to projects">
+        <svg viewBox="0 0 10 16" aria-hidden="true"><path d="M8.5 1.5 2 8l6.5 6.5" /></svg>
+      </button>
+      <div class="stacked">
+        <span class="project">{agent ? projectName : (store.selectedProject?.name ?? "")}</span>
+        <span class="name">{agent ? store.agentName(agent) : "New agent"}</span>
       </div>
     {:else}
-      <span class="idle" data-tauri-drag-region={dragRegion}>No agent selected</span>
+      <div class="lead phone"><Logo /></div>
     {/if}
-  </div>
+  {:else}
+    <!-- The title sits in a segment as wide as the project pane and painted like
+         it, so the bar reads as the top of the two panes below rather than as a
+         band laid across them. -->
+    <div
+      class="lead"
+      class:railed={panes.railed}
+      style="width: {panes.cssWidth}"
+      data-tauri-drag-region={dragRegion}
+    >
+      <Logo markOnly={panes.railed} />
+    </div>
+
+    <!-- The detail pane's heading, in the bar that continues it: the name Claude
+         gave the work, with the prompt behind it a hover away. -->
+    <div class="title" data-tauri-drag-region={dragRegion}>
+      {#if agent}
+        <span class="name" title={agent.task.prompt} data-tauri-drag-region={dragRegion}>
+          {#if projectName}
+            <span class="project">{projectName}</span>
+            <span class="sep">/</span>
+          {/if}
+          {store.agentName(agent)}
+        </span>
+      {:else if drafting}
+        <!-- Cancel sits up here rather than in a pane header of its own, which
+             would have held nothing else. Its label is smaller than the title,
+             so centring the two boxes leaves its text sitting high; the label
+             shares the title's baseline instead. -->
+        <div class="draft" data-tauri-drag-region={dragRegion}>
+          <span class="name" data-tauri-drag-region={dragRegion}>New agent</span>
+          <button class="cancel" onclick={() => store.cancelDraft()}>Cancel</button>
+        </div>
+      {:else}
+        <span class="idle" data-tauri-drag-region={dragRegion}>No agent selected</span>
+      {/if}
+    </div>
+  {/if}
 
   {#if ownsWindowFrame}
     <div class="controls">
@@ -95,11 +117,13 @@
 <style>
   .chrome {
     flex: none;
-    height: var(--titlebar-h);
+    /* A phone draws the bar under its status bar, so the bar's own height
+       starts below that (`--safe-top` is zero everywhere else). */
+    height: calc(var(--titlebar-h) + var(--safe-top));
     display: flex;
     align-items: stretch;
     justify-content: space-between;
-    padding: 0;
+    padding: var(--safe-top) 0 0;
     /* Continues the detail pane below it; the lead segment carries the project
        pane's colour. */
     background: var(--surface);
@@ -143,6 +167,60 @@
     padding-left: 5rem;
   }
 
+  /* Over a phone's list the bar is the list's own top, in its colour, up
+     under the status bar too. */
+  .chrome.over-list {
+    background: var(--panel-bg);
+  }
+
+  .lead.phone {
+    flex: 1;
+  }
+
+  .back {
+    flex: none;
+    width: 2.75rem;
+    display: grid;
+    place-items: center;
+    padding: 0 0 0 0.25rem;
+    border: none;
+    background: transparent;
+    color: var(--accent);
+    cursor: pointer;
+  }
+
+  .back svg {
+    width: 0.7rem;
+    height: 1.1rem;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  /* The project over the agent's name, so each gets the whole width. */
+  .stacked {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 0.05rem;
+    padding-right: var(--pad-x);
+  }
+
+  .stacked .project {
+    font-size: var(--text-xs);
+    color: var(--fg-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .stacked .name {
+    font-size: var(--text-lg);
+  }
 
   .title {
     flex: 1;

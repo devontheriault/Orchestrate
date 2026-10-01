@@ -1,4 +1,4 @@
-import type { HostStatus } from "$lib/api";
+import type { HostInfo, HostStatus } from "$lib/api";
 
 /**
  * What to tell the user about the window's link to this machine's Host, or
@@ -24,6 +24,17 @@ export function hostNotice(status: HostStatus): string | null {
     case "refused":
       return null;
   }
+}
+
+/**
+ * What to tell the user on a phone, which has no Host of its own: only that
+ * none of the Hosts added can be reached, most often because Tailscale is off
+ * here. One machine being off among several is ordinary, and shown beside its
+ * agents; having added none is the project list's to say.
+ */
+export function phoneNotice(list: HostInfo[]): string | null {
+  if (!list.length || list.some((h) => h.status.state === "connected")) return null;
+  return "Can't reach any of your machines. Check that Tailscale is connected on this device.";
 }
 
 export const HOST_NOTICE_DELAY = 1500;

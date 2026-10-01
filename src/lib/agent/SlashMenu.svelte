@@ -126,7 +126,7 @@
       </p>
     {/if}
     <!-- The keys, said once at the foot rather than learned by accident. -->
-    <p class="keys" aria-hidden="true">
+    <p class="keys keys-only" aria-hidden="true">
       <span><kbd>↑</kbd><kbd>↓</kbd> choose</span>
       <span><kbd>Tab</kbd> complete</span>
       <span><kbd>Esc</kbd> dismiss</span>

@@ -7,10 +7,33 @@ use crate::error::{Error, Result};
 /// have no state directory, `dirs::data_local_dir()/orchestrate`
 /// (`~/Library/Application Support` and `%LOCALAPPDATA%`). Overridable via
 /// `ORCHESTRATE_STATE_DIR` for tests and portable installations.
+///
+/// On a phone it is the app's own data directory (see [`use_app_data_dir`]):
+/// an app there may write nowhere else.
 pub fn state_dir() -> Result<PathBuf> {
     if let Ok(override_) = std::env::var("ORCHESTRATE_STATE_DIR") {
         return Ok(PathBuf::from(override_));
     }
+    default_state_dir()
+}
+
+/// Where the app's own data directory is, as Tauri finds it. Set once, as the
+/// app starts, before anything asks for the state directory.
+#[cfg(mobile)]
+static APP_DATA_DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+#[cfg(mobile)]
+pub fn use_app_data_dir(dir: PathBuf) {
+    let _ = APP_DATA_DIR.set(dir);
+}
+
+#[cfg(mobile)]
+fn default_state_dir() -> Result<PathBuf> {
+    APP_DATA_DIR.get().cloned().ok_or(Error::NoStateDir)
+}
+
+#[cfg(desktop)]
+fn default_state_dir() -> Result<PathBuf> {
     let root = dirs::state_dir()
         .or_else(dirs::data_local_dir)
         .ok_or(Error::NoStateDir)?;

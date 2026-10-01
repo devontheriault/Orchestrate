@@ -1,6 +1,7 @@
-//! The Hosts a window talks to: its own machine's, always, and any the user
-//! has added by Tailscale name. One [`HostLink`] each, all connected at once,
-//! so the window shows every machine's Agents together.
+//! The Hosts a window talks to: its own machine's, and any the user has added
+//! by Tailscale name. One [`HostLink`] each, all connected at once, so the
+//! window shows every machine's Agents together. A phone runs no Host of its
+//! own, so a window there has only the ones added.
 //!
 //! What the window hears from each is stamped with that Host's id — the
 //! `host` field on every event payload — so the webview knows where each
@@ -56,7 +57,8 @@ struct Entry {
 }
 
 pub struct Hosts {
-    local: Target,
+    /// This machine's Host, or `None` on a phone, which has none.
+    local: Option<Target>,
     /// Hands an event to the webview. Every Host's go through it, stamped.
     emit: Notify,
     links: Mutex<BTreeMap<String, Entry>>,
@@ -67,7 +69,7 @@ impl Hosts {
     /// inside the async runtime.
     ///
     /// [`connect_all`]: Self::connect_all
-    pub fn new(local: Target, emit: Notify) -> Arc<Self> {
+    pub fn new(local: Option<Target>, emit: Notify) -> Arc<Self> {
         Arc::new(Self {
             local,
             emit,
@@ -77,7 +79,9 @@ impl Hosts {
 
     /// Connect to this machine's Host and every saved remote one.
     pub fn connect_all(&self) {
-        self.launch(LOCAL, self.local.clone());
+        if let Some(local) = &self.local {
+            self.launch(LOCAL, local.clone());
+        }
         for name in load() {
             self.launch(&name, remote_target(&name));
         }

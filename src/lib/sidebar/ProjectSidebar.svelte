@@ -4,15 +4,30 @@
   import { flip } from "svelte/animate";
   import { cubicOut } from "svelte/easing";
   import { api } from "$lib/api";
+  import { mobile } from "$lib/layout/platform";
+  import { hosts } from "$lib/state/hosts.svelte";
   import { orderProjects } from "$lib/state/projects";
   import { store } from "$lib/state/store.svelte";
   import AgentTree from "./AgentTree.svelte";
+  import HostsDialog from "./HostsDialog.svelte";
   import { moveTo, slotFor } from "./reorder";
   import SettingsMenu from "./SettingsMenu.svelte";
   import TrustProject from "./TrustProject.svelte";
 
-  /** Rail mode: initials only, for windows too narrow to spare the width. */
-  let { collapsed = false }: { collapsed?: boolean } = $props();
+  let {
+    collapsed = false,
+    phone = false,
+  }: {
+    /** Rail mode: initials only, for windows too narrow to spare the width. */
+    collapsed?: boolean;
+    /**
+     * The whole screen of a phone, taken in turns with the agent. Rows are
+     * sized for a thumb, and they don't drag: on a touch screen a drag is a
+     * scroll. Projects aren't removed from here either — a stray tap on the
+     * phone is too easy, and the list belongs to the machines anyway.
+     */
+    phone?: boolean;
+  } = $props();
 
   /** The rail has no room to nest agents, so they break out beside it. */
   type Flyout = { id: string; top: number; left: number; maxHeight: number };
@@ -33,6 +48,14 @@
     if (typeof picked !== "string") return;
     trusting = { path: picked, needsSetup: await api.projectNeedsSetup(picked) };
   }
+
+  /**
+   * A phone has no folders of its own to add: its projects are the ones on
+   * the machines it's added, so adding is adding a machine.
+   */
+  let addingHost = $state(false);
+  const add = mobile ? () => (addingHost = true) : pickAndAdd;
+  const addLabel = mobile ? "Add a machine" : "Add a project";
 
   async function addTrusted() {
     if (!trusting) return;
@@ -63,7 +86,7 @@
 
   function pressRow(e: PointerEvent, id: string) {
     dropped = false;
-    if (e.button !== 0) return;
+    if (e.button !== 0 || phone) return;
     const li = (e.currentTarget as HTMLElement).closest("li")!;
     const startY = e.clientY;
     const grab = e.clientY - li.getBoundingClientRect().top;
@@ -223,10 +246,10 @@
   }
 </script>
 
-<aside bind:this={asideEl} class:collapsed class:dragging={!!drag}>
+<aside bind:this={asideEl} class:collapsed class:phone class:dragging={!!drag}>
   <header>
     {#if !collapsed}<span class="title">Projects</span>{/if}
-    <button class="btn btn-icon add" onclick={pickAndAdd} title="Add project" aria-label="Add project"
+    <button class="btn btn-icon add" onclick={add} title={addLabel} aria-label={addLabel}
       >+</button
     >
   </header>
@@ -237,12 +260,23 @@
            the first thing on screen, and wrong. -->
     {:else if collapsed}
       <div class="empty-rail">
-        <button onclick={pickAndAdd} title="Add a project" aria-label="Add a project">+</button>
+        <button onclick={add} title={addLabel} aria-label={addLabel}>+</button>
+      </div>
+    {:else if mobile && hosts.list.length === 0}
+      <div class="empty">
+        Add one of your machines to see its projects and agents.<br />
+        <button class="btn btn-lg" onclick={add}>{addLabel}</button>
+      </div>
+    {:else if mobile && !hosts.list.some((h) => hosts.reachable(h.id))}
+      <!-- They may well have projects: they just can't say so right now. -->
+      <div class="empty">
+        Your projects show here once one of your machines can be reached.<br />
+        <button class="btn btn-lg" onclick={add}>{addLabel}</button>
       </div>
     {:else}
       <div class="empty">
         No projects yet.<br />
-        <button class="btn btn-lg" onclick={pickAndAdd}>Add a project</button>
+        <button class="btn btn-lg" onclick={add}>{addLabel}</button>
       </div>
     {/if}
   {:else}
@@ -311,7 +345,7 @@
                 </span>
               {/if}
             </button>
-            {#if !collapsed}
+            {#if !collapsed && !phone}
               <button
                 class="remove"
                 onclick={() => store.removeProject(p.id)}
@@ -340,6 +374,10 @@
     onconfirm={addTrusted}
     oncancel={() => (trusting = null)}
   />
+{/if}
+
+{#if addingHost}
+  <HostsDialog onclose={() => (addingHost = false)} />
 {/if}
 
 {#if flyout && flyoutProject}
@@ -393,6 +431,27 @@
   aside.collapsed {
     width: var(--rail);
     flex-basis: var(--rail);
+  }
+
+  aside.phone {
+    width: auto;
+    flex: 1 1 auto;
+  }
+
+  /* Rows a thumb can land on, and the "+" a full 44px target. */
+  aside.phone .row {
+    padding-block: 0.85rem;
+  }
+
+  aside.phone .add {
+    width: 2.75rem;
+    height: 2.75rem;
+    margin-right: -0.6rem;
+  }
+
+  /* Above the home indicator. */
+  aside.phone footer {
+    padding-bottom: calc(var(--space-3) + var(--safe-bottom));
   }
 
   header {

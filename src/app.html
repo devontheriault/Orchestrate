@@ -3,7 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <link rel="icon" href="%sveltekit.assets%/favicon.png" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- For a phone: `viewport-fit=cover` draws under the notch and the home
+         indicator, which the layout pads by itself (`--safe-*` in theme.css),
+         and `maximum-scale=1` keeps iOS from zooming in on every input it
+         focuses. A desktop webview ignores both. -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover"
+    />
     <title>Orchestrate</title>
     <!-- Resolves the theme before the first paint, so the window never flashes
          the wrong one on launch. Deliberately duplicates the two lines of
@@ -37,11 +44,14 @@
           const value = localStorage.getItem(`orchestrate:${key}`);
           if (value) document.documentElement.style.setProperty(prop, value + unit);
         }
-        document.documentElement.dataset.frame = /Mac OS X|Macintosh/.test(navigator.userAgent)
-          ? "mac"
-          : window.__COMPOSITOR_OWNS_FRAME__ === true
-            ? "compositor"
-            : "app";
+        // A phone first: an iPhone's user agent says "like Mac OS X" too.
+        document.documentElement.dataset.frame = window.__MOBILE__ === true
+          ? "mobile"
+          : /Mac OS X|Macintosh/.test(navigator.userAgent)
+            ? "mac"
+            : window.__COMPOSITOR_OWNS_FRAME__ === true
+              ? "compositor"
+              : "app";
         try {
           const width = JSON.parse(localStorage.getItem("orchestrate:panes") ?? "{}").projects;
           if (typeof width === "number") {

@@ -24,7 +24,6 @@ use std::sync::Arc;
 
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
-use host::client::Target;
 use host::hosts::Hosts;
 
 /// Build the one window the app has.
@@ -53,6 +52,7 @@ use host::hosts::Hosts;
 /// when it is built and the Glass theme can be picked at any time. Every other
 /// theme paints the page opaque, so it looks the same as a window that isn't;
 /// Glass paints only a veil, and the desktop shows through.
+#[cfg(desktop)]
 fn build_main_window(app: &tauri::AppHandle) -> tauri::Result<()> {
     let win = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
         .title("Orchestrate")
@@ -79,6 +79,17 @@ fn build_main_window(app: &tauri::AppHandle) -> tauri::Result<()> {
     };
 
     win.build()?;
+    Ok(())
+}
+
+/// On a phone the window is the whole screen and the OS draws around it. The
+/// UI is told so before its first frame (see `platform.ts`): it has no frame
+/// to draw, and no Host on this device to ask — only other machines'.
+#[cfg(mobile)]
+fn build_main_window(app: &tauri::AppHandle) -> tauri::Result<()> {
+    WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
+        .initialization_script("window.__MOBILE__ = true;")
+        .build()?;
     Ok(())
 }
 
@@ -163,14 +174,27 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
         .setup(move |app| {
+            #[cfg(mobile)]
+            {
+                let dir = app.path().app_data_dir()?;
+                std::fs::create_dir_all(&dir)?;
+                paths::use_app_data_dir(dir);
+            }
+
             build_main_window(app.handle())?;
+
+            // A phone can't run `claude`, so it has no Host of its own.
+            #[cfg(desktop)]
+            let local = Some(host::client::Target::Local {
+                socket: paths::host_socket()?,
+                start: Arc::new(host::service::start),
+            });
+            #[cfg(mobile)]
+            let local = None;
 
             let handle = app.handle().clone();
             let hosts = Hosts::new(
-                Target::Local {
-                    socket: paths::host_socket()?,
-                    start: Arc::new(host::service::start),
-                },
+                local,
                 Arc::new(move |name: &str, payload| {
                     let _ = handle.emit(name, payload);
                 }),

@@ -495,7 +495,7 @@
         </svg>
       </span>
       <span class="menu-label">Usage</span>
-      <kbd>Ctrl + Shift + U</kbd>
+      <kbd class="keys-only">Ctrl + Shift + U</kbd>
     </div>
 
     <!-- svelte-ignore a11y_click_events_have_key_events -->

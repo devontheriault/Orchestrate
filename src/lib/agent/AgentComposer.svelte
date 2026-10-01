@@ -774,7 +774,8 @@
   .composer {
     flex: none;
     background: var(--surface);
-    padding: 0.35rem var(--pad-x) 0.7rem;
+    /* Clear of a phone's home indicator. */
+    padding: 0.35rem var(--pad-x) calc(0.7rem + var(--safe-bottom));
     display: flex;
     flex-direction: column;
     gap: var(--space-3);

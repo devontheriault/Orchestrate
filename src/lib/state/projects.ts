@@ -94,17 +94,19 @@ export function canSpawnOn(group: ProjectGroup, host: string): boolean {
 /**
  * Where a new agent in `group` starts unless the user picks otherwise: the Host
  * it last started on, while that one can be reached; else this machine, where
- * the project is here or can be cloned; else the Host that has it.
+ * the project is here or can be cloned; else a Host that has it, one that can
+ * be reached first. `local` is null on a phone, which has no Host.
  */
 export function defaultHost(
   group: ProjectGroup,
   last: string | undefined,
   reachable: (host: string) => boolean,
-  local: string,
+  local: string | null,
 ): string {
   if (last && canSpawnOn(group, last) && reachable(last)) return last;
-  if (canSpawnOn(group, local)) return local;
-  return group.checkouts[0]?.host ?? local;
+  if (local && canSpawnOn(group, local)) return local;
+  const checkout = group.checkouts.find((c) => reachable(c.host)) ?? group.checkouts[0];
+  return checkout.host;
 }
 
 /** The Hosts a project has a checkout on. */
