@@ -1,6 +1,6 @@
 <!doctype html>
 <!--
-  PROTOTYPE — three heroes for the launch page, switchable with ?variant=A|B|C
+  PROTOTYPE — four heroes for the launch page, switchable with ?variant=A|B|C|D
   (or ← →), to answer: is a live, interactive app worth it over a picture?
 
     A  Playground  the real app, live, in a glass window you can drag, maximise
@@ -8,6 +8,9 @@
     B  Picture     a still of the same window, beside the pitch
     C  Story       the live app pinned while the page scrolls, each section
                    driving it; it's yours to use at the end
+    D  Side by side  C's scrolling story beside the live app, which is yours
+                   from the start: the page never clicks anything for you.
+                   The app's window has no buttons and no Settings
 
   The app in the window is the real frontend (`vite build`), talking to
   demo-host.js instead of a Host. Run with `npm run site:prototype`.
@@ -33,8 +36,8 @@
       <a class="brand" href="#"><img src="/docs/assets/logo-dark.svg" alt="" width="22" height="22" /> Orchestrate</a>
       <span class="alpha">alpha · v0.1.0</span>
       <span class="spacer"></span>
-      <a href="https://github.com/devontheriault/DevCode">GitHub</a>
-      <a class="download" href="https://github.com/devontheriault/DevCode/releases">Download</a>
+      <a href="https://github.com/devontheriault/Orchestrate">GitHub</a>
+      <a class="download" href="https://github.com/devontheriault/Orchestrate/releases">Download</a>
     </nav>
 
     <!-- A: Playground ------------------------------------------------------>
@@ -111,6 +114,54 @@
         <div class="pinned">
           <div class="pinned-inner" data-slot="window"></div>
           <button class="take-wheel glass-pill" hidden>Take the wheel</button>
+        </div>
+      </div>
+    </main>
+
+    <!-- D: Side by side ---------------------------------------------------->
+    <main class="variant" data-variant="D" hidden>
+      <div class="story">
+        <div class="steps">
+          <section class="step intro" data-step="fleet">
+            <h1>All your Claude Code agents,<br /><em>in one window.</em></h1>
+            <p>Every project, every agent, and what each one is doing right now.</p>
+            <p class="try">The window <span class="beside">on the right</span><span class="below">below</span> is the real app, running in your browser. Go ahead, click around.</p>
+            <span class="scroll-cue">Scroll ↓</span>
+          </section>
+          <section class="step" data-step="work">
+            <span class="kicker">01</span>
+            <h2>Watch every agent work, live.</h2>
+            <p>Each one runs the real <code>claude</code> CLI under your own login, in its own worktree and branch. Your checkout stays untouched.</p>
+            <p class="try"><b>Try it</b> Open <i>Lazy-load product images</i> under storefront and watch its turn come in.</p>
+          </section>
+          <section class="step" data-step="queue">
+            <span class="kicker">02</span>
+            <h2>Send a follow-up anytime.<br />It waits its turn.</h2>
+            <p>Stop an agent mid-turn, correct it, or queue up what's next while it's still busy.</p>
+            <p class="try"><b>Try it</b> Pick an agent that's still running and ask it for something else.</p>
+          </section>
+          <section class="step" data-step="diff">
+            <span class="kicker">03</span>
+            <h2>Review the changes.<br />Keep what you like.</h2>
+            <p>Everything an agent changed, as one diff. Nothing lands in your project until you merge it.</p>
+            <p class="try"><b>Try it</b> Open <i>Invoice PDF export</i> under billing-api and switch to the Diff tab.</p>
+          </section>
+          <section class="step" data-step="merge">
+            <span class="kicker">04</span>
+            <h2>Merge it in one click.</h2>
+            <p>If it conflicts, a separate agent resolves it in its own worktree, so your project is never left half-merged.</p>
+            <p class="try"><b>Try it</b> Press Merge on <i>Invoice PDF export</i>.</p>
+          </section>
+          <section class="step" data-step="yours">
+            <span class="kicker">05</span>
+            <h2>Start one of your own.</h2>
+            <p>Pick a project, say what you want, and it's off in its own worktree while you get on with something else.</p>
+            <div class="ctas" data-slot="download"></div>
+            <p class="fine">Free and open source · Needs Claude Code installed and logged in</p>
+          </section>
+        </div>
+        <div class="pinned">
+          <div class="pinned-inner" data-slot="window"></div>
         </div>
       </div>
     </main>

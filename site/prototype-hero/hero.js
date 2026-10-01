@@ -15,6 +15,7 @@ const VARIANTS = [
   ["A", "Playground"],
   ["B", "Picture"],
   ["C", "Story"],
+  ["D", "Side by side"],
 ];
 const asked = new URLSearchParams(location.search).get("variant")?.toUpperCase();
 const variant = VARIANTS.some(([k]) => k === asked) ? asked : "A";
@@ -104,15 +105,49 @@ function toast(kind, title, body = "") {
   setTimeout(() => t.remove(), 5500);
 }
 
-function downloads(slot) {
+// Which installer this visitor wants. Phones and tablets get none: there's
+// nothing to install there yet. An iPhone's and an iPad's browser both say
+// "Mac OS X", so touch is what tells them from a Mac.
+const RELEASES = "https://github.com/devontheriault/Orchestrate/releases";
+const os = (() => {
   const ua = navigator.userAgent;
-  const os = /Windows/.test(ua) ? "Windows" : /Mac OS X|Macintosh/.test(ua) ? "macOS" : "Linux";
+  if (/iPhone|iPad|Android/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)) return null;
+  return /Windows/.test(ua) ? "Windows" : /Mac OS X|Macintosh/.test(ua) ? "macOS" : "Linux";
+})();
+// Picked by ending, since the names carry the version. Updater signatures
+// (`.AppImage.sig`) don't match.
+const INSTALLER = { Linux: [/\.AppImage$/], macOS: [/\.dmg$/], Windows: [/-setup\.exe$/, /\.msi$/] };
+
+// Every Download button goes to the Releases page until the latest release
+// answers, then straight to its installer. A draft or pre-release isn't
+// "latest", so nothing points at a release before it's published.
+const downloadLinks = [$("nav.top .download")];
+function downloads(slot) {
+  const primary = make("a", { className: "primary", href: RELEASES, textContent: os ? `Download for ${os}` : "Download" });
+  downloadLinks.push(primary);
   slot.append(
-    make("a", { className: "primary", href: "https://github.com/devontheriault/DevCode/releases", textContent: `Download for ${os}` }),
-    make("a", { className: "secondary", href: "https://github.com/devontheriault/DevCode#install", textContent: "Other platforms" }),
+    primary,
+    make("a", { className: "secondary", href: "https://github.com/devontheriault/Orchestrate#install", textContent: "Other platforms" }),
   );
 }
 for (const slot of $$('[data-slot="download"]', main)) downloads(slot);
+if (os) {
+  fetch("https://api.github.com/repos/devontheriault/Orchestrate/releases/latest")
+    .then((r) => (r.ok ? r.json() : null))
+    .then((release) => {
+      const assets = release?.assets ?? [];
+      for (const pattern of INSTALLER[os]) {
+        const asset = assets.find((a) => pattern.test(a.name));
+        if (!asset) continue;
+        for (const a of downloadLinks) {
+          a.href = asset.browser_download_url;
+          a.title = `${asset.name} · ${Math.round(asset.size / 1e6)} MB`;
+        }
+        return;
+      }
+    })
+    .catch(() => {}); // offline or rate-limited: the Releases page it is
+}
 
 // What the app tells the page: window buttons, drags, notifications.
 const handlers = {};
@@ -120,6 +155,7 @@ addEventListener("message", (e) => {
   const m = e.data;
   if (!m?.demo) return;
   handlers[m.demo]?.(m);
+  if (variant === "D") return; // no toasts: the page stays still beside the app
   if (m.demo === "notification") toast("Orchestrate", m.title, m.body);
   if (m.demo === "merged") toast("Merged", `${m.title ?? "Agent"} → ${m.target}`, "Merged, keeping it one commit.");
 });
@@ -364,6 +400,38 @@ if (variant === "C") {
     await STEPS[name].run(() => mine === token);
   }
   wheel.hidden = false;
+  const io = new IntersectionObserver(
+    (entries) => {
+      for (const e of entries) if (e.isIntersecting) enter(e.target.dataset.step);
+    },
+    { rootMargin: "-45% 0px -45% 0px" },
+  );
+  for (const s of $$(".step", main)) io.observe(s);
+  enter("fleet");
+}
+
+// ---- D: Side by side -------------------------------------------------------
+
+if (variant === "D") {
+  // The window is the visitor's from the first frame. Scrolling only changes
+  // the page around it; it never clicks anything in the app.
+  const { win, frame } = makeWindow();
+  $('[data-slot="window"]', main).append(win);
+
+  // No minimise, maximise or close: the window stays where it is. With no
+  // handlers here, a double-click on the title bar does nothing either. No
+  // Settings: its menu covers the app and has nothing to show off here.
+  frame.addEventListener("load", () => {
+    const style = appDoc(frame).createElement("style");
+    style.textContent = ".chrome .controls, aside footer:has(button.settings) { display: none !important; }";
+    appDoc(frame).head.append(style);
+  });
+
+  const HUES = { fleet: "0deg", work: "40deg", queue: "80deg", diff: "140deg", merge: "200deg", yours: "280deg" };
+  const enter = (name) => {
+    for (const s of $$(".step", main)) s.classList.toggle("active", s.dataset.step === name);
+    document.body.style.setProperty("--hue", HUES[name]);
+  };
   const io = new IntersectionObserver(
     (entries) => {
       for (const e of entries) if (e.isIntersecting) enter(e.target.dataset.step);

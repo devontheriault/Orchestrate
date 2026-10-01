@@ -59,5 +59,5 @@ createServer(async (req, res) => {
     res.writeHead(404).end("not found");
   }
 }).listen(port, host, () => {
-  console.log(`\n  Hero prototype: http://${host}:${port}/?variant=A   (A, B, C; ← → to switch)\n`);
+  console.log(`\n  Hero prototype: http://${host}:${port}/?variant=A   (A–D; ← → to switch)\n`);
 });

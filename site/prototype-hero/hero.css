@@ -394,7 +394,7 @@ h2 {
 .stage .glass-window.dragging {
   transition: none;
 }
-.stage .glass-window.max {
+.glass-window.max {
   position: fixed;
   z-index: 30;
   left: 10px !important;
@@ -402,7 +402,7 @@ h2 {
   width: calc(100vw - 20px);
   height: calc(100vh - 20px);
 }
-.stage .glass-window.gone {
+.glass-window.gone {
   opacity: 0;
   transform: translateY(80px) scale(0.6);
   pointer-events: none;
@@ -560,6 +560,130 @@ h2 {
   font: 500 13px var(--sans);
   color: var(--ink);
   cursor: pointer;
+}
+
+/* ---- D: Side by side ----------------------------------------------------- */
+
+/* Layout and steps are C's (.story, .step, .pinned). */
+[data-variant="D"] .step {
+  opacity: 0.4;
+}
+[data-variant="D"] .step.active {
+  opacity: 1;
+}
+.try {
+  font-size: 15px !important;
+  margin-top: 24px !important;
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: rgb(14 16 28 / 0.35);
+  color: var(--ink-2);
+}
+.try b {
+  font: 600 11px var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink);
+  margin-right: 8px;
+}
+.try i {
+  font-style: normal;
+  color: var(--ink);
+}
+/* Everything clears the nav: a step's content is centred in the height below
+   it, and the window fills that height. Type shrinks with short screens as
+   well as narrow ones. */
+[data-variant="D"] {
+  --nav-h: 84px;
+}
+[data-variant="D"] .story {
+  padding: 0 32px 0 clamp(24px, 4vw, 64px);
+}
+[data-variant="D"] .step {
+  min-height: 100svh;
+  padding: var(--nav-h) 0 24px;
+}
+[data-variant="D"] .step.intro {
+  padding-top: var(--nav-h);
+}
+[data-variant="D"] h1 {
+  font-size: clamp(32px, min(5.4vw, 8.5vh), 76px);
+}
+[data-variant="D"] h2 {
+  font-size: clamp(26px, min(3.2vw, 6vh), 46px);
+}
+[data-variant="D"] .step p:not(.fine) {
+  font-size: clamp(15px, 2.6vh, 18px);
+  margin-top: clamp(10px, 2.4vh, 20px);
+}
+[data-variant="D"] .scroll-cue {
+  margin-top: clamp(16px, 5vh, 48px);
+}
+[data-variant="D"] .pinned {
+  height: 100svh;
+  padding: var(--nav-h) 0 16px;
+}
+[data-variant="D"] .pinned .glass-window {
+  height: min(860px, calc(100svh - var(--nav-h) - 16px));
+}
+
+.try .below {
+  display: none;
+}
+
+/* Too narrow for two columns: the window sits under the intro at its own
+   height, and the steps follow as plain sections. */
+@media (max-width: 900px) {
+  [data-variant="D"] .story {
+    grid-template-columns: 1fr;
+    gap: 0;
+    padding: 0 16px;
+  }
+  [data-variant="D"] .steps {
+    display: contents;
+  }
+  [data-variant="D"] .step {
+    min-height: 0;
+    padding: 56px 0 0;
+    opacity: 1;
+    order: 2;
+  }
+  [data-variant="D"] .step.intro {
+    order: 0;
+    padding: calc(var(--nav-h) + 24px) 0 32px;
+  }
+  [data-variant="D"] .step:last-child {
+    padding-bottom: 96px;
+  }
+  [data-variant="D"] .scroll-cue,
+  .try .beside {
+    display: none;
+  }
+  .try .below {
+    display: inline;
+  }
+  [data-variant="D"] .pinned {
+    order: 1;
+    position: static;
+    height: auto;
+    padding: 0;
+  }
+  [data-variant="D"] .pinned .glass-window {
+    height: min(720px, 80svh);
+  }
+  [data-variant="D"] h1 {
+    font-size: clamp(34px, 9vw, 56px);
+  }
+  [data-variant="D"] h2 {
+    font-size: clamp(26px, 7vw, 40px);
+  }
+}
+@media (max-width: 560px) {
+  nav.top .alpha,
+  nav.top a[href*="github.com/devontheriault/Orchestrate"]:not(.download) {
+    display: none;
+  }
 }
 
 /* ---- the prototype switcher (not part of the design) ---------------------- */
