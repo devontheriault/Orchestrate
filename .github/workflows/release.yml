@@ -77,6 +77,14 @@ jobs:
           # linuxdeploy is itself an AppImage; extracting it instead of mounting
           # it means the build doesn't depend on the runner having libfuse2.
           APPIMAGE_EXTRACT_AND_RUN: "1"
+          # Signs and notarizes the macOS app. Only the macOS build reads these.
+          # See docs/releasing.md for where each one comes from.
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           # Without a tag name it only builds, and releases nothing.
           tagName: ${{ startsWith(github.ref, 'refs/tags/') && 'v__VERSION__' || '' }}
