@@ -54,8 +54,9 @@ Developer Program membership, the same one that signs the macOS app.
    New App, platform iOS, and pick that bundle ID. The name and SKU can be
    anything.
 3. **Make an API key.** At App Store Connect → Users and Access → Integrations →
-   App Store Connect API, generate a Team key with the **App Manager** role.
-   Download the `.p8` file. Apple only offers the download once.
+   App Store Connect API, generate a Team key with the **Admin** role. Xcode
+   uses it to make the distribution certificate and profile, which a lesser
+   role can't. Download the `.p8` file. Apple only offers the download once.
 4. **Add the repository secrets** (Settings → Secrets and variables → Actions):
 
    | Secret | Value |
