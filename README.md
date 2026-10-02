@@ -57,7 +57,7 @@ You'll need:
 - Git
 - [Tailscale](https://tailscale.com), but only if you want to run agents on more than one machine
 
-Then grab an installer from the [Releases](https://github.com/devontheriault/DevCode/releases) page:
+Then grab an installer from the [Releases](https://github.com/devontheriault/Orchestrate/releases) page:
 
 | Platform | Formats |
 | --- | --- |
@@ -115,7 +115,7 @@ sudo apt install libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchel
 Then:
 
 ```sh
-git clone https://github.com/devontheriault/DevCode.git orchestrate
+git clone https://github.com/devontheriault/Orchestrate.git orchestrate
 cd orchestrate
 npm install
 npm run tauri dev      # run the app with hot reload
