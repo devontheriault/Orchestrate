@@ -2,6 +2,7 @@
   import MarkdownBlocks from "./MarkdownBlocks.svelte";
   import MarkdownInline from "./MarkdownInline.svelte";
   import HighlightedCode from "$lib/code/HighlightedCode.svelte";
+  import Copyable from "$lib/code/Copyable.svelte";
   import type { Token } from "./markdown";
 
   /** Block-level tokens. `Markdown.svelte` owns the lexing and the styling. */
@@ -28,12 +29,12 @@
     </svelte:element>
   {:else if t.type === "code"}
     {@const lang = language(t.lang)}
-    <div class="codeblock" class:labelled={!!lang}>
+    <Copyable text={t.text ?? ""} class={lang ? "codeblock labelled" : "codeblock"}>
       {#if lang}<span class="lang">{lang}</span>{/if}<pre><HighlightedCode
           code={t.text ?? ""}
           {lang}
         /></pre>
-    </div>
+    </Copyable>
   {:else if t.type === "list"}
     <svelte:element
       this={t.ordered ? "ol" : "ul"}
