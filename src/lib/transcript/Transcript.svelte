@@ -57,6 +57,7 @@
   import Attachments from "$lib/agent/Attachments.svelte";
   import HighlightedCode from "$lib/code/HighlightedCode.svelte";
   import NumberedCode from "$lib/code/NumberedCode.svelte";
+  import GrowingLines from "$lib/code/GrowingLines.svelte";
   import Copyable from "$lib/code/Copyable.svelte";
   import ShellCommand from "./ShellCommand.svelte";
   import { buildRows, humanize, keepUnchanged, systemLabel, type Row, type ToolCall } from "./rows";
@@ -265,18 +266,30 @@
       <Copyable flush text={read.lines.map((l) => l.text).join("\n")}>
         <pre class="read"><NumberedCode lines={read.lines} lang={read.lang} /></pre>
       </Copyable>
-      {#if read.rest}<pre><LinkedText text={read.rest} /></pre>{/if}
+      {#if read.rest}<pre>{@render printedText(read.rest)}</pre>{/if}
     {:else}
       {@const text = resultText(c)}
       <Copyable flush {text}>
         {#if printed}
           <pre class="read"><HighlightedCode code={text} lang={printed} /></pre>
         {:else}
-          <pre><LinkedText {text} /></pre>
+          <pre>{@render printedText(text)}</pre>
         {/if}
       </Copyable>
     {/if}
   </div>
+{/snippet}
+
+<!-- Text a call printed, its links live. A build log can run to tens of
+     thousands of lines, so like code it fills its `<pre>` a chunk at a time
+     as it scrolls. -->
+{#snippet printedText(text: string)}
+  {@const lines = text.split("\n")}
+  <GrowingLines count={lines.length}
+    >{#snippet children(shown: number)}<LinkedText
+        text={shown < lines.length ? lines.slice(0, shown).join("\n") : text}
+      />{/snippet}</GrowingLines
+  >
 {/snippet}
 
 <!-- A call's input and result, for a call whose card is open. -->

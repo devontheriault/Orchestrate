@@ -1,9 +1,9 @@
 <script lang="ts">
   import { store } from "$lib/state/store.svelte";
   import BranchPicker from "$lib/menus/BranchPicker.svelte";
-  import CodeSpans from "$lib/code/CodeSpans.svelte";
-  import { languageOf } from "$lib/code/highlight.svelte";
-  import { highlightPatch, parsePatch } from "./patch";
+  import GrowingLines from "$lib/code/GrowingLines.svelte";
+  import PatchFile from "./PatchFile.svelte";
+  import { parsePatch } from "./patch";
 
   /** The selected agent's diff, and the Commit / Merge / Resolve taken from it. */
   const review = store.review;
@@ -52,11 +52,13 @@
     );
   });
 
-  const patchFiles = $derived(parsePatch(review.diff?.patch ?? ""));
-
-  const highlighted = $derived(
-    patchFiles.files.map((pf) => highlightPatch(pf.lines, languageOf(pf.path))),
-  );
+  /**
+   * The diff comes again each time the agent's record moves, mostly with the
+   * same patch. Read through a string, which compares by value, the same
+   * patch isn't split again — and so redraws nothing.
+   */
+  const patch = $derived(review.diff?.patch ?? "");
+  const patchFiles = $derived(parsePatch(patch));
 
   async function doCommit() {
     if (await review.commit(message)) messageEdited = false;
@@ -387,37 +389,27 @@
 
       {#if diff.files.length > 0}
         <div class="files scroll-list">
-          {#each diff.files as f (f.path)}
-            <div class="file-row">
-              <span class={`badge badge-${f.status.toLowerCase()}`}>{f.status}</span>
-              <span class="path mono">{f.path}</span>
-              {#if f.insertions === null}
-                <span class="binary">binary</span>
-              {:else}
-                <span class="ins">+{f.insertions}</span>
-                <span class="del">−{f.deletions}</span>
-              {/if}
-            </div>
-          {/each}
+          <GrowingLines count={diff.files.length}>
+            {#snippet children(shown: number)}
+              {#each diff.files.slice(0, shown) as f (f.path)}
+                <div class="file-row">
+                  <span class={`badge badge-${f.status.toLowerCase()}`}>{f.status}</span>
+                  <span class="path mono">{f.path}</span>
+                  {#if f.insertions === null}
+                    <span class="binary">binary</span>
+                  {:else}
+                    <span class="ins">+{f.insertions}</span>
+                    <span class="del">−{f.deletions}</span>
+                  {/if}
+                </div>
+              {/each}
+            {/snippet}
+          </GrowingLines>
         </div>
       {/if}
 
-      {#each patchFiles.files as pf, fi (pf.path)}
-        <details class="patch-file" open>
-          <summary class="mono">{pf.path}</summary>
-          <div class="patch">
-            {#each pf.lines as line, i (i)}
-              {@const spans = highlighted[fi]?.[i]}
-              <!-- Coloured, a line keeps its +/- and its tint to say what
-                   changed, and the code takes its syntax colours. -->
-              <div class={`line ${line.kind}`} class:coloured={!!spans}
-                >{#if spans}<span class="sign">{line.text[0]}</span><CodeSpans
-                    {spans}
-                  />{:else}{line.text || " "}{/if}</div
-              >
-            {/each}
-          </div>
-        </details>
+      {#each patchFiles.files as pf (pf.path)}
+        <PatchFile file={pf} />
       {/each}
 
       {#if patchFiles.clipped || diff.truncated}
@@ -794,72 +786,6 @@
     font-size: var(--text-sm);
     font-style: italic;
   }
-
-  .patch-file {
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    min-width: 0;
-  }
-
-  .patch-file summary {
-    cursor: pointer;
-    padding: 0.4rem 0.7rem;
-    background: var(--float-bg, var(--panel-bg));
-    -webkit-backdrop-filter: var(--float-filter, none);
-    backdrop-filter: var(--float-filter, none);
-    font-size: var(--text-md);
-    color: var(--fg-muted);
-    overflow-wrap: anywhere;
-    border-radius: var(--radius-sm) var(--radius-sm) 0 0;
-    /* Stays put while its own patch scrolls past underneath. */
-    position: sticky;
-    top: 0;
-    z-index: var(--z-base);
-  }
-
-  .patch-file[open] summary {
-    border-bottom: 1px solid var(--border);
-  }
-
-  .patch {
-    /* Code lines keep their shape: this scrolls both ways on its own, so one
-       big file can't swallow the pane. */
-    overflow: auto;
-    overscroll-behavior: contain;
-    max-height: clamp(10rem, 50vh, 32rem);
-    border-radius: 0 0 var(--radius-sm) var(--radius-sm);
-    font-family: var(--font-mono);
-    font-size: var(--text-sm);
-    line-height: var(--leading-relaxed);
-  }
-
-  .line {
-    padding: 0 0.7rem;
-    white-space: pre;
-    min-width: max-content;
-  }
-
-  .line.add {
-    background: var(--diff-add-bg);
-    color: var(--diff-add-fg);
-  }
-
-  .line.del {
-    background: var(--diff-del-bg);
-    color: var(--diff-del-fg);
-  }
-
-  .line.hunk {
-    background: var(--code-bg);
-    color: var(--fg-muted);
-  }
-
-  .line.coloured {
-    color: var(--fg);
-  }
-
-  .line.add .sign { color: var(--diff-add-fg); }
-  .line.del .sign { color: var(--diff-del-fg); }
 
   .diff-error,
   .clipped {
