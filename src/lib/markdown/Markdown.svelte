@@ -131,10 +131,6 @@
     overflow-wrap: normal;
   }
 
-  .md :global(.codeblock) {
-    position: relative;
-  }
-
   .md :global(.codeblock.labelled pre) {
     padding-right: 3.4rem;
   }
@@ -147,6 +143,18 @@
     font-size: 0.7em;
     color: var(--fg-muted);
     pointer-events: none;
+    transition: opacity var(--transition-fast);
+  }
+
+  /* The copy button takes the label's corner while it shows. */
+  .md :global(.codeblock:hover .lang) {
+    opacity: 0;
+  }
+
+  @media (hover: none) {
+    .md :global(.codeblock .lang) {
+      display: none;
+    }
   }
 
   .md :global(.table-wrap) {

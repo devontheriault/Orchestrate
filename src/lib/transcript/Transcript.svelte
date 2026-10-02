@@ -58,6 +58,7 @@
   import HighlightedCode from "$lib/code/HighlightedCode.svelte";
   import NumberedCode from "$lib/code/NumberedCode.svelte";
   import GrowingLines from "$lib/code/GrowingLines.svelte";
+  import Copyable from "$lib/code/Copyable.svelte";
   import ShellCommand from "./ShellCommand.svelte";
   import { buildRows, humanize, keepUnchanged, systemLabel, type Row, type ToolCall } from "./rows";
   import {
@@ -262,12 +263,19 @@
   {@const printed = bashOutputLanguage(c)}
   <div class="call-result">
     {#if read}
-      <pre class="read"><NumberedCode lines={read.lines} lang={read.lang} /></pre>
+      <Copyable flush text={read.lines.map((l) => l.text).join("\n")}>
+        <pre class="read"><NumberedCode lines={read.lines} lang={read.lang} /></pre>
+      </Copyable>
       {#if read.rest}<pre>{@render printedText(read.rest)}</pre>{/if}
-    {:else if printed}
-      <pre class="read"><HighlightedCode code={resultText(c)} lang={printed} /></pre>
     {:else}
-      <pre>{@render printedText(resultText(c))}</pre>
+      {@const text = resultText(c)}
+      <Copyable flush {text}>
+        {#if printed}
+          <pre class="read"><HighlightedCode code={text} lang={printed} /></pre>
+        {:else}
+          <pre>{@render printedText(text)}</pre>
+        {/if}
+      </Copyable>
     {/if}
   </div>
 {/snippet}
@@ -296,17 +304,24 @@
   {@const command = bashCommand(c)}
   {@const file = fileChange(c)}
   {#if command !== undefined}
-    <ShellCommand {command} />
+    <Copyable flush text={command}><ShellCommand {command} /></Copyable>
   {:else if file}
     {#if file.before !== undefined}
       {#if file.everywhere}<div class="edit-note">every occurrence</div>{/if}
-      <pre class="edit-before"><HighlightedCode code={file.before} lang={file.lang} /></pre>
-      <pre class="edit-after"><HighlightedCode code={file.after} lang={file.lang} /></pre>
+      <Copyable flush text={file.before}>
+        <pre class="edit-before"><HighlightedCode code={file.before} lang={file.lang} /></pre>
+      </Copyable>
+      <Copyable flush text={file.after}>
+        <pre class="edit-after"><HighlightedCode code={file.after} lang={file.lang} /></pre>
+      </Copyable>
     {:else}
-      <pre><HighlightedCode code={file.after} lang={file.lang} /></pre>
+      <Copyable flush text={file.after}>
+        <pre><HighlightedCode code={file.after} lang={file.lang} /></pre>
+      </Copyable>
     {/if}
   {:else}
-    <pre>{JSON.stringify(c.input, null, 2)}</pre>
+    {@const json = JSON.stringify(c.input, null, 2)}
+    <Copyable flush text={json}><pre>{json}</pre></Copyable>
   {/if}
 {/snippet}
 
@@ -415,7 +430,10 @@
           {@const open = isOpen(row.key, false)}
           <details class="block raw-detail" {@attach autoOpen(open)} ontoggle={remember(row.key)}>
             <summary>{humanize(row.type ?? "") || "Unrecognized event"}</summary>
-            {#if open}<pre>{JSON.stringify(row.event, null, 2)}</pre>{/if}
+            {#if open}
+              {@const json = JSON.stringify(row.event, null, 2)}
+              <Copyable flush text={json}><pre>{json}</pre></Copyable>
+            {/if}
           </details>
         {/if}
       {/each}
