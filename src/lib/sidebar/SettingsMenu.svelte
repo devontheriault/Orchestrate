@@ -231,10 +231,13 @@
   });
 
   // The menus are pinned to the trigger's position, so anything that moves it
-  // dismisses them rather than leaving them stranded mid-air.
+  // dismisses them rather than leaving them stranded mid-air. No scroll can:
+  // the trigger sits in the sidebar's footer, below the list that scrolls. And
+  // the transcript scrolls itself whenever a working agent says something,
+  // which would otherwise shut the menu while you are picking a theme.
   $effect(() => {
     if (!open) return;
-    return dismissOnMove(() => [menuEl, subEl, triggerEl], () => close(false));
+    return dismissOnMove(() => [menuEl, subEl, triggerEl], () => close(false), { scroll: false });
   });
 
   // Keys land on the menu itself, including while it is driving the submenu.
