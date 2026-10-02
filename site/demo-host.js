@@ -13,7 +13,7 @@
   // frame leaves the buttons to the OS, which isn't here to draw them.
   Object.defineProperty(navigator, "userAgent", { value: "Mozilla/5.0 (X11; Linux x86_64)" });
   localStorage.setItem("orchestrate:theme", "glass");
-  localStorage.setItem("orchestrate:glass-opacity", "22");
+  localStorage.setItem("orchestrate:glass-opacity", "35");
   localStorage.setItem("orchestrate:panes", JSON.stringify({ projects: 300 }));
   sessionStorage.setItem(
     "cw:resume-selection",
