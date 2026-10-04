@@ -534,7 +534,8 @@ impl Calendars {
     }
 
     fn changed(&self) {
-        (self.notify)("calendar-changed", Value::Null);
+        // An object, so the window can stamp it with the Host it came from.
+        (self.notify)("calendar-changed", serde_json::json!({}));
     }
 
     pub fn overview(&self) -> Overview {
@@ -918,7 +919,10 @@ impl Calendars {
             };
             if let Err(e) = outcome {
                 eprintln!("calendar: Google sign-in failed: {e}");
-                (me.notify)("calendar-sign-in-failed", Value::String(e));
+                (me.notify)(
+                    "calendar-sign-in-failed",
+                    serde_json::json!({ "message": e }),
+                );
             }
         });
         if let Some(old) = self.signing_in.lock().unwrap().replace(task) {

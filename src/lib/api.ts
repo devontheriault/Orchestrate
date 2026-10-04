@@ -397,6 +397,87 @@ export type AgentEventPayload = {
   event: AgentEvent;
 };
 
+/** Someone on a Calendar event. Mirrors `calendar::Attendee`. */
+export type Attendee = {
+  name: string | null;
+  email: string;
+  /** `accepted`, `declined`, `tentative` or `needs-action`, when known. */
+  response: string | null;
+  /** The user themselves. */
+  self: boolean;
+  organizer: boolean;
+};
+
+/**
+ * One occurrence of a Calendar event (ADR 0017: never just an "event", which
+ * is a stream event here). Mirrors `calendar::CalendarEvent`.
+ */
+export type CalendarEvent = {
+  /** Unique among every occurrence in the range asked for. */
+  id: string;
+  account_id: string;
+  calendar_id: string;
+  title: string;
+  /** `YYYY-MM-DD` for an all-day one; otherwise an RFC 3339 instant in UTC. */
+  start: string;
+  /** Exclusive: the day after the last, or the instant it ends. */
+  end: string;
+  all_day: boolean;
+  /** The zone it was made in, where that isn't UTC or the Host's own. */
+  time_zone: string | null;
+  location: string | null;
+  description: string | null;
+  attendees: Attendee[];
+  organizer: Attendee | null;
+  meeting_url: string | null;
+  /** The Calendar event on the provider's own site. */
+  link: string | null;
+  recurring: boolean;
+  tentative: boolean;
+  busy: boolean;
+};
+
+/** One of an account's calendars. Mirrors `calendar::CalendarInfo`. */
+export type CalendarInfo = {
+  id: string;
+  name: string;
+  /** `#rrggbb`, as the provider colours it. */
+  color: string | null;
+  primary: boolean;
+  /** Whether to show it until the user says otherwise. */
+  selected: boolean;
+};
+
+/** Where a calendar account stands. Mirrors `calendar::Status`. */
+export type CalendarStatus =
+  | { state: "idle" | "syncing" }
+  | { state: "ok"; at: string }
+  | { state: "error" | "reconnect"; message: string };
+
+export type CalendarAccount = {
+  id: string;
+  kind: "google" | "caldav";
+  /** The address or user name it signs in as. */
+  name: string;
+  status: CalendarStatus;
+  calendars: CalendarInfo[];
+};
+
+/** What the Calendar Space opens on. Mirrors `calendar::Overview`. */
+export type CalendarOverview = {
+  accounts: CalendarAccount[];
+  /** Whether the Host has a Google OAuth client to sign in with. */
+  google_client: boolean;
+  /** Where that client goes on the Host. */
+  google_client_path: string;
+};
+
+/** Busy and free stretches, as RFC 3339 instants. */
+export type FreeBusy = {
+  busy: { start: string; end: string }[];
+  free: { start: string; end: string }[];
+};
+
 /** The id of this machine's Host. */
 export const LOCAL = "local";
 
@@ -634,6 +715,32 @@ export const api = {
   startupOrphans: async (hostId: string) =>
     stamp(hostId, await host<Omit<Agent, "host">[]>(hostId, "startup_orphans")),
   dismissOrphans: (hostId: string) => host<void>(hostId, "dismiss_orphans"),
+
+  /** The Calendar Space's accounts and their calendars, on the Host that keeps them. */
+  calendarOverview: (hostId: string) => host<CalendarOverview>(hostId, "calendar_overview"),
+  /**
+   * Every occurrence of every Calendar event overlapping `from`..`to`, both
+   * RFC 3339 with this machine's offset: all-day ones are matched by date in it.
+   */
+  calendarEvents: (hostId: string, from: string, to: string) =>
+    host<CalendarEvent[]>(hostId, "calendar_events", { from, to }),
+  calendarSearch: (hostId: string, query: string, from: string | null = null, to: string | null = null) =>
+    host<CalendarEvent[]>(hostId, "calendar_search", { query, from, to, limit: null }),
+  calendarFreeBusy: (hostId: string, from: string, to: string) =>
+    host<FreeBusy>(hostId, "calendar_free_busy", { from, to }),
+  /** Sync every account now; answers once it's done. */
+  calendarSync: (hostId: string) => host<CalendarOverview>(hostId, "calendar_sync"),
+  calendarAddCaldav: (hostId: string, url: string, username: string, password: string) =>
+    host<CalendarAccount>(hostId, "calendar_add_caldav", { url, username, password }),
+  calendarSetGoogleClient: (hostId: string, clientId: string, clientSecret: string) =>
+    host<void>(hostId, "calendar_set_google_client", { clientId, clientSecret }),
+  /**
+   * Start signing in to Google: the URL to open in a browser on the Host's
+   * own machine. The account arrives with a `calendar-changed` event.
+   */
+  calendarConnectGoogle: (hostId: string) => host<string>(hostId, "calendar_connect_google"),
+  calendarRemoveAccount: (hostId: string, id: string) =>
+    host<void>(hostId, "calendar_remove_account", { id }),
 };
 
 export type HostEvent<T> = T & { host: string };
@@ -648,4 +755,12 @@ export const events = {
 
   onHostStatus: (fn: (status: HostEvent<HostStatus>) => void): Promise<UnlistenFn> =>
     listen<HostEvent<HostStatus>>("host-status", (msg) => fn(msg.payload)),
+
+  /** A Host's calendars changed: synced, an account added or removed. */
+  onCalendarChanged: (fn: (host: string) => void): Promise<UnlistenFn> =>
+    listen<{ host: string }>("calendar-changed", (msg) => fn(msg.payload.host)),
+
+  /** A Google sign-in this window started didn't finish. */
+  onCalendarSignInFailed: (fn: (why: HostEvent<{ message: string }>) => void): Promise<UnlistenFn> =>
+    listen<HostEvent<{ message: string }>>("calendar-sign-in-failed", (msg) => fn(msg.payload)),
 };

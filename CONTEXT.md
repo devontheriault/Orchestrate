@@ -94,6 +94,10 @@ _Avoid_: using it as a synonym for Agent (an Agent is the thing the user talks t
 What Turns have cost: tokens and dollars per Model, plus how much of the account's rate-limit windows is spent. Read back out of the Agent logs rather than tallied as events arrive — Claude Code reports a Turn's per-model totals on its `result` event and the account's windows on `rate_limit_event`, so the logs are the record and the numbers are right after a restart. Account-wide rather than per-Project or per-Host: every Agent spends against the same limits, which is why the usage window totals across Agents on every reachable Host by default, and why a log that outlived its Discarded Agent still counts toward the total.
 _Avoid_: Cost (only half of it), Quota, Budget (nothing here enforces one), Stats.
 
+**Calendar event**:
+One entry in the user's calendar, as the Calendar Space shows it and an Agent reads it: a meeting, an appointment, an all-day day off. A repeating one is one Calendar event to its provider and many occurrences on screen; the Host expands it in the time zone it was made in, so it keeps its wall-clock time across a DST change. The provider (Google, or any CalDAV server) is its source of truth, and the Host keeps only a cache (ADR 0017). Always "Calendar event" in full, `CalendarEvent` in code, because an Event alone is a stream event.
+_Avoid_: Event (a stream event), Appointment, Meeting (only some are), Entry, Item (the stored record, in the code).
+
 ## Agent lifecycle
 
 An Agent moves through these states, and each transition has a specific verb.
