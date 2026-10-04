@@ -85,6 +85,15 @@ fn front_matter_is_skipped_and_its_title_used() {
 }
 
 #[test]
+fn snippets_read_as_plain_words() {
+    let (_, snippet) = title_and_snippet(
+        "# T\nSee *this* and [the ADR](https://x.dev) ![pic](a.png)\n",
+        "f",
+    );
+    assert_eq!(snippet, "See this and the ADR pic");
+}
+
+#[test]
 fn hashes_without_a_space_are_not_a_heading() {
     let (title, snippet) = title_and_snippet("#hashtag note\n", "f");
     assert_eq!(title, "f");

@@ -8,6 +8,10 @@ A desktop app for all of the user's work. At its centre it spawns, monitors and 
 One of the app's top-level areas, which the user switches between with the rail of icons on the far left: Agents, Notes, Calendar and Mail. Each Space has the whole window to the right of the rail. Its data lives on a Host in an open format other software can read: Markdown files for Notes, and the user's own calendar and mail servers for Calendar and Mail (ADR 0017). Agents reach every Space through the app's MCP server.
 _Avoid_: App (the whole thing is the app), Module (that's the code), Tab (the Diff tab is one), Section, View, Page.
 
+**Note**:
+One Markdown file in the Notes folder: by default `~/Notes`, or another the user picks, kept on one Host. The folder is the whole store, with no database or index of our own, so a Note can sit in any subfolder and be edited by any other app or by an Agent. Its title is its first heading, or else its file name. Every save names the version it was read at, so a Note that changed on disk meanwhile is never overwritten: the user is shown a **conflict** and picks which version to keep.
+_Avoid_: Document, Page (a Space isn't one either), Memo, Entry.
+
 **Agent**:
 One `claude` process, bound to one Worktree, running one Task. Its lifetime is the process's lifetime; when the process ends, the Agent ends.
 _Avoid_: Session (has a different, later meaning), Runner, Job, Worker.

@@ -73,10 +73,28 @@ fn plain(line: &str) -> String {
             break;
         }
     }
-    t.replace("**", "")
+    unlink(t)
+        .replace(['*', '`'], "")
         .replace("__", "")
-        .replace('`', "")
         .replace("~~", "")
+}
+
+/// `[text](url)` as its text, and `![alt](src)` as its alt.
+fn unlink(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    let mut rest = line;
+    while let Some(open) = rest.find('[') {
+        let after = &rest[open + 1..];
+        let Some(close) = after.find("](") else { break };
+        let Some(end) = after[close + 2..].find(')') else {
+            break;
+        };
+        out.push_str(rest[..open].trim_end_matches('!'));
+        out.push_str(&after[..close]);
+        rest = &after[close + 2 + end + 1..];
+    }
+    out.push_str(rest);
+    out
 }
 
 /// Cut `s` to at most `max` characters, with an ellipsis if anything went.
