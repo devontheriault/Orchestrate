@@ -98,6 +98,18 @@ impl Host {
                 let _ = relay.send(Arc::from(line(&frame)));
             }
         });
+        // Mail's own events (ADR 0017), relayed the same way.
+        let relay = frames.clone();
+        let mut mail = crate::mail::events();
+        tokio::spawn(async move {
+            while let Ok(payload) = mail.recv().await {
+                let frame = Frame::Event {
+                    name: "mail-changed".into(),
+                    payload,
+                };
+                let _ = relay.send(Arc::from(line(&frame)));
+            }
+        });
         Arc::new(Self {
             runtime,
             startup_orphans: Mutex::new(startup_orphans),
@@ -307,6 +319,7 @@ async fn start() -> Result<(), String> {
         .collect();
     let (rt, rx) = AgentRuntime::new();
     let host = Host::new(rt, rx, orphans);
+    crate::mail::start();
 
     let on_signal = host.clone();
     tokio::spawn(async move {

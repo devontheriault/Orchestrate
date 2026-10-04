@@ -5,6 +5,7 @@ pub mod error;
 pub mod git;
 pub mod handoff;
 pub mod host;
+pub mod mail;
 pub mod merging;
 pub mod models;
 pub mod paths;

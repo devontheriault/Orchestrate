@@ -189,6 +189,53 @@ pub enum Call {
         change: crate::plugins::Change,
     },
     UsageSummary {},
+    /// The Mail Space (ADR 0017): the account, and where it stands.
+    MailStatus {},
+    /// Connect an account. Gmail with Google answers with a page to sign in on.
+    MailSetUp {
+        setup: crate::mail::Setup,
+    },
+    /// Forget the account and its cache. The mailbox itself is untouched.
+    MailSignOut {},
+    MailFolders {},
+    /// A folder's newest messages, as conversations.
+    MailThreads {
+        folder: String,
+    },
+    /// The server's search, in `folder` or with none everywhere.
+    MailSearch {
+        query: String,
+        folder: Option<String>,
+    },
+    /// Open a message, marking it read; remote images only if `images`.
+    MailMessage {
+        folder: String,
+        uid: u32,
+        images: bool,
+    },
+    MailSetSeen {
+        folder: String,
+        uids: Vec<u32>,
+        seen: bool,
+    },
+    MailArchive {
+        folder: String,
+        uids: Vec<u32>,
+    },
+    MailTrash {
+        folder: String,
+        uids: Vec<u32>,
+    },
+    MailAttachment {
+        folder: String,
+        uid: u32,
+        index: usize,
+    },
+    /// A conversation as quoted plain text, for an Agent's Task.
+    MailThreadText {
+        folder: String,
+        uids: Vec<u32>,
+    },
     StartupOrphans {},
     DismissOrphans {},
     /// Exit as soon as no Turn is running, so the service can start the build
@@ -574,6 +621,29 @@ async fn handle(host: &Host, call: Call) -> Result<Value, String> {
             .await
             .map_err(err)?
             .map_err(err)?),
+
+        Call::MailStatus {} => ok(crate::mail::status()),
+        Call::MailSetUp { setup } => ok(crate::mail::set_up(setup).await?),
+        Call::MailSignOut {} => ok(crate::mail::sign_out().await?),
+        Call::MailFolders {} => ok(crate::mail::folders().await?),
+        Call::MailThreads { folder } => ok(crate::mail::threads(&folder).await?),
+        Call::MailSearch { query, folder } => {
+            ok(crate::mail::search(&query, folder.as_deref()).await?)
+        }
+        Call::MailMessage { folder, uid, images } => {
+            ok(crate::mail::message(&folder, uid, images).await?)
+        }
+        Call::MailSetSeen { folder, uids, seen } => {
+            ok(crate::mail::set_seen(&folder, &uids, seen).await?)
+        }
+        Call::MailArchive { folder, uids } => ok(crate::mail::archive(&folder, &uids).await?),
+        Call::MailTrash { folder, uids } => ok(crate::mail::trash(&folder, &uids).await?),
+        Call::MailAttachment { folder, uid, index } => {
+            ok(crate::mail::attachment(&folder, uid, index).await?)
+        }
+        Call::MailThreadText { folder, uids } => {
+            ok(crate::mail::thread_text(&folder, &uids).await?)
+        }
 
         // Read fresh from disk, so one the user has since Resumed or Discarded
         // drops out.
