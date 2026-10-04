@@ -7,6 +7,7 @@ pub mod handoff;
 pub mod host;
 pub mod merging;
 pub mod models;
+pub mod notes;
 pub mod paths;
 pub mod plugins;
 pub mod process;
