@@ -41,6 +41,16 @@ reqwest = { version = "0.13", features = ["json", "rustls"] }
 tokio = { version = "1", features = ["process", "io-util", "sync", "time", "macros", "rt-multi-thread", "net", "signal"] }
 # Attachments cross to the Host inside JSON, which has no bytes of its own.
 base64 = "0.22"
+# The Calendar Space (ADR 0017). `rrule` expands repeating Calendar events
+# across time zones and DST, and brings `chrono` and `chrono-tz` with it;
+# `roxmltree` reads CalDAV's XML; `sha2` is Google sign-in's PKCE challenge;
+# `iana-time-zone` names the Host's own zone, for times that give none.
+rrule = "0.14"
+chrono = { version = "0.4", features = ["serde"] }
+chrono-tz = "0.10"
+roxmltree = "0.21"
+sha2 = "0.10"
+iana-time-zone = "0.1"
 
 # Reads a pasted image straight off the OS clipboard. WebKitGTK only hands a
 # paste event the clipboard's file paths, never its image data, so on Linux a
@@ -66,6 +76,8 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Securit
 
 [dev-dependencies]
 tempfile = "3"
+# Stands in for Google's servers in the Calendar Space's tests.
+wiremock = "0.6"
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]

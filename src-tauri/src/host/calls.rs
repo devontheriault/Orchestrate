@@ -189,6 +189,48 @@ pub enum Call {
         change: crate::plugins::Change,
     },
     UsageSummary {},
+    /// The Calendar Space's accounts and their calendars (ADR 0017).
+    CalendarOverview {},
+    /// Every occurrence of every Calendar event overlapping `from`..`to`,
+    /// RFC 3339 times. All-day ones are matched by date in `from`'s offset.
+    CalendarEvents {
+        from: String,
+        to: String,
+    },
+    /// Calendar events mentioning every word of `query`, within a year either
+    /// side of now unless `from` and `to` say otherwise.
+    CalendarSearch {
+        query: String,
+        from: Option<String>,
+        to: Option<String>,
+        limit: Option<usize>,
+    },
+    /// When the user is busy, and free, in `from`..`to`.
+    CalendarFreeBusy {
+        from: String,
+        to: String,
+    },
+    /// Sync every calendar account now rather than at the next interval.
+    CalendarSync {},
+    /// Connect a CalDAV account, once the server takes the login.
+    CalendarAddCaldav {
+        url: String,
+        username: String,
+        password: String,
+    },
+    /// Keep the Google OAuth client the user made, to sign in to Google as.
+    CalendarSetGoogleClient {
+        client_id: String,
+        client_secret: String,
+    },
+    /// Start signing in to Google: the URL to open in a browser on the Host's
+    /// own machine, which Google sends back to. The account arrives later,
+    /// with a `calendar-changed` event.
+    CalendarConnectGoogle {},
+    /// Forget an account here. Nothing on the provider is touched.
+    CalendarRemoveAccount {
+        id: String,
+    },
     StartupOrphans {},
     DismissOrphans {},
     /// Exit as soon as no Turn is running, so the service can start the build
@@ -241,6 +283,11 @@ pub async fn answer(host: &Host, call: Value, peer: Peer) -> Result<Value, Strin
     // which it would then ask to make way again.
     if matches!(call, Call::ShutdownWhenIdle {}) && peer != Peer::Local {
         return Err("only a window on the Host's own machine can restart it".into());
+    }
+    // Google sends the browser back to 127.0.0.1, which is only this Host
+    // from a browser on its own machine.
+    if matches!(call, Call::CalendarConnectGoogle {}) && peer != Peer::Local {
+        return Err("connect Google from a window on the Host's own machine: Google sends the browser back to it there".into());
     }
     handle(host, call).await
 }
@@ -574,6 +621,43 @@ async fn handle(host: &Host, call: Call) -> Result<Value, String> {
             .await
             .map_err(err)?
             .map_err(err)?),
+
+        Call::CalendarOverview {} => ok(host.calendar.overview()),
+
+        Call::CalendarEvents { from, to } => ok(host.calendar.events(&from, &to)?),
+
+        Call::CalendarSearch {
+            query,
+            from,
+            to,
+            limit,
+        } => ok(host
+            .calendar
+            .search(&query, from.as_deref(), to.as_deref(), limit)?),
+
+        Call::CalendarFreeBusy { from, to } => ok(host.calendar.free_busy(&from, &to)?),
+
+        Call::CalendarSync {} => {
+            host.calendar.sync_all().await;
+            ok(host.calendar.overview())
+        }
+
+        Call::CalendarAddCaldav {
+            url,
+            username,
+            password,
+        } => ok(host.calendar.add_caldav(&url, &username, &password).await?),
+
+        Call::CalendarSetGoogleClient {
+            client_id,
+            client_secret,
+        } => ok(host
+            .calendar
+            .set_google_client(&client_id, &client_secret)?),
+
+        Call::CalendarConnectGoogle {} => ok(host.calendar.begin_google().await?),
+
+        Call::CalendarRemoveAccount { id } => ok(host.calendar.remove(&id)?),
 
         // Read fresh from disk, so one the user has since Resumed or Discarded
         // drops out.

@@ -71,6 +71,8 @@ pub struct Host {
     draining: AtomicBool,
     /// Flipped to `true` to make [`serve`] return.
     stopping: Arc<watch::Sender<bool>>,
+    /// The Calendar Space (ADR 0017).
+    calendar: Arc<crate::calendar::Calendars>,
 }
 
 impl Host {
@@ -98,10 +100,26 @@ impl Host {
                 let _ = relay.send(Arc::from(line(&frame)));
             }
         });
+        let calendar = {
+            let frames = frames.clone();
+            let dir = crate::calendar::Calendars::dir()
+                .unwrap_or_else(|_| std::env::temp_dir().join("orchestrate-calendar"));
+            crate::calendar::Calendars::new(
+                dir,
+                Arc::new(move |name: &str, payload| {
+                    let frame = Frame::Event {
+                        name: name.into(),
+                        payload,
+                    };
+                    let _ = frames.send(Arc::from(line(&frame)));
+                }),
+            )
+        };
         Arc::new(Self {
             runtime,
             startup_orphans: Mutex::new(startup_orphans),
             frames,
+            calendar,
             hello: Hello::new(new_id()),
             draining: AtomicBool::new(false),
             stopping: Arc::new(watch::channel(false).0),
@@ -331,6 +349,7 @@ async fn start() -> Result<(), String> {
         on_signal.stop();
     });
 
+    host.calendar.keep_syncing();
     eprintln!("host: listening on {}", socket.display());
     serve(host, listener, remote_listener()).await;
     let _ = std::fs::remove_file(&socket);
