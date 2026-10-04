@@ -448,6 +448,42 @@ async fn no_picked_model_passes_no_model_flag() {
     assert!(!args.contains("--effort"), "{args}");
 }
 
+/// Every Turn is handed the app's MCP server, ahead of a flag so the variadic
+/// options can't take what follows them.
+#[tokio::test]
+async fn every_turn_is_handed_the_mcp_server() {
+    let _env = StateEnv::new();
+    let repo = init_repo().await;
+    let project = sample_project(repo.path().to_path_buf());
+    let args_log = std::env::temp_dir().join(format!("cw-args-{}.txt", new_id()));
+    let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_recording(&args_log));
+    let mcp = crate::mcp::turn_args();
+    assert!(!mcp.is_empty());
+    let rt = AgentRuntime {
+        mcp_args: Arc::new(mcp.clone()),
+        ..rt
+    };
+
+    rt.spawn(
+        &project,
+        "hello".into(),
+        vec![],
+        None,
+        None,
+        None,
+        AgentOptions::default(),
+    )
+    .await
+    .unwrap();
+    wait_for_exit(&mut rx).await;
+
+    let args = std::fs::read_to_string(&args_log).unwrap();
+    assert!(
+        args.contains(&format!("{} --permission-mode", mcp.join(" "))),
+        "{args}"
+    );
+}
+
 /// `--print` kills background shells once it has answered, so a Turn that
 /// could background its work would be marked Completed with it unfinished.
 #[tokio::test]
