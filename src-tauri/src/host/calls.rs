@@ -630,9 +630,11 @@ async fn handle(host: &Host, call: Call) -> Result<Value, String> {
         Call::MailSearch { query, folder } => {
             ok(crate::mail::search(&query, folder.as_deref()).await?)
         }
-        Call::MailMessage { folder, uid, images } => {
-            ok(crate::mail::message(&folder, uid, images).await?)
-        }
+        Call::MailMessage {
+            folder,
+            uid,
+            images,
+        } => ok(crate::mail::message(&folder, uid, images).await?),
         Call::MailSetSeen { folder, uids, seen } => {
             ok(crate::mail::set_seen(&folder, &uids, seen).await?)
         }
