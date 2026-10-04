@@ -1,8 +1,12 @@
 # Claude Code Control Layer
 
-A lightweight desktop app that spawns, monitors, and controls Claude Code agents running in isolated Git worktrees. This project manages the agents around Claude Code, not the coding work itself.
+A desktop app for all of the user's work. At its centre it spawns, monitors and controls Claude Code agents running in isolated Git worktrees, and it manages the agents around Claude Code, not the coding work itself. Next to the Agents are the user's notes, calendar and mail (ADR 0017).
 
 ## Language
+
+**Space**:
+One of the app's top-level areas, which the user switches between with the rail of icons on the far left: Agents, Notes, Calendar and Mail. Each Space has the whole window to the right of the rail. Its data lives on a Host in an open format other software can read: Markdown files for Notes, and the user's own calendar and mail servers for Calendar and Mail (ADR 0017). Agents reach every Space through the app's MCP server.
+_Avoid_: App (the whole thing is the app), Module (that's the code), Tab (the Diff tab is one), Section, View, Page.
 
 **Agent**:
 One `claude` process, bound to one Worktree, running one Task. Its lifetime is the process's lifetime; when the process ends, the Agent ends.

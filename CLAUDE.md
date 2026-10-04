@@ -6,6 +6,8 @@ Build a lightweight control layer for Claude Code that makes it easy to run, mon
 
 Claude Code remains responsible for coding and agentic work. This project manages the agents around it.
 
+The app is also becoming the user's hub for all their work: Notes, Calendar and Mail sit beside Agents as Spaces, switched from a rail of icons on the far left (ADR 0017). Their data stays in open formats (Markdown files, CalDAV, IMAP) rather than a store of our own, and Agents reach them over the app's MCP server.
+
 ## Core Capabilities
 
 - Spawn and manage Claude Code sessions
@@ -55,6 +57,7 @@ Conventions the directory tree won't tell you:
 - The page is rendered ahead of time (ADR 0015), so nothing on import or in a component's setup may touch `window`, `document`, `localStorage` or the Tauri API; do it in an `$effect`, `onMount` or a handler. A stored setting the first frame's layout depends on goes in the pre-paint script in `app.html`.
 - Backend: `runtime/` owns live agents (`turn.rs` is one `claude` process), `git/` is split by user action, and `domain.rs` holds the persisted records. Tests for a directory module live in its `tests.rs`.
 - The agents live in the Host, the same binary run with `--host` (ADR 0009). `host/calls.rs` is every call a window can make, so a new backend call goes there and in `api.ts`'s `host()`, not in `commands.rs`. `commands.rs` only forwards calls to the Host, plus the few that touch the window's own machine (clipboard, dropped files). `host/client.rs` is the window's end of the socket, and `host/service.rs` starts a Host when none is running.
+- Each Space (ADR 0017) is a feature module on the Host beside `runtime/` (`notes/`, `calendar/`, `mail/`), with its UI in `src/lib/<space>/`. A calendar entry is a `CalendarEvent`, never an `Event`, which already means a stream event.
 - A window talks to several Hosts: its own machine's (`local`) and others added by Tailscale name (`host/hosts.rs`; `host/tailnet.rs` is how a Host lets them in). In `api.ts`, a call about an agent is routed to its Host; everything else names one. The store groups each Host's checkouts into one project by remote (`state/projects.ts`) and files agents under the group, keeping the Host's own id in `home_project_id`.
 
 ## Agent skills
