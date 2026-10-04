@@ -8,6 +8,11 @@ A desktop app for all of the user's work. At its centre it spawns, monitors and 
 One of the app's top-level areas, which the user switches between with the rail of icons on the far left: Agents, Notes, Calendar and Mail. Each Space has the whole window to the right of the rail. Its data lives on a Host in an open format other software can read: Markdown files for Notes, and the user's own calendar and mail servers for Calendar and Mail (ADR 0017). Agents reach every Space through the app's MCP server.
 _Avoid_: App (the whole thing is the app), Module (that's the code), Tab (the Diff tab is one), Section, View, Page.
 
+**Rail**:
+The column of Space icons down the window's left edge, with Settings at its foot. It switches Spaces and remembers the last one, and on a phone it is a tab bar along the bottom instead. Leaving a Space keeps it as it was, so coming back to Agents finds the same Agent, scrolled to the same place, with the same draft.
+The project list squeezed to its initials in a narrow window is not the Rail, though the code calls that a rail too (`panes.railed`, `--rail`).
+_Avoid_: Sidebar (that's the project list), Dock, Activity bar, Tab bar (only what it becomes on a phone).
+
 **Agent**:
 One `claude` process, bound to one Worktree, running one Task. Its lifetime is the process's lifetime; when the process ends, the Agent ends.
 _Avoid_: Session (has a different, later meaning), Runner, Job, Worker.

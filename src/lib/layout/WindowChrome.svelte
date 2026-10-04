@@ -5,14 +5,19 @@
   import { viewport } from "./viewport.svelte";
   import Logo from "./Logo.svelte";
   import { store } from "$lib/state/store.svelte";
+  import { space } from "$lib/spaces/space.svelte";
 
   // Drives the maximize/restore glyph. Only tracked where this app draws the
   // button — macOS has its own and never asks.
   let maximized = $state(false);
 
-  /** What the detail pane is showing, which is what the bar names. */
-  const agent = $derived(store.selectedAgent);
-  const drafting = $derived(store.drafting && !agent);
+  /**
+   * What the detail pane is showing, which is what the bar names. Only in the
+   * Agents Space: any other has the window below the bar to itself.
+   */
+  const agents = $derived(space.current === "agents");
+  const agent = $derived(agents ? store.selectedAgent : null);
+  const drafting = $derived(agents && store.drafting && !agent);
   const projectName = $derived(
     store.projects.find((p) => p.id === agent?.project_id)?.name ?? "",
   );
@@ -47,22 +52,24 @@
       <div class="lead phone"><Logo /></div>
     {/if}
   {:else}
-    <!-- The title sits in a segment as wide as the project pane and painted like
-         it, so the bar reads as the top of the two panes below rather than as a
-         band laid across them. -->
+    <!-- The title sits in a segment as wide as the rail and the project pane
+         and painted like them, so the bar reads as the top of the panes below
+         rather than as a band laid across them. Its mark sits over the rail,
+         and in any other Space the segment is only as wide as the rail. -->
     <div
       class="lead"
-      class:railed={panes.railed}
-      style="width: {panes.cssWidth}"
+      style:--lead-pane={panes.cssWidth}
       data-tauri-drag-region={dragRegion}
     >
-      <Logo markOnly={panes.railed} />
+      <Logo markOnly={panes.railed || !agents} />
     </div>
 
     <!-- The detail pane's heading, in the bar that continues it: the name Claude
          gave the work, with the prompt behind it a hover away. -->
     <div class="title" data-tauri-drag-region={dragRegion}>
-      {#if agent}
+      {#if !agents}
+        <!-- Nothing: the Space below has the window to itself. -->
+      {:else if agent}
         <span class="name" title={agent.task.prompt} data-tauri-drag-region={dragRegion}>
           {#if projectName}
             <span class="project">{projectName}</span>
@@ -147,9 +154,11 @@
 
   .lead {
     flex: none;
+    width: calc(var(--spaces-rail) + var(--lead-pane));
     display: flex;
     align-items: center;
-    padding: 0 var(--pad-x);
+    /* The mark centred over the rail's icons (it is 0.93em wide). */
+    padding: 0 var(--pad-x) 0 calc((var(--spaces-rail) - 0.93em) / 2);
     background: var(--panel-bg);
     overflow: hidden;
     /* Sizes the logo: the name, not a caption, so it fills the bar the way a
@@ -157,14 +166,31 @@
     font-size: 1.75rem;
   }
 
-  /* Over the rail, the mark sits where the rail's own rows and "+" start. */
-  .lead.railed {
-    padding-inline: 0.4rem;
+  /* Away from Agents the segment tops the rail alone, and the title has
+     nothing to name. Keyed off `<html data-space>` as well as drawn that way,
+     because the page arrives rendered as Agents (see `spaces.ts`). */
+  :global(html[data-space]:not([data-space="agents"])) .lead:not(.phone) {
+    width: var(--spaces-rail);
   }
 
-  /* The traffic lights live in this corner, so the title starts after them. */
+  :global(html[data-space]:not([data-space="agents"])) .lead:not(.phone) :global(.word),
+  :global(html[data-space]:not([data-space="agents"])) .title > * {
+    display: none;
+  }
+
+  /* Centred as `markOnly` draws it, so it doesn't settle once the app starts. */
+  :global(html[data-space]:not([data-space="agents"])) .lead:not(.phone) :global(.mark) {
+    transform: none;
+  }
+
+  /* The traffic lights live in this corner, so the title starts after them,
+     and a segment only as wide as the rail grows to clear them. */
   :global(html[data-frame="mac"]) .lead {
     padding-left: 5rem;
+  }
+
+  :global(html[data-frame="mac"][data-space]:not([data-space="agents"])) .lead {
+    width: auto;
   }
 
   /* Over a phone's list the bar is the list's own top, in its colour, up
@@ -173,8 +199,10 @@
     background: var(--panel-bg);
   }
 
+  /* A phone has no rail, so the bar is the logo's alone. */
   .lead.phone {
     flex: 1;
+    padding-left: var(--pad-x);
   }
 
   .back {

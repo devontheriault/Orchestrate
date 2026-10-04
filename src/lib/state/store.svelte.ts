@@ -24,6 +24,7 @@ import {
   type HostStatus,
   type Project,
 } from "$lib/api";
+import { space } from "$lib/spaces/space.svelte";
 import { notify } from "$lib/notify/notify";
 import { turnNotice } from "$lib/notify/turnNotice";
 import type { UnlistenFn } from "@tauri-apps/api/event";
@@ -765,6 +766,7 @@ export class AppStore {
   showAgent(id: string): boolean {
     const agent = this.agents.find((a) => a.id === id);
     if (!agent) return false;
+    space.show("agents");
     if (this.projects.some((p) => p.id === agent.project_id)) {
       this.selectedProjectId = agent.project_id;
       this.expandedProjects[agent.project_id] = true;
@@ -775,6 +777,7 @@ export class AppStore {
 
   jumpToFirstOrphan() {
     if (this.orphans.length === 0) return;
+    space.show("agents");
     const first = this.orphans[0];
     if (this.projects.some((p) => p.id === first.project_id)) {
       this.selectedProjectId = first.project_id;
