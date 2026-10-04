@@ -37,8 +37,12 @@ pub struct Listed<'a> {
 }
 
 pub fn summary(l: Listed<'_>) -> Summary {
-    let mut bytes = Vec::with_capacity(l.header.len() + l.text_start.len());
+    let mut bytes = Vec::with_capacity(l.header.len() + l.text_start.len() + 2);
     bytes.extend_from_slice(l.header);
+    // The header ends at a blank line, which some servers leave off.
+    if !(bytes.ends_with(b"\r\n\r\n") || bytes.ends_with(b"\n\n")) {
+        bytes.extend_from_slice(b"\r\n");
+    }
     bytes.extend_from_slice(l.text_start);
     let parsed = MessageParser::default().parse(&bytes);
 
@@ -54,10 +58,11 @@ pub fn summary(l: Listed<'_>) -> Summary {
         .map(|d| d.to_timestamp())
         .or(l.arrived)
         .unwrap_or(0);
+    // A reply's copy of what it answers is not what it says.
     let snippet = parsed
         .as_ref()
-        .and_then(|m| m.body_preview(SNIPPET_CHARS * 2))
-        .map(|s| one_line(&s, SNIPPET_CHARS))
+        .and_then(|m| m.body_preview(SNIPPET_CHARS * 8))
+        .map(|s| one_line(&without_quoted_reply(&s), SNIPPET_CHARS))
         .unwrap_or_default();
     let attachments = parsed.as_ref().is_some_and(|m| {
         m.root_part().is_content_type("multipart", "mixed") || m.attachment_count() > 0
@@ -67,7 +72,10 @@ pub fn summary(l: Listed<'_>) -> Summary {
     Summary {
         uid: l.uid,
         folder: l.folder.to_string(),
-        message_id: parsed.as_ref().and_then(|m| m.message_id()).map(str::to_string),
+        message_id: parsed
+            .as_ref()
+            .and_then(|m| m.message_id())
+            .map(str::to_string),
         references: parsed.as_ref().map(references).unwrap_or_default(),
         gm_thread: l.gm_thread,
         subject,
@@ -155,7 +163,11 @@ pub fn message(raw: &[u8], folder: &str, uid: u32, images: bool) -> Option<Messa
             "data:{mime};base64,{}",
             base64::engine::general_purpose::STANDARD.encode(bytes)
         );
-        inline.insert(cid.trim_matches(|c| c == '<' || c == '>').to_ascii_lowercase(), url);
+        inline.insert(
+            cid.trim_matches(|c| c == '<' || c == '>')
+                .to_ascii_lowercase(),
+            url,
+        );
         inline_parts.push(i as u32);
     }
 
@@ -239,7 +251,13 @@ pub fn safe_file_name(name: &str) -> Option<String> {
     let base = name.rsplit(['/', '\\']).next().unwrap_or("");
     let cleaned: String = base
         .chars()
-        .map(|c| if c.is_control() || ":*?\"<>|".contains(c) { '_' } else { c })
+        .map(|c| {
+            if c.is_control() || ":*?\"<>|".contains(c) {
+                '_'
+            } else {
+                c
+            }
+        })
         .collect();
     let cleaned = cleaned.trim().trim_start_matches('.').trim().to_string();
     (!cleaned.is_empty()).then_some(cleaned)

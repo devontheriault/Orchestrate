@@ -2,8 +2,7 @@ use std::collections::HashMap;
 
 use super::account::{self, PasswordSetup, Saved, Security};
 use super::imap::{
-    decode_folder_name, destination, folders_from, internal_date, quoted, search_criteria,
-    uid_set,
+    decode_folder_name, destination, folders_from, internal_date, quoted, search_criteria, uid_set,
 };
 use super::parse::{self, safe_file_name, without_quoted_reply, Listed};
 use super::sanitize::{clean_style, sanitize};
@@ -18,10 +17,33 @@ fn clean(html: &str) -> String {
 fn assert_inert(out: &str) {
     let lower = out.to_ascii_lowercase();
     for bad in [
-        "<script", "javascript:", "onerror", "onload", "onclick", "onmouseover", "<iframe",
-        "<object", "<embed", "<form", "<input", "<button", "<meta", "<base", "<link", "<svg",
-        "<math", "<style", "expression(", "url(", "srcset", "ping=", "formaction", "<video",
-        "<audio", "data:text", "vbscript:",
+        "<script",
+        "javascript:",
+        "onerror",
+        "onload",
+        "onclick",
+        "onmouseover",
+        "<iframe",
+        "<object",
+        "<embed",
+        "<form",
+        "<input",
+        "<button",
+        "<meta",
+        "<base",
+        "<link",
+        "<svg",
+        "<math",
+        "<style",
+        "expression(",
+        "url(",
+        "srcset",
+        "ping=",
+        "formaction",
+        "<video",
+        "<audio",
+        "data:text",
+        "vbscript:",
     ] {
         assert!(!lower.contains(bad), "{bad:?} got through in {out}");
     }
@@ -65,7 +87,8 @@ fn script_links_are_dropped_however_they_are_spelled() {
 
 #[test]
 fn web_links_open_outside_the_app() {
-    let out = clean(r#"<a href="https://example.com/a?b=1" target="_top" ping="https://t/p">x</a>"#);
+    let out =
+        clean(r#"<a href="https://example.com/a?b=1" target="_top" ping="https://t/p">x</a>"#);
     assert!(out.contains(r#"href="https://example.com/a?b=1""#), "{out}");
     assert!(out.contains(r#"target="_blank""#), "{out}");
     assert!(out.contains(r#"rel="noopener noreferrer""#), "{out}");
@@ -152,13 +175,21 @@ fn only_picture_data_urls_are_images() {
 #[test]
 fn inline_images_come_from_the_message() {
     let mut inline = HashMap::new();
-    inline.insert("logo@shop".to_string(), "data:image/png;base64,AAAA".to_string());
+    inline.insert(
+        "logo@shop".to_string(),
+        "data:image/png;base64,AAAA".to_string(),
+    );
     let out = sanitize(
         r#"<img src="cid:logo@shop"><img src="CID:<LOGO@SHOP>"><img src="cid:missing">"#,
         &inline,
         false,
     );
-    assert_eq!(out.html.matches("data:image/png;base64,AAAA").count(), 2, "{}", out.html);
+    assert_eq!(
+        out.html.matches("data:image/png;base64,AAAA").count(),
+        2,
+        "{}",
+        out.html
+    );
     assert!(!out.html.contains("cid:"), "{}", out.html);
     assert_eq!(out.remote_images, 0);
 }
@@ -188,7 +219,8 @@ fn styles_keep_only_what_changes_how_things_look() {
     ] {
         let kept = clean_style(hostile);
         assert!(
-            kept.as_deref().is_none_or(|k| !k.contains('(') && !k.contains('@')),
+            kept.as_deref()
+                .is_none_or(|k| !k.contains('(') && !k.contains('@')),
             "{hostile} -> {kept:?}"
         );
     }
@@ -200,8 +232,15 @@ fn newsletters_keep_their_layout() {
         r##"<table width="600" cellpadding="24" bgcolor="#fff" align="center"><tr><td valign="top" style="font-family:Georgia,serif;color:#b7410e"><font face="Arial" color="red">Hi</font><center>c</center></td></tr></table>"##,
     );
     for kept in [
-        r#"width="600""#, r#"cellpadding="24""#, r##"bgcolor="#fff""##, r#"align="center""#,
-        r#"valign="top""#, "font-family: Georgia,serif", "<font", r#"face="Arial""#, "<center>",
+        r#"width="600""#,
+        r#"cellpadding="24""#,
+        r##"bgcolor="#fff""##,
+        r#"align="center""#,
+        r#"valign="top""#,
+        "font-family: Georgia,serif",
+        "<font",
+        r#"face="Arial""#,
+        "<center>",
     ] {
         assert!(out.contains(kept), "lost {kept}: {out}");
     }
@@ -209,7 +248,8 @@ fn newsletters_keep_their_layout() {
 
 #[test]
 fn titles_and_heads_leave_no_text_behind() {
-    let out = clean("<html><head><title>Secret title</title></head><body><p>Body</p></body></html>");
+    let out =
+        clean("<html><head><title>Secret title</title></head><body><p>Body</p></body></html>");
     assert_eq!(out, "<p>Body</p>");
 }
 
@@ -305,13 +345,22 @@ fn searches_need_every_word() {
         search_criteria(r#"from:priya roadmap "q4 review""#, false),
         r#"FROM "priya" TEXT "roadmap" TEXT "q4 review""#
     );
-    assert_eq!(search_criteria("subject:Entwürfe", false), r#"CHARSET UTF-8 SUBJECT "Entwürfe""#);
-    assert_eq!(search_criteria("has:attachment invoice", true), r#"X-GM-RAW "has:attachment invoice""#);
+    assert_eq!(
+        search_criteria("subject:Entwürfe", false),
+        r#"CHARSET UTF-8 SUBJECT "Entwürfe""#
+    );
+    assert_eq!(
+        search_criteria("has:attachment invoice", true),
+        r#"X-GM-RAW "has:attachment invoice""#
+    );
 }
 
 #[test]
 fn folder_names_decode_from_modified_utf7() {
-    assert_eq!(decode_folder_name("Projekte/Entw&APw-rfe"), "Projekte/Entwürfe");
+    assert_eq!(
+        decode_folder_name("Projekte/Entw&APw-rfe"),
+        "Projekte/Entwürfe"
+    );
     assert_eq!(decode_folder_name("Tom &- Jerry"), "Tom & Jerry");
     assert_eq!(decode_folder_name("&ZeVnLIqe-"), "日本語");
     assert_eq!(decode_folder_name("Broken &abc"), "Broken &abc");
@@ -319,7 +368,13 @@ fn folder_names_decode_from_modified_utf7() {
 
 #[test]
 fn folders_get_their_roles_from_the_server_or_their_names() {
-    let l = |p: &str, a: &[&str]| (p.to_string(), Some("/".to_string()), a.iter().map(|s| s.to_string()).collect());
+    let l = |p: &str, a: &[&str]| {
+        (
+            p.to_string(),
+            Some("/".to_string()),
+            a.iter().map(|s| s.to_string()).collect(),
+        )
+    };
     let gmail = folders_from(vec![
         l("INBOX", &[]),
         l("[Gmail]", &["\\Noselect"]),
@@ -331,22 +386,56 @@ fn folders_get_their_roles_from_the_server_or_their_names() {
         l("Receipts/2026", &[]),
     ]);
     let names: Vec<&str> = gmail.iter().map(|f| f.name.as_str()).collect();
-    assert_eq!(names, ["Inbox", "Important", "Sent Mail", "All Mail", "Trash", "Receipts", "2026"]);
+    assert_eq!(
+        names,
+        [
+            "Inbox",
+            "Important",
+            "Sent Mail",
+            "All Mail",
+            "Trash",
+            "Receipts",
+            "2026"
+        ]
+    );
     assert_eq!(gmail[6].depth, 1);
-    assert_eq!(destination(&gmail, Role::Archive).as_deref(), Some("[Gmail]/All Mail"));
-    assert_eq!(destination(&gmail, Role::Trash).as_deref(), Some("[Gmail]/Trash"));
+    assert_eq!(
+        destination(&gmail, Role::Archive).as_deref(),
+        Some("[Gmail]/All Mail")
+    );
+    assert_eq!(
+        destination(&gmail, Role::Trash).as_deref(),
+        Some("[Gmail]/Trash")
+    );
 
-    let plain = folders_from(vec![l("INBOX", &[]), l("Archive", &[]), l("Deleted Items", &[]), l("Sent", &[])]);
-    assert_eq!(destination(&plain, Role::Archive).as_deref(), Some("Archive"));
-    assert_eq!(destination(&plain, Role::Trash).as_deref(), Some("Deleted Items"));
+    let plain = folders_from(vec![
+        l("INBOX", &[]),
+        l("Archive", &[]),
+        l("Deleted Items", &[]),
+        l("Sent", &[]),
+    ]);
+    assert_eq!(
+        destination(&plain, Role::Archive).as_deref(),
+        Some("Archive")
+    );
+    assert_eq!(
+        destination(&plain, Role::Trash).as_deref(),
+        Some("Deleted Items")
+    );
     let bare = folders_from(vec![l("INBOX", &[])]);
     assert_eq!(destination(&bare, Role::Archive), None);
 }
 
 #[test]
 fn internal_dates_read() {
-    assert_eq!(internal_date("04-Oct-2026 13:41:52 +0000"), Some(1_791_121_312));
-    assert_eq!(internal_date(" 4-Oct-2026 15:41:52 +0200"), Some(1_791_121_312));
+    assert_eq!(
+        internal_date("04-Oct-2026 13:41:52 +0000"),
+        Some(1_791_121_312)
+    );
+    assert_eq!(
+        internal_date(" 4-Oct-2026 15:41:52 +0200"),
+        Some(1_791_121_312)
+    );
 }
 
 const NEWSLETTER: &str = concat!(
@@ -385,13 +474,21 @@ const NEWSLETTER: &str = concat!(
 fn opened_messages_carry_only_sanitized_html() {
     let m = parse::message(NEWSLETTER.as_bytes(), "INBOX", 9, false).unwrap();
     assert_eq!(m.subject, "Issue 612 — async");
-    assert_eq!(m.from.as_ref().unwrap().name.as_deref(), Some("This Week in Rust"));
+    assert_eq!(
+        m.from.as_ref().unwrap().name.as_deref(),
+        Some("This Week in Rust")
+    );
     let html = m.html.unwrap();
     assert_inert(&html);
     assert!(html.contains("data:image/png;base64,"), "{html}");
     assert!(!html.contains("t.example"), "{html}");
     assert_eq!(m.remote_images, 1);
-    assert_eq!(m.attachments.len(), 1, "the inline logo isn't a file: {:?}", m.attachments);
+    assert_eq!(
+        m.attachments.len(),
+        1,
+        "the inline logo isn't a file: {:?}",
+        m.attachments
+    );
     assert_eq!(m.attachments[0].name, "report.pdf");
     assert_eq!(m.attachments[0].mime, "application/pdf");
 
@@ -424,12 +521,24 @@ fn listed_messages_are_summarised_from_their_start() {
 
 #[test]
 fn file_names_are_only_names() {
-    assert_eq!(safe_file_name("../../.ssh/authorized_keys").as_deref(), Some("authorized_keys"));
-    assert_eq!(safe_file_name("C:\\Windows\\evil.exe").as_deref(), Some("evil.exe"));
+    assert_eq!(
+        safe_file_name("../../.ssh/authorized_keys").as_deref(),
+        Some("authorized_keys")
+    );
+    assert_eq!(
+        safe_file_name("C:\\Windows\\evil.exe").as_deref(),
+        Some("evil.exe")
+    );
     assert_eq!(safe_file_name(".bashrc").as_deref(), Some("bashrc"));
-    assert_eq!(safe_file_name("a\u{0}b\nc.txt").as_deref(), Some("a_b_c.txt"));
+    assert_eq!(
+        safe_file_name("a\u{0}b\nc.txt").as_deref(),
+        Some("a_b_c.txt")
+    );
     assert_eq!(safe_file_name("..").as_deref(), None);
-    assert_eq!(safe_file_name("Report: Q4?.pdf").as_deref(), Some("Report_ Q4_.pdf"));
+    assert_eq!(
+        safe_file_name("Report: Q4?.pdf").as_deref(),
+        Some("Report_ Q4_.pdf")
+    );
 }
 
 #[test]
@@ -447,7 +556,10 @@ fn agents_get_the_conversation_quoted() {
     let first = parse::message(NEWSLETTER.as_bytes(), "INBOX", 9, false).unwrap();
     let text = parse::quote_thread(&[first]);
     assert!(text.starts_with("Subject: Issue 612 — async\n"), "{text}");
-    assert!(text.contains("From: This Week in Rust <news@rust.example>"), "{text}");
+    assert!(
+        text.contains("From: This Week in Rust <news@rust.example>"),
+        "{text}"
+    );
     assert!(text.contains("Attachments: report.pdf"), "{text}");
     assert!(text.contains("> Hello"), "{text}");
     assert!(!text.contains("bad()"), "{text}");
@@ -488,13 +600,22 @@ fn credentials_are_readable_only_by_the_user() {
     account::save(&saved).unwrap();
     let dir = account::dir().unwrap();
     let file = dir.join("account.json");
-    assert_eq!(std::fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
-    assert_eq!(std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777, 0o700);
+    assert_eq!(
+        std::fs::metadata(&file).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    assert_eq!(
+        std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777,
+        0o700
+    );
 
     // Widened by something else, it is narrowed again on reading.
     std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
     assert_eq!(account::load().unwrap(), Some(saved));
-    assert_eq!(std::fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
+    assert_eq!(
+        std::fs::metadata(&file).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
 
     // What the window is told carries no secret.
     let info = serde_json::to_string(&account::load().unwrap().unwrap().info()).unwrap();
@@ -542,12 +663,21 @@ async fn reads_a_real_server() {
         .unwrap(),
     );
     let folders = imap.folders().await.unwrap();
-    let inbox = folders.iter().find(|f| f.role == Some(Role::Inbox)).unwrap();
+    let inbox = folders
+        .iter()
+        .find(|f| f.role == Some(Role::Inbox))
+        .unwrap();
     assert!(inbox.total >= 8, "{folders:?}");
-    assert!(folders.iter().any(|f| f.name.ends_with("Entwürfe")), "{folders:?}");
+    assert!(
+        folders.iter().any(|f| f.name.ends_with("Entwürfe")),
+        "{folders:?}"
+    );
 
     let threads = thread::group(imap.recent("INBOX", 300).await.unwrap());
-    let roadmap = threads.iter().find(|t| t.subject.starts_with("Q4 roadmap")).unwrap();
+    let roadmap = threads
+        .iter()
+        .find(|t| t.subject.starts_with("Q4 roadmap"))
+        .unwrap();
     assert_eq!(roadmap.messages.len(), 3, "{roadmap:?}");
     // Listing again comes from the cache, and says the same.
     let again = thread::group(imap.recent("INBOX", 300).await.unwrap());
@@ -556,9 +686,48 @@ async fn reads_a_real_server() {
     let found = imap.search("Archive", "kumquat-3", 50).await.unwrap();
     assert_eq!(found.len(), 1, "{found:?}");
 
-    let news = threads.iter().find(|t| t.subject.contains("Rust 612")).unwrap();
+    let news = threads
+        .iter()
+        .find(|t| t.subject.contains("Rust 612"))
+        .unwrap();
     let raw = imap.raw("INBOX", news.messages[0].uid).await.unwrap();
     let m = parse::message(&raw, "INBOX", news.messages[0].uid, false).unwrap();
     assert!(m.remote_images >= 3, "{}", m.remote_images);
     assert_inert(m.html.as_deref().unwrap());
+}
+
+#[test]
+fn a_header_without_its_blank_line_still_ends() {
+    // GreenMail sends BODY[HEADER] without the blank line that ends it.
+    let header = "From: a@b.c\r\nSubject: Hi\r\nMIME-Version: 1.0\r\nContent-Type: multipart/alternative; boundary=\"XX\"\r\n";
+    let text = "--XX\r\nContent-Type: text/plain\r\n\r\nThe real text.\r\n--XX\r\nContent-Type: text/html\r\n\r\n<p>x</p>\r\n--XX--\r\n";
+    let s = parse::summary(Listed {
+        uid: 1,
+        folder: "INBOX",
+        header: header.as_bytes(),
+        text_start: text.as_bytes(),
+        flags: &[],
+        labels: Vec::new(),
+        gm_thread: None,
+        arrived: None,
+    });
+    assert_eq!(s.snippet, "The real text.");
+}
+
+#[test]
+fn snippets_leave_out_what_a_reply_quotes() {
+    let header = "From: a@b.c\r\nSubject: Re: Hi\r\n\r\n";
+    let text =
+        "Yes, Thursday works.\r\n\r\nMarco\r\n\r\nOn Wed, Priya wrote:\r\n> Shall we meet?\r\n";
+    let s = parse::summary(Listed {
+        uid: 1,
+        folder: "INBOX",
+        header: header.as_bytes(),
+        text_start: text.as_bytes(),
+        flags: &[],
+        labels: Vec::new(),
+        gm_thread: None,
+        arrived: None,
+    });
+    assert_eq!(s.snippet, "Yes, Thursday works. Marco");
 }

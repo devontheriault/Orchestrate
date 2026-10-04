@@ -86,7 +86,11 @@ pub enum Stream {
 }
 
 impl AsyncRead for Stream {
-    fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<std::io::Result<()>> {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
         match self.get_mut() {
             Stream::Plain(s) => Pin::new(s).poll_read(cx, buf),
             Stream::Tls(s) => Pin::new(s.as_mut()).poll_read(cx, buf),
@@ -95,7 +99,11 @@ impl AsyncRead for Stream {
 }
 
 impl AsyncWrite for Stream {
-    fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<std::io::Result<usize>> {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
         match self.get_mut() {
             Stream::Plain(s) => Pin::new(s).poll_write(cx, buf),
             Stream::Tls(s) => Pin::new(s.as_mut()).poll_write(cx, buf),
@@ -208,7 +216,10 @@ fn refused_login(account: &Saved, e: async_imap::error::Error) -> String {
             } else {
                 ""
             };
-            format!("{} refused the sign-in for {}: {why}.{hint}", account.server, account.username)
+            format!(
+                "{} refused the sign-in for {}: {why}.{hint}",
+                account.server, account.username
+            )
         }
         other => format!("could not sign in to {}: {other}", account.server),
     }
@@ -267,11 +278,19 @@ async fn fetch(session: &mut Session<Stream>, command: &str) -> Result<Vec<Fetch
                         AttributeValue::Flags(flags) => {
                             f.flags = flags.iter().map(|s| s.to_string()).collect()
                         }
-                        AttributeValue::BodySection { section, data: Some(data), .. } => {
+                        AttributeValue::BodySection {
+                            section,
+                            data: Some(data),
+                            ..
+                        } => {
                             let data = data.to_vec();
                             match section {
-                                Some(SectionPath::Full(MessageSection::Header)) => f.header = Some(data),
-                                Some(SectionPath::Full(MessageSection::Text)) => f.text = Some(data),
+                                Some(SectionPath::Full(MessageSection::Header)) => {
+                                    f.header = Some(data)
+                                }
+                                Some(SectionPath::Full(MessageSection::Text)) => {
+                                    f.text = Some(data)
+                                }
                                 None => f.body = Some(data),
                                 _ => {}
                             }
@@ -291,7 +310,11 @@ async fn fetch(session: &mut Session<Stream>, command: &str) -> Result<Vec<Fetch
                     out.push(f);
                 }
             }
-            Response::Done { tag: t, status, outcome } if *t == tag => {
+            Response::Done {
+                tag: t,
+                status,
+                outcome,
+            } if *t == tag => {
                 return match status {
                     Status::Ok => Ok(out),
                     _ => Err(format!(
@@ -359,7 +382,11 @@ pub fn uid_set(uids: &[u32]) -> String {
             i += 1;
             end = sorted[i];
         }
-        out.push(if start == end { start.to_string() } else { format!("{start}:{end}") });
+        out.push(if start == end {
+            start.to_string()
+        } else {
+            format!("{start}:{end}")
+        });
         i += 1;
     }
     out.join(",")
@@ -385,7 +412,11 @@ pub fn quoted(s: &str) -> String {
 /// `from:`, `to:` and `subject:` narrow a word to that header. Gmail is
 /// handed the text whole, in its own search syntax.
 pub fn search_criteria(query: &str, gmail: bool) -> String {
-    let utf8 = if query.is_ascii() { "" } else { "CHARSET UTF-8 " };
+    let utf8 = if query.is_ascii() {
+        ""
+    } else {
+        "CHARSET UTF-8 "
+    };
     if gmail {
         return format!("{utf8}X-GM-RAW {}", quoted(query));
     }
@@ -504,9 +535,9 @@ pub fn folders_from(list: Vec<(String, Option<String>, Vec<String>)>) -> Vec<Fol
     let mut folders: Vec<Folder> = list
         .iter()
         .filter(|(_, _, attrs)| {
-            !attrs
-                .iter()
-                .any(|a| a.eq_ignore_ascii_case("\\Noselect") || a.eq_ignore_ascii_case("\\NonExistent"))
+            !attrs.iter().any(|a| {
+                a.eq_ignore_ascii_case("\\Noselect") || a.eq_ignore_ascii_case("\\NonExistent")
+            })
         })
         .map(|(path, delim, attrs)| {
             let segments: Vec<&str> = match delim {
@@ -523,7 +554,11 @@ pub fn folders_from(list: Vec<(String, Option<String>, Vec<String>)>) -> Vec<Fol
                 path: path.clone(),
                 name,
                 // Gmail's own folders sit under "[Gmail]", which is no folder.
-                depth: if role.is_some() { 0 } else { segments.len() as u32 - 1 },
+                depth: if role.is_some() {
+                    0
+                } else {
+                    segments.len() as u32 - 1
+                },
                 role,
                 unread: 0,
                 total: 0,
@@ -563,7 +598,11 @@ pub fn sort_folders(folders: &mut [Folder]) {
         Role::Trash,
     ];
     folders.sort_by(|a, b| {
-        let rank = |f: &Folder| f.role.and_then(|r| ORDER.iter().position(|x| *x == r)).unwrap_or(ORDER.len());
+        let rank = |f: &Folder| {
+            f.role
+                .and_then(|r| ORDER.iter().position(|x| *x == r))
+                .unwrap_or(ORDER.len())
+        };
         rank(a)
             .cmp(&rank(b))
             .then_with(|| a.path.to_lowercase().cmp(&b.path.to_lowercase()))
@@ -607,6 +646,8 @@ pub struct Imap {
     folders: Mutex<Vec<Folder>>,
     /// Set once the server has garbled a partial fetch.
     no_partial: AtomicBool,
+    /// The last call made its own connection, rather than reusing one.
+    fresh: AtomicBool,
 }
 
 impl Imap {
@@ -616,6 +657,7 @@ impl Imap {
             conn: tokio::sync::Mutex::new(None),
             folders: Mutex::new(Vec::new()),
             no_partial: AtomicBool::new(false),
+            fresh: AtomicBool::new(false),
         }
     }
 
@@ -631,6 +673,7 @@ impl Imap {
                 }
             }
         }
+        self.fresh.store(guard.is_none(), Ordering::Relaxed);
         if guard.is_none() {
             let mut c = connect(&self.account).await?;
             c.partial = !self.no_partial.load(Ordering::Relaxed);
@@ -639,8 +682,12 @@ impl Imap {
         Ok(guard)
     }
 
-    /// Run `call`, and if the server's answer couldn't be read, run it once
-    /// more on a new connection with partial fetches off.
+    /// Run `call`, and once more on a new connection if the one it used
+    /// turned out dead: servers drop quiet connections without a word, and
+    /// that is no reason to tell the user. A connection that fails as it is
+    /// made is not tried again, since the server is plainly unreachable. If
+    /// the server's answer couldn't be read, the second try goes without
+    /// partial fetches.
     async fn tolerant<T, F, Fut>(&self, call: F) -> Result<T>
     where
         F: Fn() -> Fut,
@@ -651,13 +698,20 @@ impl Imap {
                 eprintln!("mail: {e}; trying again without partial fetches");
                 call().await
             }
+            Err(e) if is_connection_error(&e) && !self.fresh.load(Ordering::Relaxed) => {
+                call().await
+            }
             other => other,
         }
     }
 
     /// The folders as last listed, listing them if they never were.
     async fn known_folders(&self) -> Result<Vec<Folder>> {
-        let known = self.folders.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let known = self
+            .folders
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
         if !known.is_empty() {
             return Ok(known);
         }
@@ -666,30 +720,34 @@ impl Imap {
 
     async fn list_folders(&self) -> Result<Vec<Folder>> {
         let mut folders = on_conn!(self, |c| {
-                let names: Vec<_> = c
-                    .session
-                    .list(Some(""), Some("*"))
-                    .await
-                    .map_err(failed)?
-                    .try_collect()
-                    .await
-                    .map_err(failed)?;
-                let list = names
-                    .iter()
-                    .map(|n| {
-                        let attrs = n.attributes().iter().map(attribute_name).collect();
-                        (n.name().to_string(), n.delimiter().map(str::to_string), attrs)
-                    })
-                    .collect();
-                let mut folders = folders_from(list);
-                for f in folders.iter_mut().take(COUNTED_FOLDERS) {
-                    // A folder that won't say is listed without a count.
-                    if let Ok(mb) = c.session.status(&f.path, "(MESSAGES UNSEEN)").await {
-                        f.total = mb.exists;
-                        f.unread = mb.unseen.unwrap_or(0);
-                    }
+            let names: Vec<_> = c
+                .session
+                .list(Some(""), Some("*"))
+                .await
+                .map_err(failed)?
+                .try_collect()
+                .await
+                .map_err(failed)?;
+            let list = names
+                .iter()
+                .map(|n| {
+                    let attrs = n.attributes().iter().map(attribute_name).collect();
+                    (
+                        n.name().to_string(),
+                        n.delimiter().map(str::to_string),
+                        attrs,
+                    )
+                })
+                .collect();
+            let mut folders = folders_from(list);
+            for f in folders.iter_mut().take(COUNTED_FOLDERS) {
+                // A folder that won't say is listed without a count.
+                if let Ok(mb) = c.session.status(&f.path, "(MESSAGES UNSEEN)").await {
+                    f.total = mb.exists;
+                    f.unread = mb.unseen.unwrap_or(0);
                 }
-                Ok(folders)
+            }
+            Ok(folders)
         })?;
 
         sort_folders(&mut folders);
@@ -748,7 +806,11 @@ async fn summaries(
         .map(|f| f.uid)
         .filter(|u| !cache.messages.contains_key(u))
         .collect();
-    let gmail = if c.gmail { " X-GM-THRID X-GM-LABELS" } else { "" };
+    let gmail = if c.gmail {
+        " X-GM-THRID X-GM-LABELS"
+    } else {
+        ""
+    };
     let mut commands = Vec::new();
     for batch in missing.chunks(BATCH) {
         let head = "UID FLAGS INTERNALDATE BODY.PEEK[HEADER]";
@@ -760,11 +822,18 @@ async fn summaries(
             continue;
         }
         // Without partial fetches, only small messages bring their text.
-        let sizes = fetch(&mut c.session, &format!("UID FETCH {} (UID RFC822.SIZE)", uid_set(batch))).await?;
+        let sizes = fetch(
+            &mut c.session,
+            &format!("UID FETCH {} (UID RFC822.SIZE)", uid_set(batch)),
+        )
+        .await?;
         let (small, large): (Vec<_>, Vec<_>) = sizes.iter().partition(|f| f.size <= WHOLE_TEXT_MAX);
         let set = |fs: Vec<&Fetched>| uid_set(&fs.iter().map(|f| f.uid).collect::<Vec<_>>());
         if !small.is_empty() {
-            commands.push(format!("UID FETCH {} ({head} BODY.PEEK[TEXT]{gmail})", set(small)));
+            commands.push(format!(
+                "UID FETCH {} ({head} BODY.PEEK[TEXT]{gmail})",
+                set(small)
+            ));
         }
         if !large.is_empty() {
             commands.push(format!("UID FETCH {} ({head}{gmail})", set(large)));
@@ -813,108 +882,137 @@ fn labels(folder: &str, mut labels: Vec<String>) -> Vec<String> {
 
 impl MailStore for Imap {
     fn folders(&self) -> Fut<'_, Vec<Folder>> {
-        Box::pin(self.list_folders())
+        Box::pin(self.tolerant(move || self.list_folders()))
     }
 
     fn recent<'a>(&'a self, folder: &'a str, limit: usize) -> Fut<'a, Vec<Summary>> {
-        Box::pin(self.tolerant(move || async move { on_conn!(self, |c| {
-            let (validity, exists) = select(c, folder, true).await?;
-            let mut cache = cache::load_folder(folder);
-            if cache.validity != validity {
-                cache = FolderCache {
-                    validity,
-                    ..Default::default()
-                };
-            }
-            if exists == 0 {
-                cache.messages.clear();
+        Box::pin(self.tolerant(move || async move {
+            on_conn!(self, |c| {
+                let (validity, exists) = select(c, folder, true).await?;
+                let mut cache = cache::load_folder(folder);
+                if cache.validity != validity {
+                    cache = FolderCache {
+                        validity,
+                        ..Default::default()
+                    };
+                }
+                if exists == 0 {
+                    cache.messages.clear();
+                    cache::save_folder(folder, &mut cache);
+                    return Ok(Vec::new());
+                }
+                let start = exists.saturating_sub(limit as u32 - 1).max(1);
+                let gmail = if c.gmail { " X-GM-LABELS" } else { "" };
+                let listed = fetch(
+                    &mut c.session,
+                    &format!("FETCH {start}:* (UID FLAGS{gmail})"),
+                )
+                .await?;
+                // Anything cached from this stretch of the folder that the server
+                // no longer lists was moved or deleted elsewhere.
+                if let Some(oldest) = listed.iter().map(|f| f.uid).min() {
+                    let present: HashSet<u32> = listed.iter().map(|f| f.uid).collect();
+                    cache
+                        .messages
+                        .retain(|uid, _| *uid < oldest || present.contains(uid));
+                }
+                let out = summaries(c, folder, &mut cache, &listed).await?;
                 cache::save_folder(folder, &mut cache);
-                return Ok(Vec::new());
-            }
-            let start = exists.saturating_sub(limit as u32 - 1).max(1);
-            let gmail = if c.gmail { " X-GM-LABELS" } else { "" };
-            let listed = fetch(&mut c.session, &format!("FETCH {start}:* (UID FLAGS{gmail})")).await?;
-            // Anything cached from this stretch of the folder that the server
-            // no longer lists was moved or deleted elsewhere.
-            if let Some(oldest) = listed.iter().map(|f| f.uid).min() {
-                let present: HashSet<u32> = listed.iter().map(|f| f.uid).collect();
-                cache.messages.retain(|uid, _| *uid < oldest || present.contains(uid));
-            }
-            let out = summaries(c, folder, &mut cache, &listed).await?;
-            cache::save_folder(folder, &mut cache);
-            Ok(out)
-        }) }))
+                Ok(out)
+            })
+        }))
     }
 
-    fn search<'a>(&'a self, folder: &'a str, query: &'a str, limit: usize) -> Fut<'a, Vec<Summary>> {
-        Box::pin(self.tolerant(move || async move { on_conn!(self, |c| {
-            let (validity, _) = select(c, folder, true).await?;
-            let criteria = search_criteria(query, c.gmail);
-            let found = c.session.uid_search(&criteria).await.map_err(failed)?;
-            let mut uids: Vec<u32> = found.into_iter().collect();
-            uids.sort_unstable_by(|a, b| b.cmp(a));
-            uids.truncate(limit);
-            listed_summaries(c, folder, validity, &uids).await
-        }) }))
+    fn search<'a>(
+        &'a self,
+        folder: &'a str,
+        query: &'a str,
+        limit: usize,
+    ) -> Fut<'a, Vec<Summary>> {
+        Box::pin(self.tolerant(move || async move {
+            on_conn!(self, |c| {
+                let (validity, _) = select(c, folder, true).await?;
+                let criteria = search_criteria(query, c.gmail);
+                let found = c.session.uid_search(&criteria).await.map_err(failed)?;
+                let mut uids: Vec<u32> = found.into_iter().collect();
+                uids.sort_unstable_by(|a, b| b.cmp(a));
+                uids.truncate(limit);
+                listed_summaries(c, folder, validity, &uids).await
+            })
+        }))
     }
 
     fn gmail_thread<'a>(&'a self, folder: &'a str, thread: u64) -> Fut<'a, Vec<Summary>> {
-        Box::pin(self.tolerant(move || async move { on_conn!(self, |c| {
-            if !c.gmail {
-                return Ok(Vec::new());
-            }
-            let (validity, _) = select(c, folder, true).await?;
-            let found = c
-                .session
-                .uid_search(format!("X-GM-THRID {thread}"))
-                .await
-                .map_err(failed)?;
-            let uids: Vec<u32> = found.into_iter().collect();
-            listed_summaries(c, folder, validity, &uids).await
-        }) }))
+        Box::pin(self.tolerant(move || async move {
+            on_conn!(self, |c| {
+                if !c.gmail {
+                    return Ok(Vec::new());
+                }
+                let (validity, _) = select(c, folder, true).await?;
+                let found = c
+                    .session
+                    .uid_search(format!("X-GM-THRID {thread}"))
+                    .await
+                    .map_err(failed)?;
+                let uids: Vec<u32> = found.into_iter().collect();
+                listed_summaries(c, folder, validity, &uids).await
+            })
+        }))
     }
 
     fn raw<'a>(&'a self, folder: &'a str, uid: u32) -> Fut<'a, Vec<u8>> {
-        Box::pin(async move { on_conn!(self, |c| {
-            let (validity, _) = select(c, folder, false).await?;
-            if let Some(bytes) = cache::load_body(folder, validity, uid) {
-                return Ok(bytes);
-            }
-            let fetched = fetch(&mut c.session, &format!("UID FETCH {uid} (UID BODY.PEEK[])")).await?;
-            let body = fetched
-                .into_iter()
-                .find(|f| f.uid == uid)
-                .and_then(|f| f.body)
-                .ok_or_else(|| "that message is no longer in this folder".to_string())?;
-            cache::save_body(folder, validity, uid, &body);
-            Ok(body)
-        }) })
+        Box::pin(self.tolerant(move || async move {
+            on_conn!(self, |c| {
+                let (validity, _) = select(c, folder, false).await?;
+                if let Some(bytes) = cache::load_body(folder, validity, uid) {
+                    return Ok(bytes);
+                }
+                let fetched = fetch(
+                    &mut c.session,
+                    &format!("UID FETCH {uid} (UID BODY.PEEK[])"),
+                )
+                .await?;
+                let body = fetched
+                    .into_iter()
+                    .find(|f| f.uid == uid)
+                    .and_then(|f| f.body)
+                    .ok_or_else(|| "that message is no longer in this folder".to_string())?;
+                cache::save_body(folder, validity, uid, &body);
+                Ok(body)
+            })
+        }))
     }
 
     fn set_seen<'a>(&'a self, folder: &'a str, uids: &'a [u32], seen: bool) -> Fut<'a, ()> {
-        Box::pin(async move { on_conn!(self, |c| {
-            if uids.is_empty() {
-                return Ok(());
-            }
-            select(c, folder, false).await?;
-            let change = if seen { "+FLAGS.SILENT (\\Seen)" } else { "-FLAGS.SILENT (\\Seen)" };
-            let _: Vec<_> = c
-                .session
-                .uid_store(uid_set(uids), change)
-                .await
-                .map_err(failed)?
-                .try_collect()
-                .await
-                .map_err(failed)?;
-            let mut cache = cache::load_folder(folder);
-            for uid in uids {
-                if let Some(s) = cache.messages.get_mut(uid) {
-                    s.unread = !seen;
+        Box::pin(self.tolerant(move || async move {
+            on_conn!(self, |c| {
+                if uids.is_empty() {
+                    return Ok(());
                 }
-            }
-            cache::save_folder(folder, &mut cache);
-            Ok(())
-        }) })
+                select(c, folder, false).await?;
+                let change = if seen {
+                    "+FLAGS.SILENT (\\Seen)"
+                } else {
+                    "-FLAGS.SILENT (\\Seen)"
+                };
+                let _: Vec<_> = c
+                    .session
+                    .uid_store(uid_set(uids), change)
+                    .await
+                    .map_err(failed)?
+                    .try_collect()
+                    .await
+                    .map_err(failed)?;
+                let mut cache = cache::load_folder(folder);
+                for uid in uids {
+                    if let Some(s) = cache.messages.get_mut(uid) {
+                        s.unread = !seen;
+                    }
+                }
+                cache::save_folder(folder, &mut cache);
+                Ok(())
+            })
+        }))
     }
 
     fn move_to<'a>(&'a self, folder: &'a str, uids: &'a [u32], role: Role) -> Fut<'a, ()> {
@@ -928,10 +1026,17 @@ impl MailStore for Imap {
                 Some(t) => t,
                 None => {
                     // A server with no Archive gets one, as other mail apps do.
-                    let name = if role == Role::Trash { "Trash" } else { "Archive" };
+                    let name = if role == Role::Trash {
+                        "Trash"
+                    } else {
+                        "Archive"
+                    };
                     on_conn!(self, |c| { c.session.create(name).await.map_err(failed) })?;
 
-                    self.folders.lock().unwrap_or_else(|e| e.into_inner()).clear();
+                    self.folders
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .clear();
                     name.to_string()
                 }
             };
@@ -978,7 +1083,6 @@ impl MailStore for Imap {
                 cache::save_folder(folder, &mut cache);
                 Ok(())
             })
-
         })
     }
 
@@ -1004,14 +1108,24 @@ impl MailStore for Imap {
 /// Where archiving or deleting puts mail: Gmail archives to All Mail, which
 /// takes the Inbox label off and nothing else.
 pub fn destination(folders: &[Folder], role: Role) -> Option<String> {
-    let find = |r: Role| folders.iter().find(|f| f.role == Some(r)).map(|f| f.path.clone());
+    let find = |r: Role| {
+        folders
+            .iter()
+            .find(|f| f.role == Some(r))
+            .map(|f| f.path.clone())
+    };
     match role {
         Role::Archive => find(Role::Archive).or_else(|| find(Role::All)),
         r => find(r),
     }
 }
 
-async fn listed_summaries(c: &mut Conn, folder: &str, validity: u32, uids: &[u32]) -> Result<Vec<Summary>> {
+async fn listed_summaries(
+    c: &mut Conn,
+    folder: &str,
+    validity: u32,
+    uids: &[u32],
+) -> Result<Vec<Summary>> {
     if uids.is_empty() {
         return Ok(Vec::new());
     }
@@ -1025,7 +1139,13 @@ async fn listed_summaries(c: &mut Conn, folder: &str, validity: u32, uids: &[u32
     let gmail = if c.gmail { " X-GM-LABELS" } else { "" };
     let mut listed = Vec::new();
     for batch in uids.chunks(BATCH * 5) {
-        listed.extend(fetch(&mut c.session, &format!("UID FETCH {} (UID FLAGS{gmail})", uid_set(batch))).await?);
+        listed.extend(
+            fetch(
+                &mut c.session,
+                &format!("UID FETCH {} (UID FLAGS{gmail})", uid_set(batch)),
+            )
+            .await?,
+        );
     }
     let out = summaries(c, folder, &mut cache, &listed).await?;
     cache::save_folder(folder, &mut cache);
@@ -1040,7 +1160,11 @@ async fn watch_inbox(account: &Saved, changed: &Arc<dyn Fn(&str) + Send + Sync>)
     if !conn.idle {
         let mut last = None;
         loop {
-            let mb = conn.session.status(inbox, "(MESSAGES UIDNEXT UNSEEN)").await.map_err(failed)?;
+            let mb = conn
+                .session
+                .status(inbox, "(MESSAGES UIDNEXT UNSEEN)")
+                .await
+                .map_err(failed)?;
             let now = (mb.exists, mb.uid_next, mb.unseen);
             if last.is_some_and(|l| l != now) {
                 changed(inbox);

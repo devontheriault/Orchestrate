@@ -41,7 +41,9 @@ fn key(folder: &str) -> String {
 }
 
 fn folder_file(folder: &str) -> Result<PathBuf> {
-    Ok(root()?.join("folders").join(format!("{}.json", key(folder))))
+    Ok(root()?
+        .join("folders")
+        .join(format!("{}.json", key(folder))))
 }
 
 fn body_file(folder: &str, validity: u32, uid: u32) -> Result<PathBuf> {
@@ -64,7 +66,9 @@ pub fn save_folder(folder: &str, cache: &mut FolderCache) {
     while cache.messages.len() > SUMMARIES_KEPT {
         cache.messages.pop_first();
     }
-    let Ok(path) = folder_file(folder) else { return };
+    let Ok(path) = folder_file(folder) else {
+        return;
+    };
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
@@ -88,7 +92,9 @@ pub fn save_body(folder: &str, validity: u32, uid: u32, bytes: &[u8]) {
     if bytes.len() > BODY_MAX_BYTES {
         return;
     }
-    let Ok(path) = body_file(folder, validity, uid) else { return };
+    let Ok(path) = body_file(folder, validity, uid) else {
+        return;
+    };
     let Some(dir) = path.parent() else { return };
     let _ = std::fs::create_dir_all(dir);
     if std::fs::write(&path, bytes).is_ok() {
@@ -98,7 +104,9 @@ pub fn save_body(folder: &str, validity: u32, uid: u32, bytes: &[u8]) {
 
 /// Keep only the bodies opened most recently.
 fn prune(dir: &std::path::Path) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     let mut files: Vec<_> = entries
         .filter_map(|e| e.ok())
         .filter_map(|e| Some((e.metadata().ok()?.modified().ok()?, e.path())))

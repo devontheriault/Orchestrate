@@ -178,7 +178,9 @@ pub enum SetUpOutcome {
     Connected(Status),
     /// The user signs in at `url` in their browser; Mail reports the outcome
     /// with a `mail-changed` event.
-    Browser { url: String },
+    Browser {
+        url: String,
+    },
 }
 
 pub type Fut<'a, T> = BoxFuture<'a, Result<T>>;
@@ -300,11 +302,7 @@ where
 {
     let store = store().await?;
     let outcome = f(store).await;
-    let state = MAIL
-        .status
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .state;
+    let state = MAIL.status.lock().unwrap_or_else(|e| e.into_inner()).state;
     match &outcome {
         Ok(_) if state != "connected" => {
             set_status("connected", None);
@@ -352,7 +350,14 @@ pub async fn set_up(setup: Setup) -> Result<SetUpOutcome> {
                         }
                     }
                     Err(e) => {
-                        set_status(if account_info().is_some() { "error" } else { "none" }, Some(e));
+                        set_status(
+                            if account_info().is_some() {
+                                "error"
+                            } else {
+                                "none"
+                            },
+                            Some(e),
+                        );
                         announce(None);
                     }
                 }
@@ -375,7 +380,12 @@ fn account_info() -> Option<AccountInfo> {
 /// Forget the account: its credentials and everything cached from it. The
 /// mailbox itself is untouched.
 pub async fn sign_out() -> Result<()> {
-    if let Some(w) = MAIL.watcher.lock().unwrap_or_else(|e| e.into_inner()).take() {
+    if let Some(w) = MAIL
+        .watcher
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .take()
+    {
         w.abort();
     }
     *MAIL.store.write().await = None;
@@ -497,7 +507,8 @@ pub async fn attachment(folder: &str, uid: u32, index: usize) -> Result<Download
 /// the user's own replies are in it too.
 pub async fn thread_text(folder: &str, uids: &[u32]) -> Result<String> {
     with_store(|s| async move {
-        let mut messages: Vec<(String, u32)> = uids.iter().map(|u| (folder.to_string(), *u)).collect();
+        let mut messages: Vec<(String, u32)> =
+            uids.iter().map(|u| (folder.to_string(), *u)).collect();
         let folders = s.folders().await?;
         if let Some(all) = folders.iter().find(|f| f.role == Some(Role::All)) {
             let first = s.recent(folder, LIST_LIMIT).await?;

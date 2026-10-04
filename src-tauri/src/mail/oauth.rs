@@ -77,7 +77,15 @@ where
     tokio::spawn(async move {
         let outcome = match tokio::time::timeout(SIGN_IN_WINDOW, answer(&listener, &state)).await {
             Ok(Ok(code)) => {
-                exchange(&code, &verifier, &redirect, &client_id, &client_secret, &hint).await
+                exchange(
+                    &code,
+                    &verifier,
+                    &redirect,
+                    &client_id,
+                    &client_secret,
+                    &hint,
+                )
+                .await
             }
             Ok(Err(e)) => Err(e),
             Err(_) => Err("the Google sign-in wasn't finished in time".into()),
@@ -100,7 +108,9 @@ async fn answer(listener: &TcpListener, state: &str) -> Result<String> {
         let Some(query) = redirect_query(&request) else {
             // A browser asking for the favicon, say.
             let _ = stream
-                .write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                .write_all(
+                    b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                )
                 .await;
             continue;
         };
@@ -137,14 +147,22 @@ async fn answer(listener: &TcpListener, state: &str) -> Result<String> {
 
 /// The query of a request for the redirect's own path, `/`.
 pub fn redirect_query(request: &str) -> Option<&str> {
-    let target = request.lines().next()?.strip_prefix("GET ")?.split(' ').next()?;
+    let target = request
+        .lines()
+        .next()?
+        .strip_prefix("GET ")?
+        .split(' ')
+        .next()?;
     target.strip_prefix("/?")
 }
 
 /// What the browser shows once Google has sent it back.
 fn page(error: Option<&str>) -> String {
     let (title, line) = match error {
-        None => ("Signed in", "You can close this tab and go back to Orchestrate."),
+        None => (
+            "Signed in",
+            "You can close this tab and go back to Orchestrate.",
+        ),
         Some(_) => ("Not signed in", "Go back to Orchestrate to try again."),
     };
     format!(
@@ -182,16 +200,14 @@ async fn post(form: &[(&str, &str)]) -> Result<Tokens> {
     let status = response.status();
     let body = response.bytes().await.map_err(|e| e.to_string())?;
     if status.is_success() {
-        return serde_json::from_slice(&body).map_err(|e| format!("Google's answer made no sense: {e}"));
+        return serde_json::from_slice(&body)
+            .map_err(|e| format!("Google's answer made no sense: {e}"));
     }
     Err(match serde_json::from_slice::<TokenError>(&body) {
         Ok(e) if e.error == "invalid_grant" => {
             "Google no longer lets this app into the account; sign in again".to_string()
         }
-        Ok(e) => format!(
-            "Google refused: {}",
-            e.error_description.unwrap_or(e.error)
-        ),
+        Ok(e) => format!("Google refused: {}", e.error_description.unwrap_or(e.error)),
         Err(_) => format!("Google refused, with HTTP {status}"),
     })
 }

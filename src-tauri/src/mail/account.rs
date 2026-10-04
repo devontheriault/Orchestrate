@@ -110,7 +110,12 @@ impl Saved {
         })
     }
 
-    pub fn google(email: String, client_id: String, client_secret: String, refresh_token: String) -> Self {
+    pub fn google(
+        email: String,
+        client_id: String,
+        client_secret: String,
+        refresh_token: String,
+    ) -> Self {
         Self {
             username: email.clone(),
             email,
@@ -176,7 +181,8 @@ pub fn load() -> Result<Option<Saved>> {
 /// written.
 pub fn save(saved: &Saved) -> Result<()> {
     let dir = dir()?;
-    std::fs::create_dir_all(&dir).map_err(|e| format!("could not create {}: {e}", dir.display()))?;
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| format!("could not create {}: {e}", dir.display()))?;
     private(&dir, 0o700)?;
     let path = file()?;
     let tmp = path.with_extension("json.tmp");
