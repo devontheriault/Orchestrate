@@ -8,6 +8,8 @@
 //               everything so it has a Host to talk to. SvelteKit's built page
 //               works out its base from `location`, so it runs under /app/
 //               without touching svelte.config.js.
+// /privacy/     the privacy policy and terms, for Google's OAuth consent
+// /terms/       screen; neither is linked from the landing page
 // /fonts/       the two typefaces the page uses, from node_modules
 // /logo-dark.svg
 // /favicon.svg  the app icon, dark in a light browser so it shows on a pale tab
@@ -22,12 +24,14 @@ const dist = join(here, "dist");
 
 if (!process.argv.includes("--no-app")) {
   console.log("Building the app…");
-  execSync("npx vite build", { cwd: root, stdio: ["ignore", "ignore", "inherit"] });
+  execSync("npm run build", { cwd: root, stdio: ["ignore", "ignore", "inherit"] });
 }
 
 rmSync(dist, { recursive: true, force: true });
 mkdirSync(dist);
-for (const f of ["index.html", "hero.css", "hero.js", "demo-host.js"]) cpSync(join(here, f), join(dist, f));
+for (const f of ["index.html", "hero.css", "hero.js", "demo-host.js", "legal.css", "privacy", "terms"]) {
+  cpSync(join(here, f), join(dist, f), { recursive: true });
+}
 
 cpSync(join(root, "build"), join(dist, "app"), { recursive: true });
 const appPage = join(dist, "app/index.html");

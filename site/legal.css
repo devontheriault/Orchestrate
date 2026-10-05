@@ -1,0 +1,137 @@
+/* The privacy policy and terms (privacy/, terms/): plain reading pages in the
+   launch page's colours and type. Neither is linked from the launch page. */
+
+:root {
+  color-scheme: dark;
+  --ink: #eceef6;
+  --ink-2: rgb(236 238 246 / 0.72);
+  --ink-3: rgb(236 238 246 / 0.45);
+  --line: rgb(255 255 255 / 0.12);
+  --sans: "Geist Variable", system-ui, sans-serif;
+  --mono: "JetBrains Mono Variable", ui-monospace, monospace;
+  --accent: #14b8a6;
+  --base: #04050c;
+}
+
+* {
+  box-sizing: border-box;
+}
+html {
+  background: var(--base);
+}
+body {
+  margin: 0;
+  color: var(--ink-2);
+  font: 16px/1.65 var(--sans);
+  -webkit-font-smoothing: antialiased;
+  /* One faint glow from the launch page's wallpaper, so it reads as the same site. */
+  background:
+    radial-gradient(60rem 36rem at 12% -12rem, rgb(20 184 166 / 0.16), transparent 70%),
+    radial-gradient(50rem 30rem at 100% -8rem, rgb(124 58 237 / 0.12), transparent 70%),
+    var(--base);
+  background-repeat: no-repeat;
+}
+
+header,
+main,
+footer {
+  width: min(720px, 100% - 32px);
+  margin-inline: auto;
+}
+
+header {
+  padding: 28px 0 0;
+}
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--ink);
+  font-weight: 600;
+  font-size: 15px;
+  letter-spacing: -0.01em;
+  text-decoration: none;
+}
+
+main {
+  padding: 56px 0 24px;
+}
+h1 {
+  margin: 0;
+  color: var(--ink);
+  font-size: clamp(32px, 6vw, 44px);
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+  font-weight: 650;
+}
+.updated {
+  margin: 12px 0 0;
+  font: 13px var(--mono);
+  color: var(--ink-3);
+}
+.lede {
+  margin: 28px 0 0;
+  padding: 18px 20px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgb(255 255 255 / 0.03);
+  color: var(--ink);
+}
+
+h2 {
+  margin: 48px 0 0;
+  color: var(--ink);
+  font-size: 20px;
+  line-height: 1.3;
+  letter-spacing: -0.015em;
+  font-weight: 600;
+}
+h3 {
+  margin: 28px 0 0;
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 600;
+}
+p,
+ul {
+  margin: 12px 0 0;
+}
+ul {
+  padding-left: 1.2em;
+}
+li + li {
+  margin-top: 6px;
+}
+strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+a {
+  color: var(--ink);
+  text-decoration: underline;
+  text-decoration-color: rgb(20 184 166 / 0.6);
+  text-underline-offset: 3px;
+}
+a:hover {
+  text-decoration-color: var(--accent);
+}
+code {
+  font: 0.88em var(--mono);
+  padding: 0.1em 0.35em;
+  border-radius: 5px;
+  background: rgb(255 255 255 / 0.08);
+  overflow-wrap: anywhere;
+}
+
+footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  padding: 32px 0 48px;
+  border-top: 1px solid var(--line);
+  font-size: 14px;
+  color: var(--ink-3);
+}
+footer a {
+  color: var(--ink-3);
+}
