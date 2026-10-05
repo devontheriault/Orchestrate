@@ -53,6 +53,9 @@
 //! and undo, such as a note, is allowed. Every tool is marked closed-world to
 //! the client, which says the same.
 //!
+//! **Nothing the user couldn't undo.** No tool deletes a note: throwing one
+//! away is the user's, from the Space.
+//!
 //! The Agents tools only read for now. Spawning, sending to or Merging an
 //! Agent over MCP waits on a decision of its own.
 
@@ -87,7 +90,11 @@ use crate::paths;
 pub const SERVER_NAME: &str = "orchestrate";
 
 /// Every Space's tools, one entry per Space.
-const SPACES: &[fn() -> Vec<Tool>] = &[crate::runtime::mcp::tools, crate::calendar::mcp::tools];
+const SPACES: &[fn() -> Vec<Tool>] = &[
+    crate::runtime::mcp::tools,
+    crate::notes::mcp::tools,
+    crate::calendar::mcp::tools,
+];
 
 /// Every tool the server offers.
 pub fn tools() -> Vec<Tool> {
@@ -198,8 +205,9 @@ fn text<R: Serialize>(answer: &R) -> String {
 
 /// What every client is told about the server as a whole.
 const INSTRUCTIONS: &str = "Orchestrate is the app the user runs Claude Code Agents in, \
-beside their Notes, Calendar and Mail. These tools read it, on the user's own machine. \
-Nothing here sends anything anywhere: what leaves the machine, the user sends from the app.";
+beside their Notes, Calendar and Mail. These tools read it, on the user's own machine, and \
+may write the user's notes, which are Markdown files they can see and undo. Nothing here \
+sends anything anywhere: what leaves the machine, the user sends from the app.";
 
 struct Server {
     host: Host,

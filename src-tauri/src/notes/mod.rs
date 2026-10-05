@@ -19,6 +19,7 @@
 //! - **Every window sees changes live.** The folder is watched, and any change
 //!   — ours, another editor's, an Agent's — is announced as `notes-changed`.
 
+pub mod mcp;
 mod text;
 
 #[cfg(test)]
@@ -49,7 +50,7 @@ const HEAD_BYTES: u64 = 16 * 1024;
 const MAX_HITS: usize = 200;
 
 /// A note as the list shows it.
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct NoteSummary {
     /// Relative to the folder, with `/` between parts on every system.
     pub path: String,
@@ -61,7 +62,7 @@ pub struct NoteSummary {
 
 /// Everything in the folder: its notes, newest first, and its subfolders,
 /// so one with nothing in it yet still shows.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct NoteList {
     pub folder: PathBuf,
     pub notes: Vec<NoteSummary>,
@@ -69,7 +70,7 @@ pub struct NoteList {
 }
 
 /// One note's whole text, and the version a write of it must name.
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Note {
     pub path: String,
     pub content: String,
@@ -79,7 +80,7 @@ pub struct Note {
 
 /// How a write came out. A conflict is an outcome, not an error: nothing was
 /// written, and the window asks the user which version to keep.
-#[derive(Debug, Serialize, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "outcome", rename_all = "snake_case")]
 pub enum Saved {
     Saved {
@@ -105,7 +106,7 @@ pub enum Deleted {
 }
 
 /// One note a search matched.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct SearchHit {
     pub path: String,
     pub title: String,

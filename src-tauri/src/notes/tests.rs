@@ -411,3 +411,379 @@ fn changes_on_disk_are_announced() {
     assert!(paths.iter().all(|p| !p.contains(".tmp")), "{paths:?}");
     assert!(paths.contains(&"from-vim.md".to_string()));
 }
+
+// ------------------------------------------------------------- MCP tools
+
+#[test]
+fn a_page_of_a_note_is_whole_lines_and_moves_on() {
+    let text = "one\ntwo\nthree\nfour";
+    assert_eq!(mcp::page(text, 1, 1000), (text.to_string(), 4));
+    assert_eq!(mcp::page(text, 2, 2), ("two\nthree\n".to_string(), 3));
+    assert_eq!(mcp::page(text, 9, 2), (String::new(), 8));
+    // A page stops short of a huge line, but always gives at least one.
+    let huge = format!("a\n{}\nb\n", "x".repeat(70_000));
+    let (first, last) = mcp::page(&huge, 1, 1000);
+    assert_eq!((first.as_str(), last), ("a\n", 1));
+    let (second, last) = mcp::page(&huge, 2, 1000);
+    assert_eq!((second.len(), last), (70_001, 2));
+}
+
+fn note(content: &str) -> Note {
+    Note {
+        path: "Plans/Shop.md".into(),
+        content: content.into(),
+        version: "v1".into(),
+        modified: 0,
+    }
+}
+
+#[test]
+fn a_read_note_says_where_it_is_and_how_to_read_on() {
+    let text = (1..=5).map(|i| format!("line {i}\n")).collect::<String>();
+    let whole = mcp::shown(&note(&text), 1, 1000);
+    assert!(
+        whole.starts_with("path: Plans/Shop.md\nversion: v1\nmodified: "),
+        "{whole}"
+    );
+    assert!(
+        whole.ends_with("lines: all 5\n\nline 1\nline 2\nline 3\nline 4\nline 5\n"),
+        "{whole}"
+    );
+
+    let part = mcp::shown(&note(&text), 2, 2);
+    assert!(
+        part.contains("lines: 2 to 3 of 5. Read on with from_line 4\n\nline 2\nline 3\n"),
+        "{part}"
+    );
+    assert!(mcp::shown(&note(&text), 9, 2).contains("lines: none from 9: the note has 5\n"));
+    assert!(mcp::shown(&note(""), 1, 10).contains("lines: none, the note is empty\n"));
+}
+
+#[test]
+fn an_edit_replaces_one_passage_or_adds_to_the_end() {
+    let e = |text, old, new| mcp::edited("n.md", text, old, new);
+    assert_eq!(e("a\nb\nc\n", Some("b"), "B").unwrap(), "a\nB\nc\n");
+    assert_eq!(e("a\nb", None, "c\n").unwrap(), "a\nb\nc\n");
+    assert_eq!(e("a\n", Some(""), "c\n").unwrap(), "a\nc\n");
+    assert_eq!(e("", None, "first\n").unwrap(), "first\n");
+    assert!(e("a\nb\n", Some("z"), "Z")
+        .unwrap_err()
+        .contains("isn't in n.md"));
+    assert!(e("b\nb\n", Some("b"), "B").unwrap_err().contains("2 times"));
+    // A Windows note matches the model's plain line breaks, and keeps its own.
+    assert_eq!(
+        e("a\r\nb\r\nc\r\n", Some("a\nb"), "A\nB").unwrap(),
+        "A\r\nB\r\nc\r\n"
+    );
+}
+
+#[test]
+fn a_note_moved_into_a_folder_keeps_its_name() {
+    assert_eq!(
+        mcp::destination("Inbox/Idea.md", "Projects/"),
+        "Projects/Idea.md"
+    );
+    assert_eq!(
+        mcp::destination("Idea.md", "Projects/Better"),
+        "Projects/Better"
+    );
+}
+
+#[test]
+fn the_list_can_keep_to_a_subfolder_and_says_when_theres_more() {
+    let summary = |path: &str| NoteSummary {
+        path: path.into(),
+        title: path.into(),
+        snippet: String::new(),
+        modified: 0,
+    };
+    let list = || NoteList {
+        folder: "/home/u/Notes".into(),
+        notes: ["Work/a.md", "Workshop.md", "Work/Deep/b.md", "c.md"]
+            .map(summary)
+            .into(),
+        folders: vec!["Work".into(), "Work/Deep".into()],
+    };
+    let all = mcp::listing(list(), None, 50).unwrap();
+    assert_eq!((all.total, all.notes.len()), (4, 4));
+    assert!(all.more.is_none());
+
+    let work = mcp::listing(list(), Some("/Work/"), 1).unwrap();
+    assert_eq!(work.total, 2, "not Workshop.md");
+    assert_eq!(work.notes[0].path, "Work/a.md");
+    assert!(work.more.unwrap().contains("1 most recently changed of 2"));
+    assert_eq!(work.subfolders, ["Work/Deep"]);
+
+    assert!(mcp::listing(list(), Some("Play"), 50).is_err());
+    assert!(mcp::listing(list(), Some(".."), 50).is_err());
+}
+
+/// A Host serving this state directory's socket in this process, with its
+/// notes in a fresh folder, and the tools' handle on it.
+struct NotesHost {
+    _env: StateEnv,
+    dir: TempDir,
+    serving: tokio::task::JoinHandle<()>,
+    host: crate::mcp::Host,
+}
+
+impl Drop for NotesHost {
+    fn drop(&mut self) {
+        self.serving.abort();
+    }
+}
+
+async fn notes_host() -> NotesHost {
+    let env = StateEnv::new();
+    crate::paths::ensure_dirs().unwrap();
+    let (rt, rx) = crate::runtime::AgentRuntime::with_bin("true");
+    let host = crate::host::Host::new(rt, rx, vec![]);
+    let socket = crate::paths::host_socket().unwrap();
+    let listener = crate::host::local::Listener::bind(&socket).unwrap();
+    let serving = tokio::spawn(crate::host::serve(host, listener, std::future::ready(None)));
+    let dir = TempDir::new().unwrap();
+    let host = crate::mcp::Host::local().await.unwrap();
+    host.call(
+        "set_notes_folder",
+        serde_json::json!({ "folder": dir.path() }),
+    )
+    .await
+    .unwrap();
+    NotesHost {
+        _env: env,
+        dir,
+        serving,
+        host,
+    }
+}
+
+fn read_args(path: &str) -> mcp::ReadArgs {
+    mcp::ReadArgs {
+        path: path.into(),
+        from_line: None,
+        lines: None,
+    }
+}
+
+fn version_in(shown: &str) -> String {
+    shown
+        .lines()
+        .find_map(|l| l.strip_prefix("version: "))
+        .unwrap()
+        .to_string()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_agent_reads_and_writes_notes_through_the_host() {
+    let NotesHost { dir, host, .. } = &notes_host().await;
+    fs::create_dir_all(dir.path().join("Projects")).unwrap();
+    fs::write(
+        dir.path().join("Projects/Shop.md"),
+        "# Shop launch\n\nShip the cart on Friday.\n",
+    )
+    .unwrap();
+    fs::write(dir.path().join("Groceries.md"), "# Groceries\n- eggs\n").unwrap();
+    let on_disk = |rel: &str| fs::read_to_string(dir.path().join(rel)).unwrap();
+
+    let listed = mcp::list_notes(
+        host.clone(),
+        mcp::ListArgs {
+            folder: None,
+            limit: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(listed.total, 2);
+    assert_eq!(listed.subfolders, ["Projects"]);
+    assert_eq!(
+        listed.folder,
+        dir.path().canonicalize().unwrap().display().to_string()
+    );
+
+    let found = mcp::search_notes(
+        host.clone(),
+        mcp::SearchArgs {
+            query: "cart friday".into(),
+            limit: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(found.total, 1);
+    let hit = &found.notes[0];
+    assert_eq!(
+        (hit.path.as_str(), hit.title.as_str(), hit.line),
+        ("Projects/Shop.md", "Shop launch", Some(3))
+    );
+
+    let shown = mcp::read_note(host.clone(), read_args("Projects/Shop.md"))
+        .await
+        .unwrap();
+    assert!(
+        shown.ends_with("\n\n# Shop launch\n\nShip the cart on Friday.\n"),
+        "{shown}"
+    );
+    let stale = version_in(&shown);
+
+    // An edit lands on the note as it is now, whatever the model last read.
+    let edit = |old: Option<&str>, new: &str| {
+        mcp::edit_note(
+            host.clone(),
+            mcp::EditArgs {
+                path: "Projects/Shop.md".into(),
+                old_text: old.map(Into::into),
+                new_text: new.into(),
+            },
+        )
+    };
+    let said = edit(Some("on Friday"), "on Monday").await.unwrap();
+    assert!(said.starts_with("Saved Projects/Shop.md"), "{said}");
+    edit(None, "- [ ] tell Ada\n").await.unwrap();
+    assert_eq!(
+        on_disk("Projects/Shop.md"),
+        "# Shop launch\n\nShip the cart on Monday.\n- [ ] tell Ada\n"
+    );
+
+    // A whole write from a version that's since changed is refused, and so
+    // is a new note on top of an old one. Nothing is written either time.
+    let write = |path: &str, version: Option<String>| {
+        mcp::write_note(
+            host.clone(),
+            mcp::WriteArgs {
+                path: path.into(),
+                content: "# Replaced\n".into(),
+                version,
+            },
+        )
+    };
+    let refused = write("Projects/Shop.md", Some(stale)).await.unwrap_err();
+    assert!(refused.contains("changed since you read it"), "{refused}");
+    let refused = write("Groceries.md", None).await.unwrap_err();
+    assert!(refused.contains("already a note"), "{refused}");
+    assert_eq!(on_disk("Groceries.md"), "# Groceries\n- eggs\n");
+    // From the version just read, it goes through.
+    let now = mcp::read_note(host.clone(), read_args("Groceries.md"))
+        .await
+        .unwrap();
+    write("Groceries.md", Some(version_in(&now))).await.unwrap();
+    assert_eq!(on_disk("Groceries.md"), "# Replaced\n");
+
+    let made = mcp::create_note(
+        host.clone(),
+        mcp::CreateArgs {
+            title: "Shop launch".into(),
+            content: "# Shop launch\nagain\n".into(),
+            folder: Some("Projects".into()),
+        },
+    )
+    .await
+    .unwrap();
+    assert!(
+        made.starts_with("Saved as Projects/Shop launch.md"),
+        "{made}"
+    );
+
+    let rename = |path: &str, to: &str| {
+        mcp::rename_note(
+            host.clone(),
+            mcp::RenameArgs {
+                path: path.into(),
+                to: to.into(),
+            },
+        )
+    };
+    let moved = rename("Groceries.md", "Archive/").await.unwrap();
+    assert_eq!(moved, "Moved Groceries.md to Archive/Groceries.md.");
+    assert_eq!(on_disk("Archive/Groceries.md"), "# Replaced\n");
+    // Never onto a note that's there already.
+    assert!(rename("Projects/Shop.md", "Projects/Shop launch.md")
+        .await
+        .is_err());
+    // One note at a time, never a folder.
+    let refused = rename("Projects", "Old").await.unwrap_err();
+    assert!(refused.contains("never a folder"), "{refused}");
+    assert!(dir.path().join("Projects/Shop.md").exists());
+}
+
+/// The Host refuses every path outside the folder (see `nothing_escapes_the_folder`);
+/// this checks no tool finds a way round that, whichever argument it comes in.
+#[tokio::test(flavor = "multi_thread")]
+async fn no_tool_reaches_outside_the_notes_folder() {
+    let NotesHost { dir, host, .. } = &notes_host().await;
+    let outside = TempDir::new().unwrap();
+    let secret = outside.path().join("secret.md");
+    fs::write(&secret, "secret").unwrap();
+    fs::write(dir.path().join("a.md"), "a").unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(outside.path(), dir.path().join("link")).unwrap();
+    let up_dir = format!(
+        "../{}",
+        outside.path().file_name().unwrap().to_string_lossy()
+    );
+    let up = format!("{up_dir}/secret.md");
+    let absolute = secret.display().to_string();
+
+    for bad in [
+        up.as_str(),
+        absolute.as_str(),
+        "a/../../x.md",
+        "link/secret.md",
+        ".hidden/x.md",
+    ] {
+        let read = mcp::read_note(host.clone(), read_args(bad)).await;
+        assert!(read.is_err(), "read {bad}: {read:?}");
+        let wrote = mcp::write_note(
+            host.clone(),
+            mcp::WriteArgs {
+                path: bad.into(),
+                content: "x".into(),
+                version: None,
+            },
+        )
+        .await;
+        assert!(wrote.is_err(), "write {bad}");
+        let edit = mcp::edit_note(
+            host.clone(),
+            mcp::EditArgs {
+                path: bad.into(),
+                old_text: None,
+                new_text: "x".into(),
+            },
+        )
+        .await;
+        assert!(edit.is_err(), "edit {bad}");
+        let rename = |path: &str, to: &str| {
+            mcp::rename_note(
+                host.clone(),
+                mcp::RenameArgs {
+                    path: path.into(),
+                    to: to.into(),
+                },
+            )
+        };
+        assert!(rename("a.md", bad).await.is_err(), "rename to {bad}");
+        assert!(rename(bad, "stolen.md").await.is_err(), "rename from {bad}");
+    }
+    let create = |title: &str, folder: Option<&str>| {
+        mcp::create_note(
+            host.clone(),
+            mcp::CreateArgs {
+                title: title.into(),
+                content: "x".into(),
+                folder: folder.map(Into::into),
+            },
+        )
+    };
+    for bad in [up_dir.as_str(), outside.path().to_str().unwrap(), "link"] {
+        let made = create("x", Some(bad)).await;
+        assert!(made.is_err(), "create in {bad}: {made:?}");
+    }
+    // A title is only ever a name, never a path.
+    let made = create("../../escape", None).await.unwrap();
+    assert!(made.starts_with("Saved as escape.md"), "{made}");
+
+    assert_eq!(fs::read_to_string(&secret).unwrap(), "secret");
+    assert_eq!(fs::read_dir(outside.path()).unwrap().count(), 1);
+    assert_eq!(fs::read_to_string(dir.path().join("a.md")).unwrap(), "a");
+}
