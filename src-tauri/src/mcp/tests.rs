@@ -237,6 +237,83 @@ fn a_turn_may_call_the_reading_tools_without_asking() {
     assert!(allowed.contains("mcp__orchestrate__list_agents"));
 }
 
+/// Notes may be read in any Turn and written where the Agent may write, but
+/// never deleted: only the user throws a note away.
+#[test]
+fn notes_are_read_and_written_but_never_deleted() {
+    let notes = crate::notes::mcp::tools();
+    let named = |writes: bool| -> Vec<&str> {
+        notes
+            .iter()
+            .filter(|t| t.writes == writes)
+            .map(|t| t.name())
+            .collect()
+    };
+    assert_eq!(named(false), ["list_notes", "read_note", "search_notes"]);
+    assert_eq!(
+        named(true),
+        ["create_note", "edit_note", "write_note", "rename_note"]
+    );
+    for tool in tools() {
+        assert!(!tool.name().contains("delete"), "{}", tool.name());
+    }
+}
+
+/// An MCP client over stdio, as Claude Code is, finds a note and changes it.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_mcp_client_finds_and_edits_a_note_over_stdio() {
+    let _env = StateEnv::new();
+    paths::ensure_dirs().unwrap();
+    let serving = host_with("true");
+    let notes = tempfile::TempDir::new().unwrap();
+    std::fs::write(
+        notes.path().join("Standup.md"),
+        "# Standup\n\n- ship the rail\n",
+    )
+    .unwrap();
+    let host = Host::local().await.unwrap();
+    host.call("set_notes_folder", json!({ "folder": notes.path() }))
+        .await
+        .unwrap();
+
+    let client =
+        ().serve(TokioChildProcess::new(mcp_child()).unwrap())
+            .await
+            .expect("the server should start");
+
+    let found = call(&client, "search_notes", json!({ "query": "rail" })).await;
+    assert_ne!(found.is_error, Some(true), "{}", text(&found));
+    let found: Value = serde_json::from_str(&text(&found)).unwrap();
+    assert_eq!(found["notes"][0]["path"], "Standup.md");
+    assert_eq!(found["notes"][0]["line"], 3);
+
+    let edited = call(
+        &client,
+        "edit_note",
+        json!({ "path": "Standup.md", "old_text": "ship the rail", "new_text": "shipped the rail" }),
+    )
+    .await;
+    assert_ne!(edited.is_error, Some(true), "{}", text(&edited));
+    let read = call(&client, "read_note", json!({ "path": "Standup.md" })).await;
+    assert!(
+        text(&read).ends_with("\n\n# Standup\n\n- shipped the rail\n"),
+        "{}",
+        text(&read)
+    );
+
+    // A path outside the folder is a failed call, not a broken server.
+    let outside = call(&client, "read_note", json!({ "path": "../secret.md" })).await;
+    assert_eq!(outside.is_error, Some(true));
+    assert!(
+        text(&outside).contains("outside the notes folder"),
+        "{}",
+        text(&outside)
+    );
+
+    client.cancel().await.unwrap();
+    serving.abort();
+}
+
 #[test]
 fn a_turn_runs_this_binary_against_this_state_directory() {
     let _env = StateEnv::new();

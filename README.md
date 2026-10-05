@@ -100,7 +100,7 @@ If you want a machine's agents to keep running after you log out (and start back
 
 ## Give Claude access to the app
 
-Orchestrate has its own MCP server, `orchestrate --mcp`. Every agent it starts is already connected to it, so agents can list your other agents, check how one is doing and read its last answer, all without any setup. The server only reads, and nothing it does leaves your machine.
+Orchestrate has its own MCP server, `orchestrate --mcp`. Every agent it starts is already connected to it, so agents can find, read and write your notes, read your calendar, list your other agents, check how one is doing and read its last answer, all without any setup. Agents can create, edit and rename notes, since they're files on your machine that you can see and undo, but they can't delete one. They can also draft a calendar event, but nothing the server does leaves your machine: a draft waits for you to send it.
 
 To give the same tools to a plain `claude` in a terminal:
 
