@@ -13,6 +13,10 @@ The column of Space icons down the window's left edge, with Settings at its foot
 The project list squeezed to its initials in a narrow window is not the Rail, though the code calls that a rail too (`panes.railed`, `--rail`).
 _Avoid_: Sidebar (that's the project list), Dock, Activity bar, Tab bar (only what it becomes on a phone).
 
+**Note**:
+One Markdown file in the Notes folder: by default `~/Notes`, or another the user picks, kept on one Host. The folder is the whole store, with no database or index of our own, so a Note can sit in any subfolder and be edited by any other app or by an Agent. Its title is its first heading, or else its file name. Every save names the version it was read at, so a Note that changed on disk meanwhile is never overwritten: the user is shown a **conflict** and picks which version to keep.
+_Avoid_: Document, Page (a Space isn't one either), Memo, Entry.
+
 **Agent**:
 One `claude` process, bound to one Worktree, running one Task. Its lifetime is the process's lifetime; when the process ends, the Agent ends.
 _Avoid_: Session (has a different, later meaning), Runner, Job, Worker.
