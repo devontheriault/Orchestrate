@@ -73,6 +73,8 @@ pub struct Host {
     stopping: Arc<watch::Sender<bool>>,
     /// The Calendar Space (ADR 0017).
     calendar: Arc<crate::calendar::Calendars>,
+    /// The notes folder (ADR 0017), whose changes go out as `notes-changed`.
+    notes: Arc<crate::notes::Notes>,
 }
 
 impl Host {
@@ -115,6 +117,16 @@ impl Host {
                 }),
             )
         };
+        let notes = {
+            let relay = frames.clone();
+            crate::notes::Notes::new(move |paths| {
+                let frame = Frame::Event {
+                    name: "notes-changed".into(),
+                    payload: json!({ "paths": paths }),
+                };
+                let _ = relay.send(Arc::from(line(&frame)));
+            })
+        };
         Arc::new(Self {
             runtime,
             startup_orphans: Mutex::new(startup_orphans),
@@ -123,6 +135,7 @@ impl Host {
             hello: Hello::new(new_id()),
             draining: AtomicBool::new(false),
             stopping: Arc::new(watch::channel(false).0),
+            notes,
         })
     }
 

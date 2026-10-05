@@ -6,8 +6,10 @@ pub mod error;
 pub mod git;
 pub mod handoff;
 pub mod host;
+pub mod mcp;
 pub mod merging;
 pub mod models;
+pub mod notes;
 pub mod paths;
 pub mod plugins;
 pub mod process;
@@ -191,13 +193,16 @@ fn webkit_renderer_env(
     env
 }
 
-/// The app's entry point: this machine's Host with `--host`, a window
-/// otherwise. The window owns no Agents; it asks the Host for everything, and
-/// closing it leaves every Agent working (ADR 0009).
+/// The app's entry point: this machine's Host with `--host`, its MCP server
+/// with `--mcp` (ADR 0017), a window otherwise. The window owns no Agents; it
+/// asks the Host for everything, and closing it leaves every Agent working
+/// (ADR 0009).
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    if std::env::args().nth(1).as_deref() == Some("--host") {
-        return host::run();
+    match std::env::args().nth(1).as_deref() {
+        Some("--host") => return host::run(),
+        Some("--mcp") => return mcp::run(),
+        _ => {}
     }
 
     #[cfg(target_os = "linux")]

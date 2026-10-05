@@ -23,6 +23,7 @@ pub mod caldav;
 pub mod expand;
 pub mod google;
 pub mod ical;
+pub mod mcp;
 mod store;
 
 #[cfg(test)]
@@ -231,7 +232,7 @@ impl Item {
 }
 
 /// One occurrence of a Calendar event, as a window or an Agent sees it.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CalendarEvent {
     /// Unique among every occurrence of every Calendar event in the range.
     pub id: String,
@@ -428,13 +429,13 @@ pub struct Overview {
 }
 
 /// A stretch of time, as free/busy answers it.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Span {
     pub start: String,
     pub end: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FreeBusy {
     pub busy: Vec<Span>,
     pub free: Vec<Span>,

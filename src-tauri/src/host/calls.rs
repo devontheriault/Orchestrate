@@ -137,6 +137,11 @@ pub enum Call {
     AgentEvents {
         agent_id: String,
     },
+    /// The final answer of the Agent's last Turn that gave one, or `null`.
+    /// For `agent_last_answer` over MCP, which wants that without the log.
+    AgentLastAnswer {
+        agent_id: String,
+    },
     /// Everything the Agent has produced in its Worktree, relative to its Base.
     /// Safe in any state, including while the Agent runs.
     AgentDiff {
@@ -187,6 +192,48 @@ pub enum Call {
     ChangePlugins {
         dir: Option<PathBuf>,
         change: crate::plugins::Change,
+    },
+    /// Every note in the notes folder, newest first, and its subfolders.
+    NotesList {},
+    /// One note's text, and the version a write of it must name.
+    NotesRead {
+        path: String,
+    },
+    /// Write a note's whole text, if it is still at `version` on disk; `None`
+    /// for a new note. A conflict comes back as an outcome, with nothing
+    /// written.
+    NotesWrite {
+        path: String,
+        content: String,
+        version: Option<String>,
+    },
+    /// Start a note in `dir`, named after `name` or "Untitled".
+    NotesCreate {
+        dir: Option<String>,
+        name: Option<String>,
+        #[serde(default)]
+        content: String,
+    },
+    /// Rename or move a note or folder; answers with where it went.
+    NotesRename {
+        from: String,
+        to: String,
+    },
+    /// Delete a note or empty folder to the trash, or for good with
+    /// `permanent`, which the user confirms first.
+    NotesDelete {
+        path: String,
+        #[serde(default)]
+        permanent: bool,
+    },
+    NotesSearch {
+        query: String,
+    },
+    /// Where the notes are kept.
+    NotesFolder {},
+    /// Keep notes in `folder` from now on, or with `None` in `~/Notes`.
+    SetNotesFolder {
+        folder: Option<PathBuf>,
     },
     UsageSummary {},
     /// The Calendar Space's accounts and their calendars (ADR 0017).
@@ -500,6 +547,8 @@ async fn handle(host: &Host, call: Call) -> Result<Value, String> {
 
         Call::AgentEvents { agent_id } => ok(storage::read_events(&agent_id).map_err(err)?),
 
+        Call::AgentLastAnswer { agent_id } => ok(storage::last_answer(&agent_id)),
+
         Call::AgentDiff { agent_id } => {
             let agent = storage::load_agent(&agent_id).map_err(err)?;
             let reg = storage::Registry::load().map_err(err)?;
@@ -615,6 +664,27 @@ async fn handle(host: &Host, call: Call) -> Result<Value, String> {
             )
         }
 
+        Call::NotesList {} => notes(host, |n| n.list()).await,
+        Call::NotesRead { path } => notes(host, move |n| n.read(&path)).await,
+        Call::NotesWrite {
+            path,
+            content,
+            version,
+        } => notes(host, move |n| n.write(&path, &content, version.as_deref())).await,
+        Call::NotesCreate { dir, name, content } => {
+            notes(host, move |n| {
+                n.create(dir.as_deref(), name.as_deref(), &content)
+            })
+            .await
+        }
+        Call::NotesRename { from, to } => notes(host, move |n| n.rename(&from, &to)).await,
+        Call::NotesDelete { path, permanent } => {
+            notes(host, move |n| n.delete(&path, permanent)).await
+        }
+        Call::NotesSearch { query } => notes(host, move |n| n.search(&query)).await,
+        Call::NotesFolder {} => notes(host, |n| n.folder()).await,
+        Call::SetNotesFolder { folder } => notes(host, move |n| n.set_folder(folder)).await,
+
         // Off the async runtime: the first read walks every Claude Code
         // transcript.
         Call::UsageSummary {} => ok(tokio::task::spawn_blocking(crate::usage::summary)
@@ -680,6 +750,20 @@ async fn handle(host: &Host, call: Call) -> Result<Value, String> {
             ok(())
         }
     }
+}
+
+/// Ask the notes folder something, off the async runtime: every call is
+/// file reads and writes, and a search reads every note.
+async fn notes<T, F>(host: &Host, ask: F) -> Result<Value, String>
+where
+    T: Serialize,
+    F: FnOnce(&crate::notes::Notes) -> Result<T, String> + Send + 'static,
+    T: Send + 'static,
+{
+    let notes = host.notes.clone();
+    ok(tokio::task::spawn_blocking(move || ask(&notes))
+        .await
+        .map_err(err)??)
 }
 
 /// Where to run `claude plugin`: the directory asked about, or home. A

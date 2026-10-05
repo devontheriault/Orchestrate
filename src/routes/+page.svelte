@@ -1,19 +1,14 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
-  import { fly } from "svelte/transition";
-  import { cubicOut } from "svelte/easing";
-  import { isBackSwipe, type Point } from "$lib/layout/backSwipe";
-  import ProjectSidebar from "$lib/sidebar/ProjectSidebar.svelte";
-  import AgentPane from "$lib/agent/AgentPane.svelte";
   import UsageWindow from "$lib/usage/UsageWindow.svelte";
   import PluginsWindow from "$lib/plugins/PluginsWindow.svelte";
-  import PaneDivider from "$lib/layout/PaneDivider.svelte";
   import HostNotice from "$lib/layout/HostNotice.svelte";
   import { store } from "$lib/state/store.svelte";
   import { usage } from "$lib/usage/usage.svelte";
   import { plugins } from "$lib/plugins/plugins.svelte";
   import { viewport } from "$lib/layout/viewport.svelte";
-  import { panes, MIN_DETAIL, MIN_PROJECTS_DRAG } from "$lib/layout/panes.svelte";
+  import { panes } from "$lib/layout/panes.svelte";
+  import Spaces from "$lib/spaces/Spaces.svelte";
 
   onMount(() => {
     viewport.start();
@@ -23,30 +18,6 @@
   onDestroy(() => {
     store.stop();
     viewport.stop();
-  });
-
-  // Global "n" opens the blank page for a new agent, if a project is selected
-  // and the user is not currently typing in an input.
-  $effect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (usage.open) return;
-      if (e.key !== "n" || e.metaKey || e.ctrlKey || e.altKey) return;
-      const active = document.activeElement as HTMLElement | null;
-      if (
-        active &&
-        (active.tagName === "INPUT" ||
-          active.tagName === "TEXTAREA" ||
-          active.isContentEditable)
-      ) {
-        return;
-      }
-      if (store.selectedProjectId) {
-        e.preventDefault();
-        store.startDraft();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
   });
 
   // Ctrl+Shift+U toggles the token-usage window. Unconditional like the reload
@@ -81,32 +52,6 @@
     store.orphans.length > 0 && !store.orphanBannerDismissed,
   );
 
-  /**
-   * On a phone the agent, or a new one being drafted, takes the whole screen,
-   * and the list comes back when it's left (`store.closeDetail`).
-   */
-  const detailOnPhone = $derived(
-    viewport.phone && (!!store.selectedAgent || store.drafting),
-  );
-
-  /** Where a touch began, while it might yet be a swipe back to the list. */
-  let swipeFrom: Point | null = null;
-
-  function touchStart(e: TouchEvent) {
-    const t = e.touches[0];
-    swipeFrom = detailOnPhone && e.touches.length === 1 ? { x: t.clientX, y: t.clientY } : null;
-  }
-
-  function touchEnd(e: TouchEvent) {
-    const t = e.changedTouches[0];
-    if (swipeFrom && t && isBackSwipe(swipeFrom, { x: t.clientX, y: t.clientY })) {
-      store.closeDetail();
-    }
-    swipeFrom = null;
-  }
-
-  const slide = { x: 40, duration: 200, easing: cubicOut };
-
   panes.start();
 </script>
 
@@ -135,26 +80,7 @@
   </div>
 {/if}
 
-<main ontouchstart={touchStart} ontouchend={touchEnd}>
-  {#if viewport.phone}
-    <!-- One screen at a time, sliding in from the side they're going to. -->
-    {#if detailOnPhone}
-      <div class="screen" in:fly={slide}><AgentPane /></div>
-    {:else}
-      <div class="screen" in:fly={{ ...slide, x: -slide.x }}><ProjectSidebar phone /></div>
-    {/if}
-  {:else}
-    <ProjectSidebar collapsed={panes.railed} />
-    <PaneDivider
-      label="Resize project list"
-      min={MIN_PROJECTS_DRAG}
-      minLast={MIN_DETAIL}
-      onresize={(w) => panes.setProjects(w)}
-      onreset={() => panes.setProjects(null)}
-    />
-    <AgentPane />
-  {/if}
-</main>
+<Spaces />
 
 {#if usage.open}
   <UsageWindow />
@@ -165,19 +91,6 @@
 {/if}
 
 <style>
-  main {
-    display: flex;
-    flex: 1;
-    min-height: 0;
-    overflow: hidden;
-  }
-
-  .screen {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-  }
-
   .error {
     background: var(--danger-bg);
     color: var(--danger-fg);
