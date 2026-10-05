@@ -235,6 +235,7 @@ mod tests {
             model: None,
             effort: None,
             permission_mode: None,
+            read_mail: false,
             options: Default::default(),
             turns: 1,
             title: None,

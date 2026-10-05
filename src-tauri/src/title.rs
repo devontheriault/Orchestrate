@@ -37,6 +37,8 @@ pub fn wanted(turns: u32) -> bool {
 
 /// Ask Claude for a short name for this work. `answer` is the Turn's final
 /// result text, which is empty for a Turn that failed before answering.
+/// `read_mail` is the Agent's: its prompt holds mail, so the namer gets no
+/// tools at all and none of the user's settings or MCP servers (ADR 0018).
 ///
 /// Returns `None` if `claude` fails, times out, or says something unusable —
 /// the Agent keeps whatever name it had.
@@ -45,17 +47,22 @@ pub async fn generate(
     cwd: &std::path::Path,
     prompt: &str,
     answer: &str,
+    read_mail: bool,
 ) -> Option<String> {
     let ask = ask(prompt, answer);
-    let run = command(bin)
-        .arg("--print")
+    let mut cmd = command(bin);
+    cmd.arg("--print")
         .arg(&ask)
         .arg("--model")
         .arg("haiku")
         // Cheap and uncontaminated: no CLAUDE.md, skills, hooks or MCP servers
         // from the worktree, and no transcript left behind for a throwaway.
         .arg("--safe-mode")
-        .arg("--no-session-persistence")
+        .arg("--no-session-persistence");
+    if read_mail {
+        cmd.args(["--restricted", "--strict-mcp-config", "--tools", ""]);
+    }
+    let run = cmd
         .current_dir(cwd)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())

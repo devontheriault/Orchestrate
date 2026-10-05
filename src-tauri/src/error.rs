@@ -64,6 +64,11 @@ pub enum Error {
     #[error("{path} has uncommitted work, which another machine can't pick up; commit it first")]
     HandoffDirty { path: PathBuf },
 
+    #[error(
+        "this agent was handed mail, so it only suggests and has no work to {action}; start a new agent with what you want done"
+    )]
+    MailLocked { action: &'static str },
+
     #[error("the project has uncommitted changes on {branch}; commit or stash them first")]
     ProjectDirty { branch: String },
 

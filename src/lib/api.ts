@@ -70,6 +70,11 @@ export type Agent = {
    * it. Null = YOLO, the mode every agent ran in before the picker existed.
    */
   permission_mode?: string | null;
+  /**
+   * It was handed mail, so every turn reads and suggests and does nothing
+   * else, whatever mode is picked, for good (ADR 0018). Absent on older agents.
+   */
+  read_mail?: boolean;
   /** The rest of how its turns run, set for the agent as a whole. Absent on older agents. */
   options?: AgentOptions;
   /** Turns started so far, including the opening one. */
@@ -806,6 +811,28 @@ export const api = {
       permissionMode,
       options,
       handoff,
+    })),
+    host: hostId,
+  }),
+  /**
+   * Spawn an agent whose prompt holds mail (ADR 0018). It is locked for good:
+   * it reads and suggests, and no mode picked later lets it do more. A Host
+   * too old to lock one refuses the call rather than spawning it loose.
+   */
+  spawnMailAgent: async (
+    hostId: string,
+    projectId: string,
+    prompt: string,
+    model: string | null,
+    effort: string | null,
+    options: AgentOptions,
+  ): Promise<Agent> => ({
+    ...(await host<Omit<Agent, "host">>(hostId, "spawn_mail_agent", {
+      projectId,
+      prompt,
+      model,
+      effort,
+      options,
     })),
     host: hostId,
   }),

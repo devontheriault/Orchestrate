@@ -37,8 +37,13 @@ pub struct Handoff {
 ///
 /// Refused while the Agent works, since its branch is still moving, and while
 /// its Worktree holds anything uncommitted, which the new Agent would silently
-/// go without.
+/// go without. Refused outright for a Mail-locked Agent (ADR 0018): the brief
+/// would carry its mail into an Agent that isn't locked, and it has no work to
+/// hand over anyway.
 pub async fn hand_off(project: &Project, agent: &Agent, machine: &str) -> Result<Handoff> {
+    if agent.read_mail {
+        return Err(Error::MailLocked { action: "hand off" });
+    }
     if agent.state == AgentState::Running {
         return Err(Error::AgentBusy(agent.id.clone()));
     }
@@ -128,6 +133,7 @@ mod tests {
             model: None,
             effort: None,
             permission_mode: None,
+            read_mail: false,
             options: AgentOptions::default(),
             turns: 1,
             title: None,
@@ -184,6 +190,25 @@ mod tests {
         assert_eq!(
             task(&h, "  Carry on  "),
             "Brief.\n\nWhat to do next:\n\nCarry on"
+        );
+    }
+
+    /// Its brief would carry the mail to an Agent that isn't locked.
+    #[tokio::test]
+    async fn an_agent_handed_mail_is_never_handed_off() {
+        let mut a = agent("Summarize this mail", None);
+        a.read_mail = true;
+        let project = Project {
+            id: "p".into(),
+            name: "P".into(),
+            path: "/nowhere".into(),
+            added_at: OffsetDateTime::now_utc(),
+            cloned: false,
+        };
+        let refused = hand_off(&project, &a, "desk").await;
+        assert!(
+            matches!(refused, Err(Error::MailLocked { .. })),
+            "{refused:?}"
         );
     }
 }

@@ -1,6 +1,8 @@
 //! The Agents Space's MCP tools (see `crate::mcp` for how tools work). They
 //! only read. Spawning, sending to and Merging an Agent over MCP wait on a
-//! decision of their own.
+//! decision of their own. A Mail-locked Agent's Task, Title and answers are
+//! never given out (ADR 0018): they come from mail, and the Agent asking may
+//! not be locked.
 
 use std::path::PathBuf;
 
@@ -10,7 +12,7 @@ use serde_json::json;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
-use crate::domain::{Agent, AgentState, Project, DEFAULT_PERMISSION_MODE};
+use crate::domain::{Agent, AgentState, Project};
 use crate::mcp::{Host, NoArgs, Tool};
 
 pub fn tools() -> Vec<Tool> {
@@ -109,15 +111,20 @@ async fn list_agents(host: Host, _: NoArgs) -> Result<Vec<Listed>, String> {
 async fn agent_status(host: Host, which: WhichAgent) -> Result<Status, String> {
     let (agents, projects) = read(&host).await?;
     let a = find(&agents, &which.agent)?.clone();
+    let listed = Listed::of(&a, &projects, &host);
+    let permission_mode = a.mode().to_string();
+    let task = if a.read_mail {
+        HELD_BACK.into()
+    } else {
+        a.task.prompt
+    };
     Ok(Status {
-        listed: Listed::of(&a, &projects, &host),
-        task: a.task.prompt,
+        listed,
+        task,
         turns: a.turns,
         model: a.model,
         effort: a.effort,
-        permission_mode: a
-            .permission_mode
-            .unwrap_or_else(|| DEFAULT_PERMISSION_MODE.into()),
+        permission_mode,
         branch: a.branch,
         worktree: a.worktree_path,
         base_commit: a.base_commit,
@@ -137,6 +144,12 @@ async fn agent_status(host: Host, which: WhichAgent) -> Result<Status, String> {
 async fn agent_last_answer(host: Host, which: WhichAgent) -> Result<String, String> {
     let (agents, _) = read(&host).await?;
     let a = find(&agents, &which.agent)?;
+    if a.read_mail {
+        return Err(format!(
+            "“{}” was handed mail, so what it says is shown only to the user, in the app.",
+            title(a)
+        ));
+    }
     let answer: Option<String> = host
         .call_as("agent_last_answer", json!({ "agentId": a.id }))
         .await?;
@@ -184,9 +197,21 @@ fn find<'a>(agents: &'a [Agent], key: &str) -> Result<&'a Agent, String> {
     }
 }
 
+/// What a Mail-locked Agent's Task reads as over MCP. Its Task, Title and
+/// answers are drawn from mail, which must not reach an Agent that isn't
+/// locked (ADR 0018); tools are how one Agent reads another.
+const HELD_BACK: &str = "(held back: this Agent was handed mail)";
+
 /// The Title the app shows: the user's, else Claude's, else the Task's first
-/// line until the first Turn names it.
+/// line until the first Turn names it. Only the user's for a Mail-locked
+/// Agent, since Claude's is drawn from its mail.
 fn title(a: &Agent) -> String {
+    if a.read_mail {
+        return a
+            .user_title
+            .clone()
+            .unwrap_or_else(|| "An Agent that was handed mail".into());
+    }
     a.user_title
         .clone()
         .or_else(|| a.title.clone())

@@ -22,6 +22,10 @@ pub const AGENT_BRANCH_PREFIX: &str = "cw/agent-";
 /// they always have.
 pub const DEFAULT_PERMISSION_MODE: &str = "bypassPermissions";
 
+/// The Permission Mode that reads and proposes without writing, and the only
+/// one a Mail-locked Agent's Turns run in (ADR 0018).
+pub const PLAN_PERMISSION_MODE: &str = "plan";
+
 /// Generate a new 8-hex-char ID from 4 random bytes.
 pub fn new_id() -> Id {
     let bytes: [u8; 4] = rand::random();
@@ -138,6 +142,12 @@ pub struct Agent {
     /// before Modes existed ran on.
     #[serde(default)]
     pub permission_mode: Option<String>,
+    /// The Agent was handed mail, so it is Mail-locked for the rest of its life
+    /// (ADR 0018): every Turn runs in `plan`, with no way to run commands or
+    /// reach the network, whatever Mode is picked for it. Set at Spawn and never
+    /// cleared; the user starts a fresh Agent to act on what it suggests.
+    #[serde(default)]
+    pub read_mail: bool,
     /// The rest of how the Agent's Turns run, set for the Agent as a whole
     /// rather than picked per prompt. Default for Agents recorded before
     /// options existed.
@@ -208,6 +218,18 @@ pub struct Agent {
 }
 
 impl Agent {
+    /// The Permission Mode the Agent's Turns run in: `plan` for a Mail-locked
+    /// Agent whatever was picked, else the pick or `DEFAULT_PERMISSION_MODE`.
+    pub fn mode(&self) -> &str {
+        if self.read_mail {
+            PLAN_PERMISSION_MODE
+        } else {
+            self.permission_mode
+                .as_deref()
+                .unwrap_or(DEFAULT_PERMISSION_MODE)
+        }
+    }
+
     /// Take the fields the user may change at any moment — their Title, Tag,
     /// options and Queue — from `edited`. A Turn's supervisor holds its own copy of the
     /// record from before the Turn began, and writing that back as it stood
@@ -328,6 +350,7 @@ mod tests {
                 model: Some("opus".into()),
                 effort: Some("high".into()),
                 permission_mode: Some("plan".into()),
+                read_mail: false,
                 options: AgentOptions {
                     advisor: Some("opus".into()),
                     output_style: Some("Concise".into()),

@@ -65,6 +65,16 @@ pub enum Call {
         #[serde(default)]
         handoff: Option<Handoff>,
     },
+    /// Spawn an Agent whose prompt holds mail, Mail-locked for good (ADR
+    /// 0018). A call of its own rather than a flag on `SpawnAgent`, so a Host
+    /// too old to lock an Agent refuses it instead of spawning one loose.
+    SpawnMailAgent {
+        project_id: String,
+        prompt: String,
+        model: Option<String>,
+        effort: Option<String>,
+        options: AgentOptions,
+    },
     /// Put a stopped Agent's committed work on the Project's remote, for an
     /// Agent Spawned on another Host to pick up (ADR 0013).
     HandOff {
@@ -541,6 +551,23 @@ async fn handle(host: &Host, call: Call) -> Result<Value, String> {
                 }
             };
             ok(agent.map_err(err)?)
+        }
+
+        Call::SpawnMailAgent {
+            project_id,
+            prompt,
+            model,
+            effort,
+            options,
+        } => {
+            let reg = storage::Registry::load().map_err(err)?;
+            let project = reg
+                .project(&project_id)
+                .ok_or_else(|| format!("project not found: {project_id}"))?;
+            ok(runtime
+                .spawn_with_mail(project, prompt, model, effort, options)
+                .await
+                .map_err(err)?)
         }
 
         Call::HandOff { agent_id } => {

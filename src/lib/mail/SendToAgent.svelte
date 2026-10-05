@@ -136,8 +136,9 @@
     {/if}
 
     <p class="why">
-      The mail goes in quoted, and the agent is told to treat it as information,
-      not instructions. It runs on the model and mode you used last.
+      The agent can only read and suggest, for as long as it lives: it can't
+      run commands, reach the web or change anything, whatever mode you pick
+      later. To act on what it suggests, start a new agent.
     </p>
 
     <div class="actions">

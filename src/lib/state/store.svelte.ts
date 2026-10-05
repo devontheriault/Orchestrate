@@ -800,6 +800,9 @@ export class AppStore {
    * prompt. `model` is the picker's value; empty means no `--model` at all.
    * Returns whether it started — the draft page keeps the prompt on failure so
    * the user can retry rather than retype.
+   *
+   * `mail` says the prompt holds mail: the agent is locked to reading and
+   * suggesting for good, and `mode` is ignored (ADR 0018).
    */
   async spawn(
     prompt: string,
@@ -807,6 +810,7 @@ export class AppStore {
     model: string,
     effort: string,
     mode: string,
+    { mail = false }: { mail?: boolean } = {},
   ): Promise<boolean> {
     const group = this.selectedProject;
     if (!group || !prompt.trim() || this.spawning) return false;
@@ -816,16 +820,25 @@ export class AppStore {
     try {
       const checkout = checkoutOn(group, host) ?? (await this.cloneOnto(group, host));
       const agent = this.ingest(
-        await api.spawnAgent(
-          host,
-          checkout.id,
-          prompt,
-          await api.sendAttachments(host, attachments),
-          model || null,
-          effort || null,
-          mode || null,
-          this.prefs.options,
-        ),
+        mail
+          ? await api.spawnMailAgent(
+              host,
+              checkout.id,
+              prompt,
+              model || null,
+              effort || null,
+              this.prefs.options,
+            )
+          : await api.spawnAgent(
+              host,
+              checkout.id,
+              prompt,
+              await api.sendAttachments(host, attachments),
+              model || null,
+              effort || null,
+              mode || null,
+              this.prefs.options,
+            ),
       );
       this.prefs.remember(model, effort, mode);
       this.prefs.rememberHost(group.id, host);

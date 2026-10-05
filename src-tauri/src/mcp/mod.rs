@@ -300,7 +300,8 @@ async fn serve() -> Result<(), String> {
 ///
 /// `--mcp-config` hands it the server (see [`turn_config`]). Claude Code adds
 /// it to the user's and the Project's own MCP servers rather than replacing
-/// them, which only `--strict-mcp-config` would do, and no Turn passes that.
+/// them, which only `--strict-mcp-config` would do, and only a Mail-locked
+/// Agent's Turns pass that (ADR 0018).
 ///
 /// `--allowedTools` lets it call the tools that only read without asking,
 /// which `--print` has no way to do. Without it a plan-mode Turn is refused
@@ -313,17 +314,28 @@ pub fn turn_args() -> Vec<String> {
     let Some(config) = turn_config() else {
         return vec![];
     };
-    let reading: Vec<String> = tools()
-        .iter()
-        .filter(|t| !t.writes)
-        .map(|t| format!("mcp__{SERVER_NAME}__{}", t.name))
-        .collect();
     vec![
         "--mcp-config".into(),
         config,
         "--allowedTools".into(),
-        reading.join(","),
+        turn_names(false).join(","),
     ]
+}
+
+/// The server's tools that write, as a Turn names them. A Mail-locked Agent's
+/// Turns deny them outright (ADR 0018), so they aren't even offered, rather
+/// than resting on `plan` to refuse them.
+pub fn writing_tools() -> Vec<String> {
+    turn_names(true)
+}
+
+/// The server's tools that write, or that only read, as a Turn names them.
+fn turn_names(writes: bool) -> Vec<String> {
+    tools()
+        .iter()
+        .filter(|t| t.writes == writes)
+        .map(|t| format!("mcp__{SERVER_NAME}__{}", t.name))
+        .collect()
 }
 
 /// The server as `claude --mcp-config` takes it: run from this very binary

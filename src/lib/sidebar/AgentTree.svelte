@@ -11,6 +11,7 @@
   import { tagColor } from "$lib/theme/tags";
   import { rowDetail } from "./agentRow";
   import { glide, measure } from "./flip";
+  import MailIcon from "$lib/mail/MailIcon.svelte";
 
   let {
     projectId,
@@ -328,7 +329,11 @@
                 class="tag"
                 style:background={tagColor(a.color)}
                 title={`Tagged ${a.color}`}
-              ></span>{/if}{store.agentName(a)}{#if spansHosts}<span class="host"
+              ></span>{/if}{#if a.read_mail}<span
+                class="read-mail"
+                title="Handed mail: it only reads and suggests"
+                ><MailIcon name="mail" /></span
+              >{/if}{store.agentName(a)}{#if spansHosts}<span class="host"
                 >{hosts.label(a.host)}</span
               >{/if}
           </span>
@@ -717,6 +722,14 @@
   }
 
   /* Which machine it's on, after the name, when the project spans several. */
+  /* Handed mail (ADR 0018): it only reads and suggests, for good. Leads the
+     name like the tag, so a long name's ellipsis can't hide it. */
+  .read-mail {
+    margin-right: var(--space-2);
+    color: var(--fg-muted);
+    vertical-align: -0.1em;
+  }
+
   .host {
     margin-left: var(--space-3);
     font-size: var(--text-2xs);

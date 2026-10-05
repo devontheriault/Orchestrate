@@ -341,8 +341,10 @@ class Mail {
 
   /**
    * Spawn an Agent in `projectId` with the selected conversation as its Task,
-   * through the same Spawn the Agents Space uses, on the picks the user ran
-   * last. The new Agent is selected there, ready for when the user goes to it.
+   * through the same Spawn the Agents Space uses, on the model and effort the
+   * user ran last. It is locked to reading and suggesting for good, whatever
+   * mode they ran last (ADR 0018). The new Agent is selected there, ready for
+   * when the user goes to it.
    */
   async sendToAgent(projectId: string, note: string): Promise<boolean> {
     const task = await this.taskFor(note);
@@ -353,6 +355,7 @@ class Mail {
       store.prefs.spawnModel,
       store.prefs.spawnEffort,
       store.prefs.spawnMode,
+      { mail: true },
     );
     if (!ok) {
       this.error = store.error ?? "the agent didn't start";

@@ -108,8 +108,15 @@ export class TurnPrefs {
   /** The same, for the effort level beside it. */
   spawnEffort = $derived(this.effort ?? this.lastSpawned?.effort ?? DEFAULT_EFFORT);
 
-  /** And for the mode: what the last Turn ran as, else the YOLO default. */
-  spawnMode = $derived(this.mode ?? this.lastSpawned?.permission_mode ?? DEFAULT_MODE);
+  /**
+   * And for the mode: what the last Turn ran as, else the YOLO default. Not an
+   * agent handed mail's, which runs as Plan whatever the user picked.
+   */
+  spawnMode = $derived(
+    this.mode ??
+      (this.lastSpawned?.read_mail ? null : this.lastSpawned?.permission_mode) ??
+      DEFAULT_MODE,
+  );
 
   /**
    * Remember a model pick as the default for the next Spawn. Called for every

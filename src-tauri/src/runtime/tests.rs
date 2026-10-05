@@ -1086,6 +1086,7 @@ async fn resume_is_refused_for_an_agent_with_no_session() {
         model: None,
         effort: None,
         permission_mode: None,
+        read_mail: false,
         options: Default::default(),
         turns: 1,
         title: None,
@@ -1176,6 +1177,7 @@ async fn adopt_orphans_transitions_running() {
         model: None,
         effort: None,
         permission_mode: None,
+        read_mail: false,
         options: Default::default(),
         turns: 1,
         title: None,
@@ -1697,4 +1699,84 @@ async fn a_merge_pushes_only_when_asked() {
         .unwrap();
     assert!(!agent.unpushed);
     assert_eq!(git(origin.path(), &["rev-parse", "main"]).await, merged.sha);
+}
+
+/// An Agent handed mail reads and suggests and nothing else, for good (ADR
+/// 0018): every Turn is `plan` with only the file-reading tools, whatever Mode
+/// the user picks for it later. Other Agents keep the Mode they were given.
+#[tokio::test]
+async fn an_agent_handed_mail_stays_locked_whatever_mode_is_picked() {
+    let _env = StateEnv::new();
+    let repo = init_repo().await;
+    let project = sample_project(repo.path().to_path_buf());
+    let args_log = std::env::temp_dir().join(format!("cw-args-{}.txt", new_id()));
+    let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_recording(&args_log));
+
+    let agent = rt
+        .spawn_with_mail(
+            &project,
+            "summarize this mail".into(),
+            None,
+            None,
+            AgentOptions::default(),
+        )
+        .await
+        .unwrap();
+    assert!(agent.read_mail);
+    assert_eq!(agent.permission_mode.as_deref(), Some("plan"));
+    wait_for_exit(&mut rx).await;
+
+    // Sent as YOLO, and queued as YOLO: both still run locked.
+    let resumed = rt
+        .resume(
+            &agent.id,
+            "now reply to it".into(),
+            vec![],
+            None,
+            None,
+            Some("bypassPermissions".into()),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resumed.permission_mode.as_deref(), Some("plan"));
+    wait_for_exit(&mut rx).await;
+    let stored = storage::load_agent(&agent.id).unwrap();
+    assert!(stored.read_mail, "the lock must outlive the Turn");
+    assert_eq!(stored.mode(), "plan");
+
+    // An ordinary Agent alongside it is left as the user picked.
+    rt.spawn(
+        &project,
+        "build it".into(),
+        vec![],
+        None,
+        None,
+        Some("bypassPermissions".into()),
+        AgentOptions::default(),
+    )
+    .await
+    .unwrap();
+    wait_for_exit(&mut rx).await;
+
+    let args = std::fs::read_to_string(&args_log).unwrap();
+    let lines: Vec<&str> = args.lines().collect();
+    assert_eq!(lines.len(), 3, "one `claude` per Turn: {args}");
+    for locked in &lines[..2] {
+        assert!(locked.contains("--permission-mode plan"), "{locked}");
+        assert!(locked.contains("--restricted"), "{locked}");
+        assert!(locked.contains("--strict-mcp-config"), "{locked}");
+        assert!(locked.contains("--tools Read,Grep,Glob"), "{locked}");
+        assert!(
+            locked.contains("--disallowedTools ")
+                && locked.contains("mcp__orchestrate__write_note"),
+            "the app's writing tools must be denied, not just left unallowed: {locked}"
+        );
+    }
+    let free = lines[2];
+    assert!(
+        free.contains("--permission-mode bypassPermissions"),
+        "{free}"
+    );
+    assert!(!free.contains("--restricted"), "{free}");
+    assert!(!free.contains("--tools"), "{free}");
 }

@@ -20,6 +20,14 @@ use crate::{attachments, merging, process, storage, title};
 /// Grace period between SIGTERM and SIGKILL when stopping an Agent.
 const STOP_GRACE: Duration = Duration::from_secs(5);
 
+/// What a Mail-locked Agent's Turns run with on top of `plan` (ADR 0018).
+pub(super) const MAIL_LOCKED: [&str; 4] = [
+    "--restricted",
+    "--strict-mcp-config",
+    "--tools",
+    "Read,Grep,Glob",
+];
+
 /// Whether a Turn opens the Agent's Session or continues it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Continuity {
@@ -56,12 +64,21 @@ pub(super) fn command(
     // The Mode is the Agent's, not this launcher's: `bypassPermissions`
     // lets it work freely inside its Worktree, `plan` holds it to reading
     // and proposing. Unset — a pre-Mode Agent — runs as it always has.
-    cmd.arg("--permission-mode").arg(
-        agent
-            .permission_mode
-            .as_deref()
-            .unwrap_or(crate::domain::DEFAULT_PERMISSION_MODE),
-    );
+    cmd.arg("--permission-mode").arg(agent.mode());
+    // A Mail-locked Agent (ADR 0018) has read what a stranger wrote, so it
+    // gets nothing that could act on it or carry what it knows off the
+    // machine: no built-in tool but the ones that read files, no MCP server
+    // but the app's own and none of its tools that write, and none of the
+    // user's settings files, whose allow rules could hand back what this
+    // takes away. A `claude` too old for `--restricted` refuses to start,
+    // failing the Turn rather than running it loose.
+    if agent.read_mail {
+        cmd.args(MAIL_LOCKED);
+        let writing = crate::mcp::writing_tools();
+        if !writing.is_empty() {
+            cmd.arg("--disallowedTools").arg(writing.join(","));
+        }
+    }
     // No `--model` at all when the user hasn't picked one, so Claude Code's
     // own configured default applies rather than one we guessed.
     if let Some(model) = &agent.model {
@@ -317,8 +334,14 @@ async fn name_agent(namer: Arc<String>, agent: Agent, answer: String, emitter: E
     if !agent.worktree_path.exists() {
         return;
     }
-    let Some(title) =
-        title::generate(&namer, &agent.worktree_path, &agent.task.prompt, &answer).await
+    let Some(title) = title::generate(
+        &namer,
+        &agent.worktree_path,
+        &agent.task.prompt,
+        &answer,
+        agent.read_mail,
+    )
+    .await
     else {
         return;
     };

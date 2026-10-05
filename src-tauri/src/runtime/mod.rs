@@ -21,7 +21,7 @@ use tokio::task::JoinHandle;
 
 use crate::domain::{
     new_id, new_session_id, Agent, AgentOptions, AgentState, Id, Project, QueuedMessage,
-    Resolution, Task,
+    Resolution, Task, PLAN_PERMISSION_MODE,
 };
 use crate::error::{Error, Result};
 use crate::handoff::{self, Handoff};
@@ -135,7 +135,7 @@ impl AgentRuntime {
         permission_mode: Option<String>,
         options: AgentOptions,
     ) -> Result<Agent> {
-        let mut agent = opening(
+        let agent = opening(
             project,
             prompt,
             attachments,
@@ -144,6 +144,29 @@ impl AgentRuntime {
             permission_mode,
             options,
         )?;
+        self.spawn_opened(project, agent).await
+    }
+
+    /// Spawn an Agent whose Task holds mail (ADR 0018): a Spawn like any other,
+    /// but Mail-locked from its first Turn, so it reads and suggests and can do
+    /// nothing else for the rest of its life. There is no Mode to pick.
+    pub async fn spawn_with_mail(
+        &self,
+        project: &Project,
+        prompt: String,
+        model: Option<String>,
+        effort: Option<String>,
+        options: AgentOptions,
+    ) -> Result<Agent> {
+        let mut agent = opening(project, prompt, vec![], model, effort, None, options)?;
+        agent.read_mail = true;
+        agent.permission_mode = Some(PLAN_PERMISSION_MODE.into());
+        self.spawn_opened(project, agent).await
+    }
+
+    /// Cut the Worktree for a freshly opened Agent from the Project's tip and
+    /// start its first Turn.
+    async fn spawn_opened(&self, project: &Project, mut agent: Agent) -> Result<Agent> {
         // Record the commit we branched from before the Agent can move HEAD, so
         // the diff view has a fixed base even if the Project advances later.
         // Brought up to date with the remote first, where there is one.
@@ -213,6 +236,9 @@ impl AgentRuntime {
     /// Always YOLO, whatever the user last picked: a Resolver that may not write
     /// cannot resolve anything. Its Base is `target`'s tip, so its diff reads as
     /// what the finished Merge will bring into `target`.
+    ///
+    /// Refused for a Mail-locked Agent (ADR 0018), whose Task the Resolver's
+    /// prompt would quote. It writes nothing, so it never has a Merge to resolve.
     pub async fn spawn_resolver(
         &self,
         project: &Project,
@@ -223,6 +249,9 @@ impl AgentRuntime {
         model: Option<String>,
         effort: Option<String>,
     ) -> Result<Agent> {
+        if conflicted.read_mail {
+            return Err(Error::MailLocked { action: "merge" });
+        }
         let from = git::rev_parse(&project.path, &conflicted.branch).await?;
         let prompt = merging::resolver_prompt(conflicted, target, files);
         let mut agent = new_agent(
@@ -377,7 +406,13 @@ impl AgentRuntime {
         agent.turns += 1;
         agent.model = message.model;
         agent.effort = message.effort;
-        agent.permission_mode = message.permission_mode;
+        // Whatever the message was sent or queued under, a Mail-locked Agent
+        // stays in `plan` (ADR 0018).
+        agent.permission_mode = if agent.read_mail {
+            Some(PLAN_PERMISSION_MODE.into())
+        } else {
+            message.permission_mode
+        };
         agent.state = AgentState::Running;
         agent.turn_started_at = Some(OffsetDateTime::now_utc());
         agent.exited_at = None;
@@ -620,6 +655,7 @@ fn new_agent(
         model,
         effort,
         permission_mode,
+        read_mail: false,
         options: AgentOptions::default(),
         turns: 1,
         // Named at the end of its first Turn, once there is work to name.

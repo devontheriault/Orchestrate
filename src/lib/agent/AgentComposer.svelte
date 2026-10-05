@@ -108,10 +108,11 @@
   );
   /**
    * Where a stopped agent's next prompt could run instead of its own Host: a
-   * new agent elsewhere, from its commits (ADR 0013). Null hides the picker.
+   * new agent elsewhere, from its commits (ADR 0013). Null hides the picker,
+   * as it is for an agent handed mail, whose brief would carry the mail along.
    */
   const handoffOptions = $derived.by(() => {
-    if (!agent || working || !store.canContinue || !hosts.several) return null;
+    if (!agent || working || !store.canContinue || !hosts.several || agent.read_mail) return null;
     const group = store.projectOf(agent);
     if (!group) return null;
     return handoffChoices(
@@ -128,6 +129,8 @@
   const elsewhere = $derived(
     agent && handoffOptions && handOffTo && handOffTo !== agent.host ? handOffTo : null,
   );
+  /** Replying to an agent handed mail, which reads and suggests whatever mode is picked (ADR 0018). */
+  const mailLocked = $derived(!drafting && !elsewhere && !!agent?.read_mail);
   /** And on which machine: the agent's, or the one a new agent would start on. */
   const commandsHost = $derived(agent ? agent.host : store.draftHost);
   const commands = $derived(slash.for(commandsHost, commandsDir));
@@ -746,9 +749,13 @@
                which model runs the turn, and what it's allowed to do. -->
           <ModePicker
             bind:value={mode}
-            disabled={inFlight}
+            disabled={inFlight || mailLocked}
             compact
-            label={drafting || elsewhere ? "Mode for the new agent" : "Mode for this prompt"}
+            label={mailLocked
+              ? "This agent was handed mail, so it only reads and suggests"
+              : drafting || elsewhere
+                ? "Mode for the new agent"
+                : "Mode for this prompt"}
           />
         </div>
       </div>
