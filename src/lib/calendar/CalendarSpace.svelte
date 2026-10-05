@@ -9,6 +9,7 @@
    * Calendar event, Esc closes.
    */
   import { onDestroy, onMount } from "svelte";
+  import { space } from "$lib/spaces/space.svelte";
   import { calendar } from "./calendar.svelte";
   import { keyAction, viewDays, viewTitle, VIEWS, calendarKey, ago } from "./layout";
   import TimeGrid from "./TimeGrid.svelte";
@@ -24,7 +25,6 @@
   onDestroy(() => calendar.stop());
 
   let width = $state(1200);
-  let root: HTMLElement | undefined = $state();
   /** Too narrow for the side panel beside a readable week. */
   const narrow = $derived(width < 760);
 
@@ -66,8 +66,9 @@
 
   $effect(() => {
     const onKey = (e: KeyboardEvent) => {
-      // Only while on screen: a Space the rail has hidden keeps quiet.
-      if (calendar.accounts || calendar.editing || calendar.asking || !root?.offsetParent) return;
+      // Only while showing: the rail keeps Calendar mounted behind the other
+      // Spaces, hidden with `visibility`, which `offsetParent` doesn't notice.
+      if (calendar.accounts || calendar.editing || calendar.asking || space.current !== "calendar") return;
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
       const action = keyAction(e);
@@ -96,7 +97,7 @@
   });
 </script>
 
-<div class="space" bind:this={root} bind:clientWidth={width}>
+<div class="space" bind:clientWidth={width}>
   {#if !narrow}
     <aside class="side">
       {#if calendar.started}

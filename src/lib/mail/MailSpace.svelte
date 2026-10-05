@@ -5,6 +5,7 @@
   import FolderList from "./FolderList.svelte";
   import { mailKey, typing } from "./list";
   import { hosts } from "$lib/state/hosts.svelte";
+  import { space } from "$lib/spaces/space.svelte";
   import { mail } from "./mail.svelte";
   import MailSetup from "./MailSetup.svelte";
   import Reader from "./Reader.svelte";
@@ -17,7 +18,6 @@
    */
 
   let width = $state(1200);
-  let root: HTMLElement | undefined = $state();
   let search: HTMLInputElement | undefined = $state();
   let drawer = $state(false);
   let sending = $state(false);
@@ -32,14 +32,12 @@
 
   onDestroy(() => mail.stop());
 
-  /** The Space is on screen: a Rail may keep Spaces mounted but hidden. */
-  function shown(): boolean {
-    return !!root && root.checkVisibility?.() !== false && root.offsetParent !== null;
-  }
-
   $effect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!mail.connected || !shown() || e.defaultPrevented) return;
+      // The rail keeps Mail mounted behind the other Spaces, hidden with
+      // `visibility`, which neither `offsetParent` nor `checkVisibility()`
+      // notices. Its keys are only its own while it's the one showing.
+      if (!mail.connected || space.current !== "mail" || e.defaultPrevented) return;
       // Keys belong to whatever field, menu or panel has them first.
       const inside = e.target instanceof Element && e.target.closest(".popover, [role=dialog]");
       if (typing(document.activeElement) || inside) return;
@@ -84,7 +82,7 @@
   });
 </script>
 
-<div class="mail-space" bind:this={root} bind:clientWidth={width}>
+<div class="mail-space" bind:clientWidth={width}>
   {#if mail.status === null}
     <!-- Nothing until the Host has answered, as the rest of the app does. -->
     {#if mail.unreachable}

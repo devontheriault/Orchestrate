@@ -12,8 +12,7 @@
    */
   import { store } from "$lib/state/store.svelte";
   import { viewport } from "$lib/layout/viewport.svelte";
-  import type { Component } from "svelte";
-  import { SPACES, currentSpaceCss, spaceForKey, type Space } from "./spaces";
+  import { SPACES, currentSpaceCss, spaceForKey } from "./spaces";
   import { space, type SpaceId } from "./space.svelte";
   import SpaceRail from "./SpaceRail.svelte";
 
@@ -75,10 +74,7 @@
         bind:this={boxes[s.id]}
         onfocusin={(e) => noteFocus(s.id, e)}
       >
-        {#if space.opened.has(s.id)}
-          {@const Content = s.component as Component<{ space: Space }>}
-          <Content space={s} />
-        {/if}
+        {#if space.opened.has(s.id)}<s.component />{/if}
       </div>
     {/each}
   </div>

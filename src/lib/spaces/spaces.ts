@@ -1,14 +1,14 @@
 /**
  * The Spaces (ADR 0017), in the order the rail shows them. This list is the
  * whole of what the rail, the phone's tab bar, the window and the shortcuts
- * know about a Space, so adding one, or swapping a placeholder for the real
- * thing, is one entry here.
+ * know about a Space, so adding one is an entry here and its id in `SpaceId`.
  */
 
 import type { Component } from "svelte";
 import AgentsSpace from "$lib/agent/AgentsSpace.svelte";
 import CalendarSpace from "$lib/calendar/CalendarSpace.svelte";
-import ComingSoon from "./ComingSoon.svelte";
+import MailSpace from "$lib/mail/MailSpace.svelte";
+import NotesSpace from "$lib/notes/NotesSpace.svelte";
 import type { SpaceId } from "./space.svelte";
 
 export type Space = {
@@ -22,10 +22,11 @@ export type Space = {
   icon: string[];
   /**
    * Fills the box to the right of the rail, and stays mounted once opened so
-   * it comes back as it was left. It takes no props; the placeholder alone
-   * is handed its entry, as `space`, to say which Space it stands in for.
+   * it comes back as it was left. It takes no props. Mounted isn't showing,
+   * so keys it listens for on the window are only its own while
+   * `space.current` is its id.
    */
-  component: Component | Component<{ space: Space }>;
+  component: Component;
   /** The digit that, held with Ctrl (⌘ on a Mac), switches to it. */
   shortcut: string;
 };
@@ -52,7 +53,7 @@ export const SPACES: Space[] = [
       "M7 10.5h6",
       "M7 13.5h4",
     ],
-    component: ComingSoon,
+    component: NotesSpace,
     shortcut: "2",
   },
   {
@@ -75,7 +76,7 @@ export const SPACES: Space[] = [
       "M4.5 4.5h11a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-11a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2z",
       "M3 6l7 5.25L17 6",
     ],
-    component: ComingSoon,
+    component: MailSpace,
     shortcut: "4",
   },
 ];
