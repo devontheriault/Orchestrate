@@ -28,9 +28,11 @@ pub(super) enum Continuity {
 }
 
 /// The `claude` invocation for one Turn of `agent`, run in its Worktree with
-/// `prompt` and any files `attached` to it.
+/// `prompt` and any files `attached` to it, and given the app's MCP server
+/// with `mcp_args`.
 pub(super) fn command(
     claude_bin: &str,
+    mcp_args: &[String],
     agent: &Agent,
     prompt: &str,
     attached: &[PathBuf],
@@ -48,6 +50,9 @@ pub(super) fn command(
     for dir in attachments::dirs(attached) {
         cmd.arg("--add-dir").arg(dir);
     }
+    // The app's own MCP server, beside the user's and the Project's rather
+    // than instead of them. Its options are variadic too, so a flag follows.
+    cmd.args(mcp_args);
     // The Mode is the Agent's, not this launcher's: `bypassPermissions`
     // lets it work freely inside its Worktree, `plan` holds it to reading
     // and proposing. Unset — a pre-Mode Agent — runs as it always has.

@@ -98,6 +98,28 @@ Projects are matched up by their Git remote, so agents for the same repo show up
 
 If you want a machine's agents to keep running after you log out (and start back up on boot), turn on **Settings → Keep agents running when logged out**.
 
+## Give Claude access to the app
+
+Orchestrate has its own MCP server, `orchestrate --mcp`. Every agent it starts is already connected to it, so agents can list your other agents, check how one is doing and read its last answer, all without any setup. The server only reads, and nothing it does leaves your machine.
+
+To give the same tools to a plain `claude` in a terminal:
+
+```sh
+claude mcp add orchestrate -- orchestrate --mcp
+```
+
+For Claude Desktop, add it to `claude_desktop_config.json` (**Settings → Developer → Edit Config**):
+
+```json
+{
+  "mcpServers": {
+    "orchestrate": { "command": "orchestrate", "args": ["--mcp"] }
+  }
+}
+```
+
+`orchestrate` is the app's own binary. If it isn't on your `PATH`, use its full path instead. For the AppImage, that's the path to the AppImage file. The server talks to the app's background process, which the app starts when it opens, so open Orchestrate once after logging in.
+
 ## Safety
 
 Agents run in YOLO mode by default (`--permission-mode bypassPermissions`), which means they can run any command as your user without asking first. The worktree keeps their edits away from your checkout, but it isn't a sandbox. If you just want an agent to look around and suggest changes, switch it to **plan** mode.
@@ -139,6 +161,7 @@ src-tauri/      Rust backend (Tauri 2)
   src/runtime/  live agents: one `claude` process per turn
   src/git/      worktrees, diffs, commits and merges
   src/host/     the Host process and its Tailscale listener
+  src/mcp/      `orchestrate --mcp`, the MCP server agents reach the app through
 docs/adr/       architecture decision records
 CONTEXT.md      the project's vocabulary
 ```

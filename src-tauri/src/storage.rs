@@ -119,6 +119,22 @@ pub fn read_events(agent_id: &str) -> Result<Vec<AgentEvent>> {
         .collect())
 }
 
+/// The final answer of the Agent's last Turn that gave one, from its log.
+/// `None` until a Turn has ended with one.
+pub fn last_answer(agent_id: &str) -> Option<String> {
+    read_events(agent_id)
+        .unwrap_or_default()
+        .iter()
+        .rev()
+        .find_map(|e| {
+            (e.event.get("type")?.as_str()? == "result")
+                .then(|| e.event.get("result")?.as_str())
+                .flatten()
+                .filter(|r| !r.trim().is_empty())
+                .map(str::to_owned)
+        })
+}
+
 /// Whether a `claude` event is telemetry no window shows: the running count
 /// of thinking tokens, sent about once a second while the model thinks, and
 /// the account's rate limits. They stay in the log, where the usage totals
