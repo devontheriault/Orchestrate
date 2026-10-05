@@ -9,6 +9,7 @@ use serde_json::Value;
 use time::OffsetDateTime;
 
 use super::{Host, Peer};
+use crate::calendar::Op;
 use crate::domain::{new_id, Agent, AgentOptions, AgentState, Project, QueuedMessage};
 use crate::error::Error;
 use crate::git::{self, Merged};
@@ -236,6 +237,89 @@ pub enum Call {
         folder: Option<PathBuf>,
     },
     UsageSummary {},
+    /// The Calendar Space's accounts and their calendars (ADR 0017).
+    CalendarOverview {},
+    /// Every occurrence of every Calendar event overlapping `from`..`to`,
+    /// RFC 3339 times. All-day ones are matched by date in `from`'s offset.
+    CalendarEvents {
+        from: String,
+        to: String,
+    },
+    /// Calendar events mentioning every word of `query`, within a year either
+    /// side of now unless `from` and `to` say otherwise.
+    CalendarSearch {
+        query: String,
+        from: Option<String>,
+        to: Option<String>,
+        limit: Option<usize>,
+    },
+    /// When the user is busy, and free, in `from`..`to`.
+    CalendarFreeBusy {
+        from: String,
+        to: String,
+    },
+    /// Sync every calendar account now rather than at the next interval.
+    CalendarSync {},
+    /// Connect a CalDAV account, once the server takes the login.
+    CalendarAddCaldav {
+        url: String,
+        username: String,
+        password: String,
+    },
+    /// Keep the Google OAuth client the user made, to sign in to Google as.
+    CalendarSetGoogleClient {
+        client_id: String,
+        client_secret: String,
+    },
+    /// Keep the Microsoft app the user registered, to sign in to Microsoft as.
+    CalendarSetMicrosoftClient {
+        client_id: String,
+    },
+    /// Start signing in to `google` or `microsoft`: the URL to open in a
+    /// browser on the Host's own machine, which the provider sends back to.
+    /// The account arrives later, with a `calendar-changed` event.
+    CalendarSignIn {
+        provider: String,
+    },
+    /// Make a Calendar event, inviting the people on it.
+    CalendarCreate {
+        account_id: String,
+        calendar_id: String,
+        draft: crate::calendar::write::Draft,
+    },
+    /// Change a Calendar event, or one occurrence of a repeating one.
+    CalendarUpdate {
+        target: crate::calendar::write::Target,
+        draft: crate::calendar::write::Draft,
+        scope: crate::calendar::write::Scope,
+    },
+    CalendarDelete {
+        target: crate::calendar::write::Target,
+        scope: crate::calendar::write::Scope,
+    },
+    /// Calendar events Agents drafted, waiting for the user.
+    CalendarDrafts {},
+    /// Keep a Calendar event an Agent drafted, for the user to send: it is
+    /// never sent from here (ADR 0017).
+    CalendarPropose {
+        draft: crate::calendar::write::Draft,
+        account_id: Option<String>,
+        calendar_id: Option<String>,
+        note: Option<String>,
+    },
+    CalendarDiscardDraft {
+        id: String,
+    },
+    /// Answer an invitation.
+    CalendarRespond {
+        target: crate::calendar::write::Target,
+        answer: crate::calendar::write::Answer,
+        scope: crate::calendar::write::Scope,
+    },
+    /// Forget an account here. Nothing on the provider is touched.
+    CalendarRemoveAccount {
+        id: String,
+    },
     /// The Mail Space (ADR 0017): the account, and where it stands.
     MailStatus {},
     /// Connect an account. Gmail with Google answers with a page to sign in on.
@@ -335,6 +419,11 @@ pub async fn answer(host: &Host, call: Value, peer: Peer) -> Result<Value, Strin
     // which it would then ask to make way again.
     if matches!(call, Call::ShutdownWhenIdle {}) && peer != Peer::Local {
         return Err("only a window on the Host's own machine can restart it".into());
+    }
+    // Google sends the browser back to 127.0.0.1, which is only this Host
+    // from a browser on its own machine.
+    if matches!(call, Call::CalendarSignIn { .. }) && peer != Peer::Local {
+        return Err("sign in from a window on the Host's own machine: the provider sends the browser back to it there".into());
     }
     handle(host, call).await
 }
@@ -691,6 +780,106 @@ async fn handle(host: &Host, call: Call) -> Result<Value, String> {
             .await
             .map_err(err)?
             .map_err(err)?),
+
+        Call::CalendarOverview {} => ok(host.calendar.overview()),
+
+        Call::CalendarEvents { from, to } => ok(host.calendar.events_and_drafts(&from, &to)?),
+
+        Call::CalendarSearch {
+            query,
+            from,
+            to,
+            limit,
+        } => ok(host
+            .calendar
+            .search(&query, from.as_deref(), to.as_deref(), limit)?),
+
+        Call::CalendarFreeBusy { from, to } => ok(host.calendar.free_busy(&from, &to)?),
+
+        Call::CalendarSync {} => {
+            host.calendar.sync_all().await;
+            ok(host.calendar.overview())
+        }
+
+        Call::CalendarAddCaldav {
+            url,
+            username,
+            password,
+        } => ok(host.calendar.add_caldav(&url, &username, &password).await?),
+
+        Call::CalendarSetGoogleClient {
+            client_id,
+            client_secret,
+        } => ok(host
+            .calendar
+            .set_google_client(&client_id, &client_secret)?),
+
+        Call::CalendarSetMicrosoftClient { client_id } => {
+            ok(host.calendar.set_microsoft_client(&client_id)?)
+        }
+
+        Call::CalendarSignIn { provider } => ok(host.calendar.begin_sign_in(&provider).await?),
+
+        Call::CalendarCreate {
+            account_id,
+            calendar_id,
+            draft,
+        } => ok(host
+            .calendar
+            .write(&account_id, Op::Create { calendar_id, draft })
+            .await?),
+
+        Call::CalendarUpdate {
+            target,
+            draft,
+            scope,
+        } => ok(host
+            .calendar
+            .write(
+                &target.account_id.clone(),
+                Op::Update {
+                    target,
+                    draft,
+                    scope,
+                },
+            )
+            .await?),
+
+        Call::CalendarDelete { target, scope } => ok(host
+            .calendar
+            .write(&target.account_id.clone(), Op::Delete { target, scope })
+            .await?),
+
+        Call::CalendarDrafts {} => ok(host.calendar.drafts()),
+
+        Call::CalendarPropose {
+            draft,
+            account_id,
+            calendar_id,
+            note,
+        } => ok(host
+            .calendar
+            .propose(draft, account_id, calendar_id, note)?),
+
+        Call::CalendarDiscardDraft { id } => ok(host.calendar.discard_draft(&id)?),
+
+        Call::CalendarRespond {
+            target,
+            answer,
+            scope,
+        } => ok(host
+            .calendar
+            .write(
+                &target.account_id.clone(),
+                Op::Respond {
+                    target,
+                    answer,
+                    scope,
+                },
+            )
+            .await?),
+
+        Call::CalendarRemoveAccount { id } => ok(host.calendar.remove(&id)?),
 
         Call::MailStatus {} => ok(crate::mail::status()),
         Call::MailSetUp { setup } => ok(crate::mail::set_up(setup).await?),

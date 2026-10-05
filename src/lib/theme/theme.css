@@ -98,6 +98,10 @@
      warning, and grey would make it indistinguishable from stopped. */
   --delivered: #7c3aed;
 
+  /* The Calendar Space's current-time line: red, as every calendar draws it,
+     because it is the one mark on the grid that has to be found at a glance. */
+  --calendar-now: var(--danger);
+
   /* Dims the app behind a modal. */
   --scrim: rgba(0, 0, 0, 0.4);
   /* Not set here, and by no theme but Glass: `--float-bg` and

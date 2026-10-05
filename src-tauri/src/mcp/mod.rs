@@ -87,7 +87,7 @@ use crate::paths;
 pub const SERVER_NAME: &str = "orchestrate";
 
 /// Every Space's tools, one entry per Space.
-const SPACES: &[fn() -> Vec<Tool>] = &[crate::runtime::mcp::tools];
+const SPACES: &[fn() -> Vec<Tool>] = &[crate::runtime::mcp::tools, crate::calendar::mcp::tools];
 
 /// Every tool the server offers.
 pub fn tools() -> Vec<Tool> {

@@ -1,4 +1,5 @@
 pub mod attachments;
+pub mod calendar;
 pub mod commands;
 pub mod domain;
 pub mod error;

@@ -7,6 +7,7 @@
 
 import type { Component } from "svelte";
 import AgentsSpace from "$lib/agent/AgentsSpace.svelte";
+import CalendarSpace from "$lib/calendar/CalendarSpace.svelte";
 import ComingSoon from "./ComingSoon.svelte";
 import type { SpaceId } from "./space.svelte";
 
@@ -64,7 +65,7 @@ export const SPACES: Space[] = [
       "M13 2.5v3.5",
       "M7 12h.01M10 12h.01M13 12h.01M7 14.75h.01M10 14.75h.01",
     ],
-    component: ComingSoon,
+    component: CalendarSpace,
     shortcut: "3",
   },
   {
