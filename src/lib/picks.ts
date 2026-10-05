@@ -47,6 +47,16 @@ export const MODES = [
 /** The mode a turn runs in unless the user picks otherwise. */
 export const DEFAULT_MODE = "bypassPermissions";
 
+/**
+ * The modes as the picker lists them, with `value` among them. A mode this
+ * build doesn't know still gets a row, so a record written by a newer version
+ * reads as what it is rather than silently as YOLO.
+ */
+export function modeChoices(value: string): { id: string; name: string; note: string }[] {
+  const known = MODES.some((m) => m.id === value);
+  return [...MODES, ...(known ? [] : [{ id: value, name: value, note: "" }])];
+}
+
 /** What to call a mode. Falls back to the id, for a mode this build predates. */
 export function modeLabel(id: string | null | undefined): string {
   if (!id) return modeLabel(DEFAULT_MODE);

@@ -196,7 +196,7 @@ export class Review {
     this.pushing = true;
     try {
       const agent = await api.pushMerge(id);
-      app.upsert(agent);
+      app.take(agent);
       return agent;
     } catch (e) {
       if (app.selectedAgentId === id) this.error = String(e);
@@ -235,7 +235,7 @@ export class Review {
         app.prefs.spawnEffort || null,
       );
       delete this.conflicts[id];
-      app.agents.push(resolver);
+      app.take(resolver);
       app.selectAgent(resolver.id);
       return true;
     } catch (e) {

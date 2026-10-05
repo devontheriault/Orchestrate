@@ -11,6 +11,7 @@ pub mod mcp;
 pub mod merging;
 pub mod models;
 pub mod notes;
+pub mod oauth;
 pub mod paths;
 pub mod plugins;
 pub mod process;

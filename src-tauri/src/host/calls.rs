@@ -505,7 +505,7 @@ async fn handle(host: &Host, call: Call) -> Result<Value, String> {
             ok(reg.save().map_err(err)?)
         }
 
-        Call::ListAgents {} => ok(storage::list_agents().map_err(err)?),
+        Call::ListAgents {} => ok(blocking(storage::list_agents).await?),
 
         Call::SpawnAgent {
             project_id,
@@ -517,10 +517,7 @@ async fn handle(host: &Host, call: Call) -> Result<Value, String> {
             options,
             handoff,
         } => {
-            let reg = storage::Registry::load().map_err(err)?;
-            let project = reg
-                .project(&project_id)
-                .ok_or_else(|| format!("project not found: {project_id}"))?;
+            let project = &registered(&project_id)?;
             let agent = match handoff {
                 Some(handoff) => {
                     runtime
@@ -560,10 +557,7 @@ async fn handle(host: &Host, call: Call) -> Result<Value, String> {
             effort,
             options,
         } => {
-            let reg = storage::Registry::load().map_err(err)?;
-            let project = reg
-                .project(&project_id)
-                .ok_or_else(|| format!("project not found: {project_id}"))?;
+            let project = &registered(&project_id)?;
             ok(runtime
                 .spawn_with_mail(project, prompt, model, effort, options)
                 .await
@@ -661,9 +655,18 @@ async fn handle(host: &Host, call: Call) -> Result<Value, String> {
 
         Call::DiscardAgent { agent_id } => ok(discard(&agent_id).await?),
 
-        Call::AgentEvents { agent_id } => ok(storage::read_events(&agent_id).map_err(err)?),
+        // Off the async runtime: a long log runs to megabytes.
+        Call::AgentEvents { agent_id } => {
+            ok(blocking(move || storage::read_events(&agent_id)).await?)
+        }
 
-        Call::AgentLastAnswer { agent_id } => ok(storage::last_answer(&agent_id)),
+        Call::AgentLastAnswer { agent_id } => {
+            ok(
+                tokio::task::spawn_blocking(move || storage::last_answer(&agent_id))
+                    .await
+                    .map_err(err)?,
+            )
+        }
 
         Call::AgentDiff { agent_id } => {
             let agent = storage::load_agent(&agent_id).map_err(err)?;
@@ -682,20 +685,14 @@ async fn handle(host: &Host, call: Call) -> Result<Value, String> {
         Call::AgentCommit { agent_id, message } => {
             // Refused while the Agent is running, since it would race the
             // Agent's own writes and capture a half-finished tree.
-            let agent = storage::load_agent(&agent_id).map_err(err)?;
-            if agent.state == AgentState::Running {
-                return Err("cannot commit while the agent is running; stop it first".into());
-            }
+            let agent = stopped(&agent_id, "commit")?;
             ok(git::commit(&agent.worktree_path, &message)
                 .await
                 .map_err(err)?)
         }
 
         Call::ProjectBranches { project_id } => {
-            let reg = storage::Registry::load().map_err(err)?;
-            let project = reg
-                .project(&project_id)
-                .ok_or_else(|| format!("project not found: {project_id}"))?;
+            let project = &registered(&project_id)?;
             ok(git::branches(&project.path).await.map_err(err)?)
         }
 
@@ -707,10 +704,7 @@ async fn handle(host: &Host, call: Call) -> Result<Value, String> {
             // The one thing the app writes to the Project, and only ever
             // because the user asked. The Agent survives a Merge: only Discard
             // destroys anything, so the Merge is recorded on the Agent.
-            let mut agent = storage::load_agent(&agent_id).map_err(err)?;
-            if agent.state == AgentState::Running {
-                return Err("cannot merge while the agent is running; stop it first".into());
-            }
+            let mut agent = stopped(&agent_id, "merge")?;
             let project = project_of(&agent, "merge")?;
             match merging::merge(&project.path, &mut agent, &target, push).await {
                 Ok((merged, _)) => ok(MergeOutcome::Merged(merged)),
@@ -744,10 +738,7 @@ async fn handle(host: &Host, call: Call) -> Result<Value, String> {
         } => {
             // Refused while the Agent is running, as a Merge is — the Resolver
             // would be cut from a branch still moving.
-            let agent = storage::load_agent(&agent_id).map_err(err)?;
-            if agent.state == AgentState::Running {
-                return Err("cannot resolve while the agent is running; stop it first".into());
-            }
+            let agent = stopped(&agent_id, "resolve")?;
             let project = project_of(&agent, "resolve")?;
             ok(runtime
                 .spawn_resolver(&project, &agent, &target, &files, push, model, effort)
@@ -803,10 +794,7 @@ async fn handle(host: &Host, call: Call) -> Result<Value, String> {
 
         // Off the async runtime: the first read walks every Claude Code
         // transcript.
-        Call::UsageSummary {} => ok(tokio::task::spawn_blocking(crate::usage::summary)
-            .await
-            .map_err(err)?
-            .map_err(err)?),
+        Call::UsageSummary {} => ok(blocking(crate::usage::summary).await?),
 
         Call::CalendarOverview {} => ok(host.calendar.overview()),
 
@@ -970,6 +958,19 @@ where
         .map_err(err)??)
 }
 
+/// Run `read` off the async runtime: file reads that can be long.
+async fn blocking<T, E, F>(read: F) -> Result<T, String>
+where
+    F: FnOnce() -> Result<T, E> + Send + 'static,
+    T: Send + 'static,
+    E: std::fmt::Display + Send + 'static,
+{
+    tokio::task::spawn_blocking(read)
+        .await
+        .map_err(err)?
+        .map_err(err)
+}
+
 /// Where to run `claude plugin`: the directory asked about, or home. A
 /// directory since removed falls back to home too, rather than failing.
 fn plugins_dir(dir: Option<PathBuf>) -> Result<PathBuf, String> {
@@ -979,10 +980,7 @@ fn plugins_dir(dir: Option<PathBuf>) -> Result<PathBuf, String> {
 }
 
 async fn discard(agent_id: &str) -> Result<(), String> {
-    let agent = storage::load_agent(agent_id).map_err(err)?;
-    if agent.state == AgentState::Running {
-        return Err("cannot discard a running agent; stop it first".into());
-    }
+    let agent = stopped(agent_id, "discard")?;
 
     // Best-effort worktree removal. If the Project has been unregistered we
     // fall back to a plain directory delete.
@@ -999,6 +997,27 @@ async fn discard(agent_id: &str) -> Result<(), String> {
         std::fs::remove_file(&meta).map_err(err)?;
     }
     Ok(())
+}
+
+/// The registered Project with this id.
+fn registered(project_id: &str) -> Result<Project, String> {
+    storage::Registry::load()
+        .map_err(err)?
+        .project(project_id)
+        .cloned()
+        .ok_or_else(|| format!("project not found: {project_id}"))
+}
+
+/// An Agent that isn't running, for an `action` that would race its own
+/// writes if it were.
+fn stopped(agent_id: &str, action: &str) -> Result<Agent, String> {
+    let agent = storage::load_agent(agent_id).map_err(err)?;
+    if agent.state == AgentState::Running {
+        return Err(format!(
+            "cannot {action} while the agent is running; stop it first"
+        ));
+    }
+    Ok(agent)
 }
 
 /// The registered Project an Agent belongs to, or an error naming `action` for

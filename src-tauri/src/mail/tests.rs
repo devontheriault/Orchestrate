@@ -265,7 +265,7 @@ fn summary(uid: u32, date: i64, id: &str, refs: &[&str]) -> Summary {
         to: Vec::new(),
         date,
         snippet: String::new(),
-        unread: uid % 2 == 0,
+        unread: uid.is_multiple_of(2),
         flagged: false,
         attachments: false,
         labels: Vec::new(),
@@ -626,13 +626,7 @@ fn credentials_are_readable_only_by_the_user() {
 }
 
 #[test]
-fn google_comes_back_to_the_redirect() {
-    assert_eq!(
-        oauth::redirect_query("GET /?state=s&code=4%2F0A HTTP/1.1\r\nHost: 127.0.0.1\r\n"),
-        Some("state=s&code=4%2F0A")
-    );
-    assert_eq!(oauth::redirect_query("GET /favicon.ico HTTP/1.1\r\n"), None);
-    assert_eq!(oauth::redirect_query("POST /?code=x HTTP/1.1\r\n"), None);
+fn an_id_token_says_which_account_signed_in() {
     // {"email":"me@gmail.com"}
     let token = "eyJhbGciOiJub25lIn0.eyJlbWFpbCI6Im1lQGdtYWlsLmNvbSJ9.sig";
     assert_eq!(oauth::email_of(token).as_deref(), Some("me@gmail.com"));

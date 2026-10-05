@@ -239,6 +239,7 @@ impl AgentRuntime {
     ///
     /// Refused for a Mail-locked Agent (ADR 0018), whose Task the Resolver's
     /// prompt would quote. It writes nothing, so it never has a Merge to resolve.
+    #[allow(clippy::too_many_arguments)]
     pub async fn spawn_resolver(
         &self,
         project: &Project,

@@ -7,6 +7,7 @@
 
 import { api, type Agent, type QueuedMessage } from "$lib/api";
 import { DEFAULT_MODE } from "$lib/picks";
+import { readJson } from "$lib/storage";
 import type { AppStore } from "./store.svelte";
 
 /**
@@ -24,15 +25,6 @@ type LegacyMessage = {
   effort: string;
   mode?: string;
 };
-
-function readLegacy(): Record<string, LegacyMessage[]> {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(LEGACY_QUEUE_KEY) ?? "{}");
-    return parsed && typeof parsed === "object" ? parsed : {};
-  } catch {
-    return {};
-  }
-}
 
 function fromLegacy(m: LegacyMessage): QueuedMessage {
   return {
@@ -87,7 +79,7 @@ export class Queue {
    * the Host won't take stays here for the next try.
    */
   async handOver() {
-    const stored = readLegacy();
+    const stored = readJson<Record<string, LegacyMessage[]>>(LEGACY_QUEUE_KEY, {});
     if (this.#handingOver || Object.keys(stored).length === 0) return;
     this.#handingOver = true;
     for (const id of Object.keys(stored)) {
@@ -98,7 +90,7 @@ export class Queue {
         continue;
       }
       try {
-        this.#app.upsert(await api.queueMessages(id, messages.map(fromLegacy)));
+        await api.queueMessages(id, messages.map(fromLegacy));
         delete stored[id];
       } catch {
         // Kept for the next launch.
@@ -113,9 +105,13 @@ export class Queue {
     this.#handingOver = false;
   }
 
+  /**
+   * Wait out a change. Its reply isn't put in place: the Host announces the
+   * change too, in order with the Agent's other moves (see `AppStore.edit`).
+   */
   async #change(call: Promise<Agent>) {
     try {
-      this.#app.upsert(await call);
+      await call;
     } catch (e) {
       this.#app.error = String(e);
     }

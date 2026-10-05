@@ -232,30 +232,9 @@ pub fn save(saved: &Saved) -> Result<()> {
         .map_err(|e| format!("could not create {}: {e}", dir.display()))?;
     private(&dir, 0o700)?;
     let path = file()?;
-    let tmp = path.with_extension("json.tmp");
-    let _ = std::fs::remove_file(&tmp);
     let json = serde_json::to_vec_pretty(saved).map_err(|e| e.to_string())?;
-    write_private(&tmp, &json).map_err(|e| format!("could not write {}: {e}", tmp.display()))?;
-    std::fs::rename(&tmp, &path).map_err(|e| format!("could not write {}: {e}", path.display()))
-}
-
-#[cfg(unix)]
-fn write_private(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
-    use std::io::Write;
-    use std::os::unix::fs::OpenOptionsExt;
-    let mut f = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(path)?;
-    f.write_all(bytes)?;
-    f.sync_all()
-}
-
-/// On Windows a file in the user's own profile is private to them already.
-#[cfg(not(unix))]
-fn write_private(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
-    std::fs::write(path, bytes)
+    crate::storage::write_whole(&path, &json, true)
+        .map_err(|e| format!("could not write {}: {e}", path.display()))
 }
 
 #[cfg(unix)]

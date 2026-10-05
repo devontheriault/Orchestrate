@@ -109,11 +109,6 @@ export function defaultHost(
   return checkout.host;
 }
 
-/** The Hosts a project has a checkout on. */
-export function hostsOf(group: ProjectGroup): string[] {
-  return [...new Set(group.checkouts.map((c) => c.host))];
-}
-
 /**
  * Projects in the order the user dragged them into. Ones the order doesn't
  * know — added since, or from a Host added since — follow in the order they

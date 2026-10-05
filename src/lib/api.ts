@@ -729,6 +729,17 @@ const on = (agentId: string) => agentHosts.get(agentId) ?? LOCAL;
 const stamp = <T extends object>(hostId: string, items: T[]): (T & { host: string })[] =>
   items.map((item) => ({ ...item, host: hostId }));
 
+/** Ask a Host for one record, and stamp it with that Host. */
+const hosted = async <T extends { host: string }>(
+  hostId: string,
+  method: string,
+  args: Record<string, unknown> = {},
+): Promise<T> => ({ ...(await host<Omit<T, "host">>(hostId, method, args)), host: hostId }) as T;
+
+/** Ask a Host for a list of records, and stamp each with that Host. */
+const hostedList = async <T extends { host: string }>(hostId: string, method: string) =>
+  stamp(hostId, await host<Omit<T, "host">[]>(hostId, method)) as T[];
+
 /**
  * Where the window stands with one Host. `updating`: this machine's Host is
  * an older build, finishing its running Turns before this one takes over.
@@ -772,25 +783,19 @@ export const api = {
     agentHosts.set(agent.id, agent.host);
   },
 
-  listProjects: async (hostId: string) =>
-    stamp(hostId, await host<Omit<Project, "host">[]>(hostId, "list_projects")),
+  listProjects: (hostId: string) => hostedList<Project>(hostId, "list_projects"),
   /** True when the folder isn't a Git repository with a commit yet. */
   projectNeedsSetup: (path: string) => host<boolean>(LOCAL, "project_needs_setup", { path }),
   /** Register a folder on this machine — the one the folder picker browses. */
-  addProject: async (name: string, path: string, setUp: boolean) => ({
-    ...(await host<Omit<Project, "host">>(LOCAL, "add_project", { name, path, setUp })),
-    host: LOCAL,
-  }),
+  addProject: (name: string, path: string, setUp: boolean) =>
+    hosted<Project>(LOCAL, "add_project", { name, path, setUp }),
   removeProject: (hostId: string, id: string) => host<void>(hostId, "remove_project", { id }),
   /** Have a Host clone a project it has no checkout of, from its remote. */
-  cloneProject: async (hostId: string, name: string, url: string) => ({
-    ...(await host<Omit<Project, "host">>(hostId, "clone_project", { name, url })),
-    host: hostId,
-  }),
+  cloneProject: (hostId: string, name: string, url: string) =>
+    hosted<Project>(hostId, "clone_project", { name, url }),
 
-  listAgents: async (hostId: string) =>
-    stamp(hostId, await host<Omit<Agent, "host">[]>(hostId, "list_agents")),
-  spawnAgent: async (
+  listAgents: (hostId: string) => hostedList<Agent>(hostId, "list_agents"),
+  spawnAgent: (
     hostId: string,
     projectId: string,
     prompt: string,
@@ -801,8 +806,8 @@ export const api = {
     options: AgentOptions,
     /** Work handed off from another Host, for the new agent to pick up. */
     handoff: Handoff | null = null,
-  ): Promise<Agent> => ({
-    ...(await host<Omit<Agent, "host">>(hostId, "spawn_agent", {
+  ) =>
+    hosted<Agent>(hostId, "spawn_agent", {
       projectId,
       prompt,
       attachments,
@@ -811,31 +816,20 @@ export const api = {
       permissionMode,
       options,
       handoff,
-    })),
-    host: hostId,
-  }),
+    }),
   /**
    * Spawn an agent whose prompt holds mail (ADR 0018). It is locked for good:
    * it reads and suggests, and no mode picked later lets it do more. A Host
    * too old to lock one refuses the call rather than spawning it loose.
    */
-  spawnMailAgent: async (
+  spawnMailAgent: (
     hostId: string,
     projectId: string,
     prompt: string,
     model: string | null,
     effort: string | null,
     options: AgentOptions,
-  ): Promise<Agent> => ({
-    ...(await host<Omit<Agent, "host">>(hostId, "spawn_mail_agent", {
-      projectId,
-      prompt,
-      model,
-      effort,
-      options,
-    })),
-    host: hostId,
-  }),
+  ) => hosted<Agent>(hostId, "spawn_mail_agent", { projectId, prompt, model, effort, options }),
   /**
    * Put a stopped agent's committed work on the project's remote, for an agent
    * spawned on another Host to pick up. Refused while it holds uncommitted work.
@@ -853,7 +847,7 @@ export const api = {
     effort: string | null,
     permissionMode: string | null,
   ) =>
-    host<Agent>(on(agentId), "send_message", {
+    hosted<Agent>(on(agentId), "send_message", {
       agentId,
       prompt,
       attachments,
@@ -862,13 +856,13 @@ export const api = {
       permissionMode,
     }),
   /** Send the head of a queue that a Stop or a Fail held. */
-  sendNext: (agentId: string) => host<Agent>(on(agentId), "send_next", { agentId }),
+  sendNext: (agentId: string) => hosted<Agent>(on(agentId), "send_next", { agentId }),
   /** Add messages to the end of a queue without sending any. */
   queueMessages: (agentId: string, messages: QueuedMessage[]) =>
-    host<Agent>(on(agentId), "queue_messages", { agentId, messages }),
+    hosted<Agent>(on(agentId), "queue_messages", { agentId, messages }),
   removeQueued: (agentId: string, messageId: string) =>
-    host<Agent>(on(agentId), "remove_queued", { agentId, messageId }),
-  clearQueue: (agentId: string) => host<Agent>(on(agentId), "clear_queue", { agentId }),
+    hosted<Agent>(on(agentId), "remove_queued", { agentId, messageId }),
+  clearQueue: (agentId: string) => hosted<Agent>(on(agentId), "clear_queue", { agentId }),
   /**
    * Whether this machine's Host keeps running while the user is logged out;
    * null when it isn't a service that could.
@@ -877,13 +871,13 @@ export const api = {
   setKeepRunning: (on: boolean) => host<void>(LOCAL, "set_keep_running", { on }),
   /** Name an agent; null hands the naming back to Claude's title. */
   renameAgent: (agentId: string, name: string | null) =>
-    host<Agent>(on(agentId), "rename_agent", { agentId, name }),
+    hosted<Agent>(on(agentId), "rename_agent", { agentId, name }),
   /** Tag an agent with one of `TAGS`, or untag it with null. */
   setAgentColor: (agentId: string, color: string | null) =>
-    host<Agent>(on(agentId), "set_agent_color", { agentId, color }),
+    hosted<Agent>(on(agentId), "set_agent_color", { agentId, color }),
   /** Set how an agent's turns run, from its next one on. */
   setAgentOptions: (agentId: string, options: AgentOptions) =>
-    host<Agent>(on(agentId), "set_agent_options", { agentId, options }),
+    hosted<Agent>(on(agentId), "set_agent_options", { agentId, options }),
   /**
    * Write a pasted file to disk so it can be attached by path, and return the
    * path. Sent as raw bytes rather than JSON; the name rides in a header,
@@ -922,30 +916,21 @@ export const api = {
   agentMerge: (agentId: string, target: string, push: boolean) =>
     host<MergeOutcome>(on(agentId), "agent_merge", { agentId, target, push }),
   /** Push the branch the last merge went into: not pushed then, or it failed. */
-  pushMerge: (agentId: string) => host<Agent>(on(agentId), "push_merge", { agentId }),
+  pushMerge: (agentId: string) => hosted<Agent>(on(agentId), "push_merge", { agentId }),
   /**
    * Spawn a resolver for a merge of `agentId` into `target` that conflicted,
    * which was to push `target` after if `push`.
    */
-  resolveConflict: async (
+  resolveConflict: (
     agentId: string,
     target: string,
     files: string[],
     push: boolean,
     model: string | null,
     effort: string | null,
-  ): Promise<Agent> => ({
-    ...(await host<Omit<Agent, "host">>(on(agentId), "resolve_conflict", {
-      agentId,
-      target,
-      files,
-      push,
-      model,
-      effort,
-    })),
+  ) =>
     // On the conflicted agent's Host: that's where its branch is.
-    host: on(agentId),
-  }),
+    hosted<Agent>(on(agentId), "resolve_conflict", { agentId, target, files, push, model, effort }),
   /** Ids of merged agents whose worktree still holds work the project lacks. */
   agentsHoldingWork: (hostId: string) => host<string[]>(hostId, "agents_holding_work"),
   /** A checkout's local branches, for the merge picker. */
@@ -987,8 +972,7 @@ export const api = {
   setNotesFolder: (hostId: string, folder: string | null) =>
     host<NotesFolder>(hostId, "set_notes_folder", { folder }),
 
-  startupOrphans: async (hostId: string) =>
-    stamp(hostId, await host<Omit<Agent, "host">[]>(hostId, "startup_orphans")),
+  startupOrphans: (hostId: string) => hostedList<Agent>(hostId, "startup_orphans"),
   dismissOrphans: (hostId: string) => host<void>(hostId, "dismiss_orphans"),
 
   /** The Calendar Space's accounts and their calendars, on the Host that keeps them. */

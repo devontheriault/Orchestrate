@@ -6,6 +6,7 @@
 
 import type { Agent, AgentOptions } from "$lib/api";
 import { DEFAULT_EFFORT, DEFAULT_MODE, DEFAULT_MODEL } from "$lib/picks";
+import { readJson, writeJson } from "$lib/storage";
 import type { AppStore } from "./store.svelte";
 
 /**
@@ -39,24 +40,6 @@ function readStored(key: string): string | null {
   }
 }
 
-function readHosts(): Record<string, string> {
-  try {
-    const parsed = JSON.parse(readStored(HOSTS_KEY) ?? "{}");
-    return parsed && typeof parsed === "object" ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-function readOptions(): AgentOptions {
-  try {
-    const parsed = JSON.parse(readStored(OPTIONS_KEY) ?? "{}");
-    return parsed && typeof parsed === "object" ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
 export class TurnPrefs {
   #app: AppStore;
 
@@ -74,13 +57,13 @@ export class TurnPrefs {
    * or on any agent. Options are set rarely and meant to stick, so a user who
    * likes Concise replies shouldn't have to say so for every agent.
    */
-  options = $state<AgentOptions>(readOptions());
+  options = $state(readJson<AgentOptions>(OPTIONS_KEY, {}));
 
   /**
    * The Host each project last spawned on. Remembered per project, like the
    * Model is overall: which machine a project's work goes to is a habit too.
    */
-  hosts = $state<Record<string, string>>(readHosts());
+  hosts = $state(readJson<Record<string, string>>(HOSTS_KEY, {}));
 
   constructor(app: AppStore) {
     this.#app = app;
@@ -139,20 +122,12 @@ export class TurnPrefs {
   /** Remember the Host a project just spawned on, for its next Spawn. */
   rememberHost(projectId: string, host: string) {
     this.hosts[projectId] = host;
-    try {
-      localStorage.setItem(HOSTS_KEY, JSON.stringify(this.hosts));
-    } catch {
-      // As above.
-    }
+    writeJson(HOSTS_KEY, this.hosts);
   }
 
   /** Remember options just set as the ones the next Spawn opens on. */
   rememberOptions(options: AgentOptions) {
     this.options = options;
-    try {
-      localStorage.setItem(OPTIONS_KEY, JSON.stringify(options));
-    } catch {
-      // As above.
-    }
+    writeJson(OPTIONS_KEY, options);
   }
 }

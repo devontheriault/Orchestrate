@@ -37,7 +37,7 @@ fn root() -> Result<PathBuf> {
 /// A folder's name, made safe for a file name and kept short.
 fn key(folder: &str) -> String {
     let digest = Sha256::digest(folder.as_bytes());
-    digest[..8].iter().map(|b| format!("{b:02x}")).collect()
+    crate::domain::hex(&digest[..8])
 }
 
 fn folder_file(folder: &str) -> Result<PathBuf> {
@@ -114,7 +114,7 @@ fn prune(dir: &std::path::Path) {
     if files.len() <= BODIES_KEPT {
         return;
     }
-    files.sort_by(|a, b| b.0.cmp(&a.0));
+    files.sort_by_key(|f| std::cmp::Reverse(f.0));
     for (_, path) in files.into_iter().skip(BODIES_KEPT) {
         let _ = std::fs::remove_file(path);
     }

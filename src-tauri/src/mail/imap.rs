@@ -906,7 +906,7 @@ async fn summaries(
             }
         }
     }
-    out.sort_by(|a, b| b.uid.cmp(&a.uid));
+    out.sort_by_key(|s| std::cmp::Reverse(s.uid));
     Ok(out)
 }
 

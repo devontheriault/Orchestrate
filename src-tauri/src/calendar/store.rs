@@ -3,7 +3,6 @@
 //! whole to a temporary file first, so a crash mid-write can't leave half of
 //! one, or leave it readable by others for a moment.
 
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -24,32 +23,8 @@ fn cache_path(dir: &Path, account: &str) -> PathBuf {
 
 /// Write `contents` to `path`, readable only by the user when `secret`.
 fn write(path: &Path, contents: &[u8], secret: bool) -> Result<(), String> {
-    let parent = path.parent().ok_or("no directory to write into")?;
-    std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
-    let tmp = path.with_extension("tmp");
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    if secret {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let _ = secret;
-    let mut file = options
-        .open(&tmp)
-        .map_err(|e| format!("{}: {e}", tmp.display()))?;
-    // A file left from before with wider permissions keeps them through
-    // `mode`, which only applies on creation.
-    #[cfg(unix)]
-    if secret {
-        use std::os::unix::fs::PermissionsExt;
-        file.set_permissions(std::fs::Permissions::from_mode(0o600))
-            .map_err(|e| format!("{}: {e}", tmp.display()))?;
-    }
-    file.write_all(contents)
-        .and_then(|()| file.sync_all())
-        .map_err(|e| format!("{}: {e}", tmp.display()))?;
-    std::fs::rename(&tmp, path).map_err(|e| format!("{}: {e}", path.display()))
+    crate::storage::write_whole(path, contents, secret)
+        .map_err(|e| format!("{}: {e}", path.display()))
 }
 
 #[derive(Serialize, Deserialize, Default)]

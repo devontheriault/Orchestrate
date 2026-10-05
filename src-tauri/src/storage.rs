@@ -78,21 +78,23 @@ pub fn take_orphan_ids() -> Result<Vec<String>> {
     Ok(ids)
 }
 
-/// Append one event as a JSONL line to the Agent's log file.
+/// Append one event as a JSONL line to the Agent's log file. Called for every
+/// line an Agent prints, so the folders are only made when the log can't be
+/// opened without them, and the line goes in one write, never without its end.
 pub fn append_event(agent_id: &str, event: &AgentEvent) -> Result<()> {
-    paths::ensure_dirs()?;
     let path = paths::agent_log_path(agent_id)?;
-    let mut file = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)
-        .map_err(|source| Error::Io {
-            path: path.clone(),
-            source,
-        })?;
-    let line = serde_json::to_string(event)?;
-    file.write_all(line.as_bytes())
-        .and_then(|_| file.write_all(b"\n"))
+    let mut line = serde_json::to_string(event)?;
+    line.push('\n');
+    let open = || fs::OpenOptions::new().create(true).append(true).open(&path);
+    let opened = match open() {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            paths::ensure_dirs()?;
+            open()
+        }
+        opened => opened,
+    };
+    opened
+        .and_then(|mut file| file.write_all(line.as_bytes()))
         .map_err(|source| Error::Io { path, source })
 }
 
@@ -121,11 +123,16 @@ pub fn read_events(agent_id: &str) -> Result<Vec<AgentEvent>> {
 
 /// The final answer of the Agent's last Turn that gave one, from its log.
 /// `None` until a Turn has ended with one.
+///
+/// Read from the end, and only lines that could hold one are parsed: a long
+/// log runs to megabytes, and the answer is near its end.
 pub fn last_answer(agent_id: &str) -> Option<String> {
-    read_events(agent_id)
-        .unwrap_or_default()
-        .iter()
+    let contents = fs::read_to_string(paths::agent_log_path(agent_id).ok()?).ok()?;
+    contents
+        .lines()
         .rev()
+        .filter(|line| line.contains("\"result\""))
+        .filter_map(|line| serde_json::from_str::<AgentEvent>(line).ok())
         .find_map(|e| {
             (e.event.get("type")?.as_str()? == "result")
                 .then(|| e.event.get("result")?.as_str())
@@ -202,15 +209,52 @@ pub fn list_agents() -> Result<Vec<Agent>> {
 }
 
 fn atomic_write(path: &Path, contents: &str) -> Result<()> {
-    let tmp = path.with_extension("tmp");
-    fs::write(&tmp, contents).map_err(|source| Error::Io {
-        path: tmp.clone(),
-        source,
-    })?;
-    fs::rename(&tmp, path).map_err(|source| Error::Io {
+    write_whole(path, contents.as_bytes(), false).map_err(|source| Error::Io {
         path: path.to_owned(),
         source,
     })
+}
+
+/// Write `bytes` to `path` all at once: into a hidden file beside it, flushed
+/// to disk, then renamed over it. A reader sees the old contents or the new,
+/// never half of either, and neither does what's left after a crash.
+///
+/// With `private` the file is the user's alone from its first byte, so a
+/// secret is never readable by anyone else even for a moment. On Windows a
+/// file in the user's own profile is private to them already. Otherwise a
+/// file that was there keeps its permissions.
+pub fn write_whole(path: &Path, bytes: &[u8], private: bool) -> std::io::Result<()> {
+    let dir = path
+        .parent()
+        .ok_or_else(|| std::io::Error::other("no folder to write into"))?;
+    fs::create_dir_all(dir)?;
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let tmp = dir.join(format!(".{name}.{:08x}.tmp", rand::random::<u32>()));
+    let written = (|| {
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        if private {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut f = options.open(&tmp)?;
+        f.write_all(bytes)?;
+        f.sync_all()?;
+        if !private {
+            if let Ok(meta) = fs::metadata(path) {
+                fs::set_permissions(&tmp, meta.permissions())?;
+            }
+        }
+        fs::rename(&tmp, path)
+    })();
+    if written.is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+    written
 }
 
 #[cfg(test)]

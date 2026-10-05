@@ -17,11 +17,6 @@ export function nameOf(path: string): string {
   return path.slice(path.lastIndexOf("/") + 1).replace(/\.(md|markdown)$/i, "");
 }
 
-/** Whether `path` is in `folder` or below it. "" holds everything. */
-export function inFolder(path: string, folder: string): boolean {
-  return folder === "" || path.startsWith(folder + "/");
-}
-
 /** One row of the folder tree. */
 export type FolderRow = {
   path: string;

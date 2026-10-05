@@ -435,7 +435,7 @@ pub async fn search(query: &str, folder: Option<&str>) -> Result<Vec<Thread>> {
         for f in &scope {
             found.extend(s.search(f, query, SEARCH_LIMIT).await?);
         }
-        found.sort_by(|a, b| b.date.cmp(&a.date));
+        found.sort_by_key(|s| std::cmp::Reverse(s.date));
         found.truncate(SEARCH_LIMIT);
         Ok(thread::group(found))
     })

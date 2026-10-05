@@ -29,6 +29,7 @@ import { notify } from "$lib/notify/notify";
 import { turnNotice } from "$lib/notify/turnNotice";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { SvelteMap } from "svelte/reactivity";
+import { readJson, writeJson } from "$lib/storage";
 import { hosts } from "./hosts.svelte";
 import { models } from "./models.svelte";
 import {
@@ -99,26 +100,10 @@ const HOST_CACHE_KEY = "cw:host-cache";
 
 type HostData = { projects: Project[]; agents: Agent[]; orphans: Agent[]; holding: string[] };
 
-function readHostCache(): Record<string, HostData> {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(HOST_CACHE_KEY) ?? "{}");
-    return parsed && typeof parsed === "object" ? parsed : {};
-  } catch {
-    return {};
-  }
-}
+const noHostData = (): HostData => ({ projects: [], agents: [], orphans: [], holding: [] });
 
 /** The order the user dragged the projects into, as project ids. */
 const PROJECT_ORDER_KEY = "cw:project-order";
-
-function readProjectOrder(): string[] {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(PROJECT_ORDER_KEY) ?? "[]");
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
 
 function takeResumeSelection(): Selection | null {
   try {
@@ -159,7 +144,7 @@ export class AppStore {
    * than on a Host: a project can span several Hosts, and the list is the
    * window's. Empty until the first drag, so the Hosts' order stands till then.
    */
-  private projectOrder: string[] = readProjectOrder();
+  private projectOrder = readJson<string[]>(PROJECT_ORDER_KEY, []);
 
   /**
    * Buckets the user has opened or folded in the sidebar, by project and then
@@ -180,6 +165,7 @@ export class AppStore {
    * Delivered until git says otherwise rather than flickering on startup.
    */
   holdingWork = $state<string[]>([]);
+  private holding = $derived(new Set(this.holdingWork));
 
   /**
    * Clears of Delivered in progress, by project. Kept here rather than in the
@@ -215,7 +201,7 @@ export class AppStore {
   private hostInstances: Record<string, string> = {};
 
   /** What each Host last listed. See `HOST_CACHE_KEY`. */
-  private perHost: Record<string, HostData> = readHostCache();
+  private perHost = readJson<Record<string, HostData>>(HOST_CACHE_KEY, {});
 
   /** Each Host's own project ids, as `host/id`, to the project they're part of. */
   private groupOf = new Map<string, string>();
@@ -268,7 +254,7 @@ export class AppStore {
 
   /** Whether a merged agent has work the project hasn't got. See `holdingWork`. */
   isHoldingWork(agentId: string): boolean {
-    return this.holdingWork.includes(agentId);
+    return this.holding.has(agentId);
   }
 
   /**
@@ -436,10 +422,9 @@ export class AppStore {
   private async load() {
     this.error = null;
     const own = hosts.own;
-    const ids = new Set([...(own ? [own] : []), ...hosts.list.map((h) => h.id)]);
+    const ids = this.hostIds();
     await Promise.all(
-      [...ids].map(async (id) => {
-        if (id !== own && !hosts.reachable(id)) return;
+      this.reachableHosts().map(async (id) => {
         try {
           const [projects, agents, orphans, holding] = await Promise.all([
             api.listProjects(id),
@@ -465,6 +450,17 @@ export class AppStore {
     this.applyInitialSelection();
   }
 
+  /** Every Host the window knows of: this machine's, where there is one, and the added ones. */
+  private hostIds(): Set<string> {
+    const own = hosts.own;
+    return new Set([...(own ? [own] : []), ...hosts.list.map((h) => h.id)]);
+  }
+
+  /** The Hosts worth asking now: this machine's always, the others while connected. */
+  private reachableHosts(): string[] {
+    return [...this.hostIds()].filter((id) => id === hosts.own || hosts.reachable(id));
+  }
+
   /** Put the Hosts' lists together into what the window shows. */
   private rebuild() {
     const all = Object.values(this.perHost);
@@ -488,11 +484,7 @@ export class AppStore {
     const remote = Object.fromEntries(
       Object.entries(this.perHost).filter(([id]) => id !== LOCAL),
     );
-    try {
-      localStorage.setItem(HOST_CACHE_KEY, JSON.stringify(remote));
-    } catch {
-      // Only a cache.
-    }
+    writeJson(HOST_CACHE_KEY, remote);
   }
 
   /**
@@ -560,10 +552,7 @@ export class AppStore {
 
   /** Ask every reachable Host which of its merged agents hold work. */
   private async readHoldingWork(): Promise<string[]> {
-    const own = hosts.own;
-    const reachable = [...new Set([...(own ? [own] : []), ...hosts.list.map((h) => h.id)])].filter(
-      (id) => id === own || hosts.reachable(id),
-    );
+    const reachable = this.reachableHosts();
     const answers = await Promise.all(reachable.map((id) => api.agentsHoldingWork(id)));
     for (const [i, id] of reachable.entries()) {
       if (this.perHost[id]) this.perHost[id].holding = answers[i];
@@ -612,9 +601,7 @@ export class AppStore {
   async addProject(name: string, path: string, setUp: boolean) {
     try {
       const p = await api.addProject(name, path, setUp);
-      (this.perHost[LOCAL] ??= { projects: [], agents: [], orphans: [], holding: [] }).projects.push(
-        p,
-      );
+      (this.perHost[LOCAL] ??= noHostData()).projects.push(p);
       this.rebuild();
       this.selectProject(groupKey(p));
     } catch (e) {
@@ -626,11 +613,7 @@ export class AppStore {
   reorderProjects(ids: string[]) {
     this.projectOrder = ids;
     this.projects = orderProjects(this.projects, ids);
-    try {
-      localStorage.setItem(PROJECT_ORDER_KEY, JSON.stringify(ids));
-    } catch {
-      // The order still holds for this window.
-    }
+    writeJson(PROJECT_ORDER_KEY, ids);
   }
 
   /**
@@ -766,25 +749,24 @@ export class AppStore {
   showAgent(id: string): boolean {
     const agent = this.agents.find((a) => a.id === id);
     if (!agent) return false;
-    space.show("agents");
-    if (this.projects.some((p) => p.id === agent.project_id)) {
-      this.selectedProjectId = agent.project_id;
-      this.expandedProjects[agent.project_id] = true;
-    }
-    this.selectAgent(id);
+    this.goTo(agent);
     return true;
   }
 
   jumpToFirstOrphan() {
     if (this.orphans.length === 0) return;
-    space.show("agents");
-    const first = this.orphans[0];
-    if (this.projects.some((p) => p.id === first.project_id)) {
-      this.selectedProjectId = first.project_id;
-      this.expandedProjects[first.project_id] = true;
-    }
-    this.selectAgent(first.id);
+    this.goTo(this.orphans[0]);
     this.dismissOrphans();
+  }
+
+  /** Open the Agents Space on `agent`, under its project if that's still listed. */
+  private goTo(agent: Agent) {
+    space.show("agents");
+    if (this.projects.some((p) => p.id === agent.project_id)) {
+      this.selectedProjectId = agent.project_id;
+      this.expandedProjects[agent.project_id] = true;
+    }
+    this.selectAgent(agent.id);
   }
 
   /** Hide the Orphan banner, and tell the Hosts so a reload keeps it hidden. */
@@ -813,44 +795,22 @@ export class AppStore {
     { mail = false }: { mail?: boolean } = {},
   ): Promise<boolean> {
     const group = this.selectedProject;
-    if (!group || !prompt.trim() || this.spawning) return false;
+    if (!group || !prompt.trim()) return false;
     const host = this.draftHost;
-    this.spawning = true;
-    this.error = null;
-    try {
-      const checkout = checkoutOn(group, host) ?? (await this.cloneOnto(group, host));
-      const agent = this.ingest(
-        mail
-          ? await api.spawnMailAgent(
-              host,
-              checkout.id,
-              prompt,
-              model || null,
-              effort || null,
-              this.prefs.options,
-            )
-          : await api.spawnAgent(
-              host,
-              checkout.id,
-              prompt,
-              await api.sendAttachments(host, attachments),
-              model || null,
-              effort || null,
-              mode || null,
-              this.prefs.options,
-            ),
-      );
-      this.prefs.remember(model, effort, mode);
-      this.prefs.rememberHost(group.id, host);
-      this.upsert(agent);
-      this.selectAgent(agent.id);
-      return true;
-    } catch (e) {
-      this.error = String(e);
-      return false;
-    } finally {
-      this.spawning = false;
-    }
+    return this.startAgent(group, host, [model, effort, mode], async (checkout) =>
+      mail
+        ? api.spawnMailAgent(host, checkout, prompt, model || null, effort || null, this.prefs.options)
+        : api.spawnAgent(
+            host,
+            checkout,
+            prompt,
+            await api.sendAttachments(host, attachments),
+            model || null,
+            effort || null,
+            mode || null,
+            this.prefs.options,
+          ),
+    );
   }
 
   /**
@@ -868,25 +828,40 @@ export class AppStore {
   ): Promise<boolean> {
     const from = this.selectedAgent;
     const group = from && this.projectOf(from);
-    if (!from || !group || !prompt.trim() || this.spawning) return false;
+    if (!from || !group || !prompt.trim()) return false;
+    return this.startAgent(group, host, [model, effort, mode], async (checkout) => {
+      const handoff = await api.handOff(from.id);
+      return api.spawnAgent(
+        host,
+        checkout,
+        prompt,
+        await api.sendAttachments(host, attachments),
+        model || null,
+        effort || null,
+        mode || null,
+        from.options ?? this.prefs.options,
+        handoff,
+      );
+    });
+  }
+
+  /**
+   * Start an agent in `group` on `host` with `start`, given the checkout to
+   * start it in, cloning the project onto `host` first if it has none there.
+   * Opens it if it started, and remembers the picks it started on.
+   */
+  private async startAgent(
+    group: ProjectGroup,
+    host: string,
+    [model, effort, mode]: [string, string, string],
+    start: (checkout: string) => Promise<Agent>,
+  ): Promise<boolean> {
+    if (this.spawning) return false;
     this.spawning = true;
     this.error = null;
     try {
       const checkout = checkoutOn(group, host) ?? (await this.cloneOnto(group, host));
-      const handoff = await api.handOff(from.id);
-      const agent = this.ingest(
-        await api.spawnAgent(
-          host,
-          checkout.id,
-          prompt,
-          await api.sendAttachments(host, attachments),
-          model || null,
-          effort || null,
-          mode || null,
-          from.options ?? this.prefs.options,
-          handoff,
-        ),
-      );
+      const agent = this.ingest(await start(checkout.id));
       this.prefs.remember(model, effort, mode);
       this.prefs.rememberHost(group.id, host);
       this.upsert(agent);
@@ -909,9 +884,7 @@ export class AppStore {
       throw new Error(`${group.name} has no remote, so it can only run on ${hosts.label(group.checkouts[0]?.host ?? LOCAL)}`);
     }
     const cloned = await api.cloneProject(host, group.name, group.remote);
-    (this.perHost[host] ??= { projects: [], agents: [], orphans: [], holding: [] }).projects.push(
-      cloned,
-    );
+    (this.perHost[host] ??= noHostData()).projects.push(cloned);
     this.rebuild();
     return cloned;
   }
@@ -944,7 +917,7 @@ export class AppStore {
         mode || null,
       );
       this.prefs.remember(model, effort, mode);
-      this.upsert(this.ingest({ ...agent, host: on }));
+      this.take(agent);
       // It's working again, so it's nobody's leftover any more.
       this.orphans = this.orphans.filter((o) => o.id !== id);
       return true;
@@ -956,11 +929,16 @@ export class AppStore {
     }
   }
 
+  /** Take an agent's record as a Host sent it: filed as the window files them. */
+  take(raw: Agent) {
+    this.upsert(this.ingest(raw));
+  }
+
   /**
    * Take an agent's latest record, adding it if this window hadn't seen it.
    * `agent` must already be filed as the window files them (`ingest`).
    */
-  upsert(agent: Agent) {
+  private upsert(agent: Agent) {
     const i = this.agents.findIndex((a) => a.id === agent.id);
     if (i >= 0) this.agents[i] = agent;
     else this.agents.push(agent);

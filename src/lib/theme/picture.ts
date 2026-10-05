@@ -47,10 +47,6 @@ export async function savePicture(file: File): Promise<void> {
   await run("readwrite", (s) => s.put(file, KEY));
 }
 
-export async function forgetPicture(): Promise<void> {
-  await run("readwrite", (s) => s.delete(KEY));
-}
-
 /**
  * Open the OS's file chooser on images. Resolves to the file picked, or null
  * if the chooser is cancelled. Has to be called from inside a click or key
