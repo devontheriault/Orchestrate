@@ -13,6 +13,7 @@
     label,
     min,
     minLast,
+    ruled = false,
     onresize,
     onreset,
   }: {
@@ -21,6 +22,11 @@
     min: number;
     /** Width kept free for the final, flexing pane. */
     minLast: number;
+    /**
+     * Drawn as a hairline at rest too, for a seam between two panes of the
+     * same colour, which would otherwise have nothing to show where it is.
+     */
+    ruled?: boolean;
     onresize: (width: number) => void;
     onreset: () => void;
   } = $props();
@@ -200,6 +206,7 @@
   bind:this={el}
   class="divider"
   class:dragging
+  class:ruled
   role="separator"
   aria-orientation="vertical"
   aria-label={label}
@@ -225,6 +232,10 @@
     cursor: col-resize;
     /* The seam is a hairline; the grab area around it is not. */
     touch-action: none;
+  }
+
+  .divider.ruled {
+    background: var(--border);
   }
 
   .divider::after {

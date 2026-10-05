@@ -10,6 +10,8 @@
   import { onDestroy, onMount } from "svelte";
   import { hosts } from "$lib/state/hosts.svelte";
   import { viewport } from "$lib/layout/viewport.svelte";
+  import { panes, MIN_DETAIL, MIN_SIDE } from "$lib/layout/panes.svelte";
+  import PaneDivider from "$lib/layout/PaneDivider.svelte";
   import { space } from "$lib/spaces/space.svelte";
   import NoteEditor from "./NoteEditor.svelte";
   import NoteSidebar from "./NoteSidebar.svelte";
@@ -19,6 +21,13 @@
   let editor: NoteEditor | undefined = $state();
   let reading = $state(false);
   let mod = $state("Ctrl");
+  /** The sidebar's size, unrounded, so the title bar's lead segment meets its edge exactly. */
+  let sideBox = $state<readonly ResizeObserverSize[]>();
+
+  // The title bar tops the list; a phone has no list beside the note.
+  $effect(() => {
+    panes.lead.notes = viewport.phone ? 0 : (sideBox?.[0]?.inlineSize ?? 0);
+  });
 
   onMount(() => {
     if (document.documentElement.dataset.frame === "mac") mod = "⌘";
@@ -80,8 +89,25 @@
     </div>
   {/if}
   <div class="panes">
-    {#if !viewport.phone || !notes.open}
-      <NoteSidebar bind:this={sidebar} phone={viewport.phone} {mod} oncreate={create} />
+    {#if !viewport.phone}
+      <div
+        class="side"
+        style:flex-basis={panes.basis("notes")}
+        style:min-width="{MIN_SIDE.notes}px"
+        style:max-width="calc(100% - {MIN_DETAIL}px)"
+        bind:borderBoxSize={sideBox}
+      >
+        <NoteSidebar bind:this={sidebar} {mod} oncreate={create} />
+      </div>
+      <PaneDivider
+        label="Resize notes list"
+        min={MIN_SIDE.notes}
+        minLast={MIN_DETAIL}
+        onresize={(w) => panes.setSide("notes", w)}
+        onreset={() => panes.setSide("notes", null)}
+      />
+    {:else if !notes.open}
+      <NoteSidebar bind:this={sidebar} phone {mod} oncreate={create} />
     {/if}
     {#if !viewport.phone || notes.open}
       <NoteEditor bind:this={editor} bind:reading phone={viewport.phone} {mod} oncreate={create} />
@@ -104,6 +130,12 @@
     flex: 1;
     min-height: 0;
     display: flex;
+  }
+
+  .side {
+    flex: 0 1 clamp(13rem, 20vw, 20rem);
+    display: flex;
+    min-height: 0;
   }
 
   .error {

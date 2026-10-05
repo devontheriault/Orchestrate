@@ -1,12 +1,14 @@
 /**
- * The user-chosen width of the project pane.
+ * The user-chosen widths of the sidebars: the project pane, and each other
+ * Space's.
  *
- * Until the user drags the divider the width is `null`, meaning "whatever the
- * stylesheet says" — the viewport-relative `clamp()` default in +layout.svelte.
- * Once dragged, the width becomes an explicit pixel value that overrides the
- * default and is remembered across restarts.
+ * Until the user drags a divider its width is `null`, meaning "whatever the
+ * stylesheet says" — for the project pane, the viewport-relative `clamp()`
+ * default in theme.css. Once dragged, the width becomes an explicit pixel value
+ * that overrides the default and is remembered across restarts.
  */
 
+import type { SpaceId } from "$lib/spaces/space.svelte";
 import { viewport } from "./viewport.svelte";
 
 const STORAGE_KEY = "orchestrate:panes";
@@ -22,6 +24,20 @@ export const MIN_PROJECTS = 150;
 export const MIN_PROJECTS_DRAG = 56;
 /** The detail pane flexes, but never below this. */
 export const MIN_DETAIL = 280;
+
+/**
+ * The other Spaces' sidebars (ADR 0017), named for what they hold. Unlike the
+ * project pane none of them folds to a rail, so each just stops where its rows
+ * would stop being readable.
+ */
+export const MIN_SIDE = {
+  notes: 200,
+  calendar: 224,
+  folders: 150,
+  threads: 240,
+} as const;
+
+export type Side = keyof typeof MIN_SIDE;
 
 /** Long enough to outlast a drag, short enough to survive a sudden quit. */
 const SAVE_DEBOUNCE = 200;
@@ -49,6 +65,23 @@ class Panes {
         : "var(--pane-projects)",
   );
 
+  /** The width of each other Space's sidebar, or null while on its default. */
+  sides = $state<Record<Side, number | null>>({
+    notes: null,
+    calendar: null,
+    folders: null,
+    threads: null,
+  });
+
+  /**
+   * How wide each Space's leading sidebar is drawn right now, as measured, or
+   * 0 while it has none showing: what the title bar's lead segment spans to top
+   * it. Measured rather than worked out, because a sidebar gives up width when
+   * the window narrows. Agents isn't here: `cssWidth` is right for it from
+   * the first frame.
+   */
+  lead = $state<Partial<Record<SpaceId, number>>>({});
+
   private timer: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
@@ -56,11 +89,15 @@ class Panes {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
-        const v = JSON.parse(raw) as { projects?: number | null };
+        const v = JSON.parse(raw) as Partial<Record<"projects" | Side, number | null>>;
         this.projects =
           typeof v.projects === "number"
             ? Math.max(MIN_PROJECTS_DRAG, v.projects)
             : null;
+        for (const side of Object.keys(MIN_SIDE) as Side[]) {
+          const w = v[side];
+          if (typeof w === "number") this.sides[side] = Math.max(MIN_SIDE[side], w);
+        }
       }
     } catch {
       // A corrupt entry just means "use the defaults".
@@ -75,7 +112,10 @@ class Panes {
   private save() {
     if (typeof localStorage === "undefined") return;
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ projects: this.projects }));
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({ projects: this.projects, ...this.sides }),
+      );
     } catch {
       // Storage being unavailable shouldn't break resizing.
     }
@@ -132,6 +172,21 @@ class Panes {
     if (this.projects === w) return;
     this.projects = w;
     this.queueSave();
+  }
+
+  setSide(side: Side, w: number | null) {
+    if (this.sides[side] === w) return;
+    this.sides[side] = w;
+    this.queueSave();
+  }
+
+  /**
+   * A sidebar's width as an inline `flex-basis`, or undefined to leave it on
+   * the stylesheet's default.
+   */
+  basis(side: Side) {
+    const w = this.sides[side];
+    return w === null ? undefined : `${w}px`;
   }
 
   /**

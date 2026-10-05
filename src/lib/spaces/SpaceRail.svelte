@@ -58,8 +58,9 @@
     flex-direction: column;
     align-items: center;
     padding: var(--space-3) 0;
+    /* No rule to its right: it's painted like the sidebar beside it and the
+       title bar's lead segment above, so the three read as one panel. */
     background: var(--panel-bg);
-    border-right: var(--border-width) solid var(--border);
     user-select: none;
     -webkit-user-select: none;
   }
@@ -209,7 +210,6 @@
     width: auto;
     flex-direction: row;
     padding: 0 var(--space-3) var(--safe-bottom);
-    border-right: none;
     border-top: var(--border-width) solid var(--border);
   }
 

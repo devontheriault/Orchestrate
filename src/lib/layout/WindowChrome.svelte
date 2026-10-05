@@ -1,7 +1,7 @@
 <script lang="ts">
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { dragRegion, ownsWindowFrame, watchMaximized } from "./platform";
-  import { panes } from "./panes.svelte";
+  import { panes, MIN_PROJECTS } from "./panes.svelte";
   import { viewport } from "./viewport.svelte";
   import Logo from "./Logo.svelte";
   import { store } from "$lib/state/store.svelte";
@@ -10,6 +10,16 @@
   // Drives the maximize/restore glyph. Only tracked where this app draws the
   // button — macOS has its own and never asks.
   let maximized = $state(false);
+
+  /**
+   * Whether the app has taken over from the page rendered ahead of time, which
+   * only knew Agents' project pane (ADR 0015). Until then the stylesheet keeps
+   * the lead segment to the rail in any other Space.
+   */
+  let started = $state(false);
+  $effect(() => {
+    started = true;
+  });
 
   /**
    * What the detail pane is showing, which is what the bar names. Only in the
@@ -21,6 +31,12 @@
   const projectName = $derived(
     store.projects.find((p) => p.id === agent?.project_id)?.name ?? "",
   );
+
+  /**
+   * How wide the sidebar under the lead segment is: Agents' project pane, or
+   * whatever the Space showing measured its own as, 0 with none.
+   */
+  const leadPane = $derived(agents ? null : (panes.lead[space.current] ?? 0));
 
   $effect(() => {
     if (!ownsWindowFrame) return;
@@ -52,16 +68,18 @@
       <div class="lead phone"><Logo /></div>
     {/if}
   {:else}
-    <!-- The title sits in a segment as wide as the rail and the project pane
-         and painted like them, so the bar reads as the top of the panes below
-         rather than as a band laid across them. Its mark sits over the rail,
-         and in any other Space the segment is only as wide as the rail. -->
+    <!-- The title sits in a segment as wide as the rail and the Space's
+         sidebar and painted like them, so the bar reads as the top of the panes
+         below rather than as a band laid across them. Its mark sits over the
+         rail, and with no sidebar showing the segment is only as wide as it. -->
     <div
       class="lead"
-      style:--lead-pane={panes.cssWidth}
+      class:started
+      class:bare={leadPane === 0}
+      style:--lead-pane={leadPane === null ? panes.cssWidth : `${leadPane}px`}
       data-tauri-drag-region={dragRegion}
     >
-      <Logo markOnly={panes.railed || !agents} />
+      <Logo markOnly={leadPane === null ? panes.railed : leadPane < MIN_PROJECTS} />
     </div>
 
     <!-- The detail pane's heading, in the bar that continues it: the name Claude
@@ -166,20 +184,20 @@
     font-size: 1.75rem;
   }
 
-  /* Away from Agents the segment tops the rail alone, and the title has
-     nothing to name. Keyed off `<html data-space>` as well as drawn that way,
-     because the page arrives rendered as Agents (see `spaces.ts`). */
-  :global(html[data-space]:not([data-space="agents"])) .lead:not(.phone) {
+  /* Away from Agents the title has nothing to name, and until the app starts
+     the segment tops the rail alone: the page arrives rendered as Agents (see
+     `spaces.ts`), and the other Spaces' sidebars only come with the app. */
+  :global(html[data-space]:not([data-space="agents"])) .lead:not(.phone, .started) {
     width: var(--spaces-rail);
   }
 
-  :global(html[data-space]:not([data-space="agents"])) .lead:not(.phone) :global(.word),
+  :global(html[data-space]:not([data-space="agents"])) .lead:not(.phone, .started) :global(.word),
   :global(html[data-space]:not([data-space="agents"])) .title > * {
     display: none;
   }
 
   /* Centred as `markOnly` draws it, so it doesn't settle once the app starts. */
-  :global(html[data-space]:not([data-space="agents"])) .lead:not(.phone) :global(.mark) {
+  :global(html[data-space]:not([data-space="agents"])) .lead:not(.phone, .started) :global(.mark) {
     transform: none;
   }
 
@@ -189,7 +207,8 @@
     padding-left: 5rem;
   }
 
-  :global(html[data-frame="mac"][data-space]:not([data-space="agents"])) .lead {
+  :global(html[data-frame="mac"][data-space]:not([data-space="agents"])) .lead:not(.started),
+  :global(html[data-frame="mac"]) .lead.bare {
     width: auto;
   }
 
