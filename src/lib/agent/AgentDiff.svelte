@@ -1,5 +1,6 @@
 <script lang="ts">
   import { store } from "$lib/state/store.svelte";
+  import { panes } from "$lib/layout/panes.svelte";
   import BranchPicker from "$lib/menus/BranchPicker.svelte";
   import GrowingLines from "$lib/code/GrowingLines.svelte";
   import PatchFile from "./PatchFile.svelte";
@@ -164,7 +165,7 @@
       </div>
     </div>
 
-    <div class="diff-body">
+    <div class="diff-body" {@attach panes.sitOut(".patch-file")}>
       {#if review.error}
         <div class="diff-error">{review.error}</div>
       {/if}

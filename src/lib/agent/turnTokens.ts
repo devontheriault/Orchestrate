@@ -29,11 +29,27 @@ export function turnOutputTokens(events: AgentEvent[]): number {
     if (e?.type === "system" && e.subtype === "thinking_tokens") {
       if (typeof e.estimated_tokens_delta === "number") thinking += e.estimated_tokens_delta;
     } else if (e?.type === "assistant" && Array.isArray(e.message?.content)) {
-      for (const b of e.message.content) {
-        if (b?.type === "text") chars += (b.text ?? "").length;
-        else if (b?.type === "tool_use") chars += JSON.stringify(b.input ?? {}).length;
-      }
+      chars += charsOf(e.message.content);
     }
   }
   return thinking + Math.round(chars / CHARS_PER_TOKEN);
+}
+
+/**
+ * Each message's length, counted once. This runs on every event of the
+ * Turn, and serializing every tool call's input again each time grew with
+ * the Turn: a few dozen Writes is megabytes per event.
+ */
+const counted = new WeakMap<object, number>();
+
+function charsOf(content: any[]): number {
+  let chars = counted.get(content);
+  if (chars !== undefined) return chars;
+  chars = 0;
+  for (const b of content) {
+    if (b?.type === "text") chars += (b.text ?? "").length;
+    else if (b?.type === "tool_use") chars += JSON.stringify(b.input ?? {}).length;
+  }
+  counted.set(content, chars);
+  return chars;
 }

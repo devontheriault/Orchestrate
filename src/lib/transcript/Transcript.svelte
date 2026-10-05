@@ -49,7 +49,8 @@
 </script>
 
 <script lang="ts">
-  import { tick } from "svelte";
+  import { tick, untrack } from "svelte";
+  import { panes } from "$lib/layout/panes.svelte";
   import { store } from "$lib/state/store.svelte";
   import { formatDuration, formatTokens } from "$lib/format";
   import Markdown from "$lib/markdown/Markdown.svelte";
@@ -178,6 +179,13 @@
     ro.observe(el);
     return () => ro.disconnect();
   }
+
+  // Rows out of sight sit a pane drag out at their old size (`panes.sitOut`)
+  // and take their new one when it ends. That moves the bottom
+  // without resizing the stream, so `followResizes` never hears of it.
+  $effect(() => {
+    if (!panes.dragging && untrack(() => following)) stickToBottom();
+  });
 
   // On selection change, always jump to the bottom of the new stream.
   $effect(() => {
@@ -326,7 +334,13 @@
 {/snippet}
 
 <div class="stream-wrap">
-  <div class="stream" bind:this={streamEl} onscroll={onScroll} {@attach followResizes}>
+  <div
+    class="stream"
+    bind:this={streamEl}
+    onscroll={onScroll}
+    {@attach followResizes}
+    {@attach panes.sitOut(":scope > .block")}
+  >
     {#if store.selectedAgent?.state === "failed" && store.selectedAgent.fail_reason}
       <div class="fail-banner">
         <span class="label">Failed</span>

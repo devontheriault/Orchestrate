@@ -65,6 +65,9 @@ class Panes {
         : "var(--pane-projects)",
   );
 
+  /** True while any pane divider is being dragged. */
+  dragging = $state(false);
+
   /** The width of each other Space's sidebar, or null while on its default. */
   sides = $state<Record<Side, number | null>>({
     notes: null,
@@ -145,27 +148,71 @@ class Panes {
   }
 
   /**
-   * Keep `--pane-projects` and `--rail` on `<html>` at the width, where the
-   * pre-paint script in `src/app.html` puts the stored one before the app runs;
-   * with neither set, the stylesheet's defaults stand. Called once, from the
-   * page.
+   * `--pane-projects` and `--rail` for the project pane to set on itself, or
+   * undefined to leave it on the stylesheet's defaults.
    *
    * A hand-sized pane keeps its width once it collapses, so the seam carries on
    * tracking the pointer through the rail instead of snapping to the stylesheet
    * rail and sitting there for the rest of the drag. An untouched pane still
    * gets the rail the stylesheet picked.
+   *
+   * On the pane rather than `<html>`: a custom property changing on the root
+   * restyles every element in every open Space, and a drag changes it every
+   * frame. With a long transcript open that alone took the drag from 24 ms a
+   * frame to 57 ms.
+   */
+  vars = $derived(this.width === null ? undefined : `${this.width}px`);
+
+  /**
+   * Take `--pane-projects` and `--rail` back off `<html>`, where the pre-paint
+   * script in `src/app.html` puts the stored width for the page's first frame.
+   * From here the pane carries its own (`vars`), and a stale root value would
+   * otherwise stand in for the stylesheet's default once the user resets it.
+   * Called once, from the page.
    */
   start() {
     $effect(() => {
       const root = document.documentElement.style;
-      if (this.width === null) {
-        root.removeProperty("--pane-projects");
-        root.removeProperty("--rail");
-      } else {
-        root.setProperty("--pane-projects", `${this.width}px`);
-        root.setProperty("--rail", `${this.width}px`);
-      }
+      root.removeProperty("--pane-projects");
+      root.removeProperty("--rail");
     });
+  }
+
+  /**
+   * An attachment for a pane that holds a long run of `items`: while a
+   * divider is dragged, the ones out of sight keep the size they had when it
+   * began, rather than being laid out again at every width the drag passes
+   * through. A dozen open Writes in a transcript are thousands of wrapped
+   * lines, and re-wrapping them cost about 15 ms a frame.
+   *
+   * Only during a drag, not always: an item laid out for the first time as
+   * it scrolls in would change height under the reader, and WebKit doesn't
+   * anchor the scroll to hide it. And each size is measured and pinned here,
+   * not left to `contain-intrinsic-size: auto`, which Chromium only
+   * remembers for an item that was already skipping its contents: there,
+   * every item collapsed to its placeholder and the pane lost its scroll.
+   */
+  sitOut(items: string) {
+    return (box: HTMLElement) => {
+      if (!this.dragging) return;
+      const els = [...box.querySelectorAll<HTMLElement>(items)];
+      // Every read before any write, so this lays the pane out once.
+      const sizes = els.map(contentBox);
+      els.forEach((el, i) => {
+        el.style.containIntrinsicSize = `${sizes[i].width}px ${sizes[i].height}px`;
+        el.style.contentVisibility = "auto";
+        // In a flex column, Chromium would otherwise shrink a skipped item
+        // past the size pinned on it, down to its padding.
+        el.style.flexShrink = "0";
+      });
+      return () => {
+        for (const el of els) {
+          el.style.removeProperty("contain-intrinsic-size");
+          el.style.removeProperty("content-visibility");
+          el.style.removeProperty("flex-shrink");
+        }
+      };
+    };
   }
 
   setProjects(w: number | null) {
@@ -208,6 +255,17 @@ class Panes {
 
     return { projects };
   }
+}
+
+/** The size of `el` inside its padding and border, which is what `contain-intrinsic-size` gives. */
+function contentBox(el: HTMLElement) {
+  const r = el.getBoundingClientRect();
+  const s = getComputedStyle(el);
+  const px = (...v: string[]) => v.reduce((sum, x) => sum + (parseFloat(x) || 0), 0);
+  return {
+    width: r.width - px(s.paddingLeft, s.paddingRight, s.borderLeftWidth, s.borderRightWidth),
+    height: r.height - px(s.paddingTop, s.paddingBottom, s.borderTopWidth, s.borderBottomWidth),
+  };
 }
 
 function clamp(v: number, lo: number, hi: number) {
