@@ -260,7 +260,7 @@ pub(super) async fn supervise(
         let answer = answer.lock().unwrap().clone();
         // Detached: naming costs a `claude` call of its own, and the Turn's
         // result should reach the UI without waiting on it.
-        tokio::spawn(name_agent(namer, agent, answer, emitter));
+        tokio::spawn(name_agent(namer, agent, Some(answer), emitter));
     }
 }
 
@@ -329,7 +329,16 @@ async fn finish_resolution(agent: &mut Agent, emitter: &Emitter) -> Option<Agent
 /// file rather than writing back the snapshot we were handed: by the time a
 /// name comes back, the user may already have Resumed the Agent, and only the
 /// title is ours to change.
-async fn name_agent(namer: Arc<String>, agent: Agent, answer: String, emitter: Emitter) {
+///
+/// `answer` is `None` for the name an Agent gets as it spawns, drawn from its
+/// Task alone. That one only fills a blank: if the first Turn was quick enough
+/// to be named from its answer first, the better name stays.
+pub(super) async fn name_agent(
+    namer: Arc<String>,
+    agent: Agent,
+    answer: Option<String>,
+    emitter: Emitter,
+) {
     // The Worktree is the namer's cwd; a Discarded Agent has nowhere to run.
     if !agent.worktree_path.exists() {
         return;
@@ -338,7 +347,7 @@ async fn name_agent(namer: Arc<String>, agent: Agent, answer: String, emitter: E
         &namer,
         &agent.worktree_path,
         &agent.task.prompt,
-        &answer,
+        answer.as_deref().unwrap_or_default(),
         agent.read_mail,
     )
     .await
@@ -349,6 +358,9 @@ async fn name_agent(namer: Arc<String>, agent: Agent, answer: String, emitter: E
     let Ok(mut fresh) = storage::load_agent(&agent.id) else {
         return; // Discarded while we were naming it.
     };
+    if answer.is_none() && fresh.title.is_some() {
+        return;
+    }
     // Last name back wins, even if a later Turn has since started or finished.
     // Two namers can land out of order, but the worst case is a name drawn from
     // Turn 2 rather than Turn 3 — better than the alternative, where an Agent
