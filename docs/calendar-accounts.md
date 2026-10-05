@@ -51,7 +51,7 @@ export ORCHESTRATE_MICROSOFT_CLIENT_ID=00000000-0000-0000-0000-000000000000
 npm run tauri build   # or `npm run tauri dev`; a rebuild picks up changes
 ```
 
-For CI, add the three as repository secrets and pass them in the build step's `env:`. A Google "secret" for an installed app isn't a secret: Google says so, and it ships inside the app either way. The Microsoft app has no secret at all.
+The release workflow already passes the three in from repository secrets of the same names, so set them once (Settings → Secrets and variables → Actions, or `gh secret set ORCHESTRATE_GOOGLE_CLIENT_ID`) and every release build has them. One left unset only makes that provider's button ask for an app. A Google "secret" for an installed app isn't a secret: Google says so, and it ships inside the app either way. The Microsoft app has no secret at all.
 
 Anyone can instead register their own and paste it into the Accounts dialog (**Use your own app**). The Host then keeps it in `google-client.json` or `microsoft-client.json`, which takes precedence over the build's.
 

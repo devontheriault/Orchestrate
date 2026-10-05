@@ -88,6 +88,12 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # The apps Calendar signs in to Google and Microsoft as, compiled in
+          # so the installers' users only press Sign in. An unset one leaves
+          # that button asking for the user's own (docs/calendar-accounts.md).
+          ORCHESTRATE_GOOGLE_CLIENT_ID: ${{ secrets.ORCHESTRATE_GOOGLE_CLIENT_ID }}
+          ORCHESTRATE_GOOGLE_CLIENT_SECRET: ${{ secrets.ORCHESTRATE_GOOGLE_CLIENT_SECRET }}
+          ORCHESTRATE_MICROSOFT_CLIENT_ID: ${{ secrets.ORCHESTRATE_MICROSOFT_CLIENT_ID }}
         with:
           # Without a tag name it only builds, and releases nothing.
           tagName: ${{ startsWith(github.ref, 'refs/tags/') && 'v__VERSION__' || '' }}
