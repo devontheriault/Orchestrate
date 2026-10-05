@@ -1,9 +1,13 @@
 <script lang="ts">
   /**
-   * The calendar accounts on the Host, and connecting another: Google, signed
-   * in through the browser as the user's own OAuth client, or any CalDAV
-   * server with a user name and an app password. The provider keeps
-   * everything; removing an account here only forgets it on the Host.
+   * The calendar accounts on the Host, and connecting another: Google or
+   * Microsoft, signed in through the browser, or any CalDAV server with a user
+   * name and an app password. The provider keeps everything; removing an
+   * account here only forgets it on the Host.
+   *
+   * Signing in needs an app registered with the provider. A build can come
+   * with one (see docs/calendar-accounts.md); without it, the user registers
+   * their own and pastes it here.
    */
   import { openUrl } from "@tauri-apps/plugin-opener";
   import { api, type CalendarAccount } from "$lib/api";
@@ -12,27 +16,46 @@
   import { calendar } from "./calendar.svelte";
   import { ago } from "./layout";
 
-  const DOCS = "https://github.com/devontheriault/DevCode/blob/main/docs/google-calendar.md";
+  const DOCS = "https://github.com/devontheriault/DevCode/blob/main/docs/calendar-accounts.md";
 
-  let tab = $state<"google" | "caldav">(calendar.accounts === "caldav" ? "caldav" : "google");
+  type Tab = "google" | "microsoft" | "caldav";
+  const tabs: { id: Tab; label: string }[] = [
+    { id: "google", label: "Google" },
+    { id: "microsoft", label: "Outlook" },
+    { id: "caldav", label: "CalDAV" },
+  ];
+  let tab = $state<Tab>(
+    calendar.accounts === "caldav" || calendar.accounts === "microsoft" ? calendar.accounts : "google",
+  );
+  const provider = $derived(tab === "microsoft" ? "Microsoft" : "Google");
 
   const overview = $derived(calendar.overview);
   const hostName = $derived(hosts.label(calendar.host));
 
-  // Google's OAuth client, for a Host that has none yet, or to replace it.
+  // The app registered with Google or Microsoft, for a Host that has none
+  // yet, or to replace the one it has.
   let clientId = $state("");
   let clientSecret = $state("");
   let changingClient = $state(false);
   let savingClient = $state(false);
   let clientError = $state<string | null>(null);
-  const needsClient = $derived(!overview?.google_client || changingClient);
+  const hasClient = $derived(
+    tab === "microsoft" ? !!overview?.microsoft_client : !!overview?.google_client,
+  );
+  const needsClient = $derived(!hasClient || changingClient);
+  $effect(() => {
+    tab;
+    changingClient = false;
+    clientError = null;
+  });
 
   async function saveClient(e: SubmitEvent) {
     e.preventDefault();
     savingClient = true;
     clientError = null;
     try {
-      await api.calendarSetGoogleClient(calendar.host, clientId, clientSecret);
+      if (tab === "microsoft") await api.calendarSetMicrosoftClient(calendar.host, clientId);
+      else await api.calendarSetGoogleClient(calendar.host, clientId, clientSecret);
       clientSecret = "";
       changingClient = false;
       await calendar.load();
@@ -127,7 +150,7 @@
       <ul class="list">
         {#each overview.accounts as a (a.id)}
           <li>
-            <span class="kind" data-kind={a.kind} aria-hidden="true">{a.kind === "google" ? "G" : "@"}</span>
+            <span class="kind" data-kind={a.kind} aria-hidden="true">{a.kind === "google" ? "G" : a.kind === "microsoft" ? "M" : "@"}</span>
             <span class="who">
               <span class="name">{a.name}</span>
               <span
@@ -137,11 +160,12 @@
                 {statusLine(a)}
               </span>
             </span>
-            {#if a.status.state === "reconnect" && a.kind === "google"}
+            {#if a.status.state === "reconnect" && a.kind !== "caldav"}
+              {@const kind = a.kind}
               <button
                 class="btn btn-sm"
                 disabled={!calendar.onHostMachine || calendar.signingIn}
-                onclick={() => calendar.connectGoogle(openUrl)}
+                onclick={() => calendar.signIn(kind, openUrl)}
               >
                 Sign in again
               </button>
@@ -156,61 +180,79 @@
 
     <div class="add">
       <div class="tabs" role="tablist" aria-label="Add an account">
-        <button role="tab" aria-selected={tab === "google"} class:on={tab === "google"} onclick={() => (tab = "google")}>
-          Google
-        </button>
-        <button role="tab" aria-selected={tab === "caldav"} class:on={tab === "caldav"} onclick={() => (tab = "caldav")}>
-          CalDAV
-        </button>
+        {#each tabs as t (t.id)}
+          <button role="tab" aria-selected={tab === t.id} class:on={tab === t.id} onclick={() => (tab = t.id)}>
+            {t.label}
+          </button>
+        {/each}
       </div>
 
-      {#if tab === "google"}
+      {#if tab !== "caldav"}
         {#if !calendar.onHostMachine}
           <p class="note">
-            Connect Google from a window on {hostName}: Google sends your browser back to the
-            machine that keeps your calendars, so the sign-in has to happen there.
+            Sign in from a window on {hostName}: {provider} sends your browser back to the machine
+            that keeps your calendars, so the sign-in has to happen there.
           </p>
         {:else if needsClient}
           <form class="form" onsubmit={saveClient}>
             <p class="note">
-              Google signs the app in as an OAuth client of your own, made once in your Google
-              Cloud project. <Link href={DOCS}>The steps</Link> take about five minutes; then paste
-              its ID and secret here. They stay on {hostName}, readable only by you.
+              {#if tab === "microsoft"}
+                This build has no Microsoft app to sign in as. Register one in Microsoft Entra
+                (<Link href={DOCS}>the steps</Link>, about five minutes) and paste its
+                application (client) ID here. It stays on {hostName}.
+              {:else}
+                This build has no Google OAuth client to sign in as. Make one in your Google Cloud
+                project (<Link href={DOCS}>the steps</Link>, about five minutes) and paste its ID
+                and secret here. They stay on {hostName}, readable only by you.
+              {/if}
             </p>
-            <label class="field-label" for="cal-client-id">Client ID</label>
+            <label class="field-label" for="cal-client-id">
+              {tab === "microsoft" ? "Application (client) ID" : "Client ID"}
+            </label>
             <input
               id="cal-client-id"
               class="input input-mono"
               bind:value={clientId}
-              placeholder="1234-abc.apps.googleusercontent.com"
+              placeholder={tab === "microsoft" ? "00000000-0000-0000-0000-000000000000" : "1234-abc.apps.googleusercontent.com"}
               spellcheck="false"
               autocomplete="off"
             />
-            <label class="field-label" for="cal-client-secret">Client secret</label>
-            <input
-              id="cal-client-secret"
-              class="input input-mono"
-              type="password"
-              bind:value={clientSecret}
-              placeholder="GOCSPX-…"
-              autocomplete="off"
-            />
+            {#if tab === "google"}
+              <label class="field-label" for="cal-client-secret">Client secret</label>
+              <input
+                id="cal-client-secret"
+                class="input input-mono"
+                type="password"
+                bind:value={clientSecret}
+                placeholder="GOCSPX-…"
+                autocomplete="off"
+              />
+            {/if}
             {#if clientError}<p class="field-error">{clientError}</p>{/if}
             <div class="actions">
               {#if changingClient}
                 <button type="button" class="btn btn-ghost" onclick={() => (changingClient = false)}>Cancel</button>
               {/if}
-              <button class="btn btn-primary" disabled={!clientId.trim() || !clientSecret.trim() || savingClient}>
-                {savingClient ? "Saving…" : "Save client"}
+              <button
+                class="btn btn-primary"
+                disabled={!clientId.trim() || (tab === "google" && !clientSecret.trim()) || savingClient}
+              >
+                {savingClient ? "Saving…" : "Save"}
               </button>
             </div>
           </form>
         {:else}
           <div class="form">
             <p class="note">
-              Your browser opens on Google's sign-in. The app asks only to read your calendars;
-              anything that would change them, or invite anyone, stays yours to do in Google
-              Calendar.
+              {#if tab === "microsoft"}
+                Outlook.com, Hotmail, or a work or school Microsoft 365 account. Your browser opens on
+                Microsoft's sign-in; the app asks to read and change your calendars, so you can make
+                Calendar events and invite people from here.
+              {:else}
+                Your browser opens on Google's sign-in. The app asks to read your calendars and change
+                Calendar events on them, so you can make them and invite people from here.
+              {/if}
+              Nothing is sent to anyone unless you do it here yourself.
             </p>
             {#if calendar.signingIn}
               <p class="waiting"><span class="spinner" aria-hidden="true"></span>Waiting for you to finish in your browser…</p>
@@ -218,10 +260,10 @@
             {#if calendar.signInError}<p class="field-error">{calendar.signInError}</p>{/if}
             <div class="actions">
               <button type="button" class="btn btn-ghost btn-sm" onclick={() => (changingClient = true)}>
-                Change OAuth client
+                Use your own app
               </button>
-              <button class="btn btn-primary" onclick={() => calendar.connectGoogle(openUrl)}>
-                {calendar.signingIn ? "Open the sign-in again" : "Sign in with Google"}
+              <button class="btn btn-primary" onclick={() => calendar.signIn(tab === "microsoft" ? "microsoft" : "google", openUrl)}>
+                {calendar.signingIn ? "Open the sign-in again" : `Sign in with ${provider}`}
               </button>
             </div>
           </div>
@@ -331,7 +373,8 @@
     color: var(--fg-muted);
   }
 
-  .kind[data-kind="google"] {
+  .kind[data-kind="google"],
+  .kind[data-kind="microsoft"] {
     color: var(--accent);
   }
 

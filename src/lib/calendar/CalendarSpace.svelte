@@ -5,7 +5,8 @@
    * box it's given: a side panel with a small month and the calendars, and
    * the view beside it. The side panel goes when the box is narrow.
    *
-   * Keys: T today, D/W/M the view, ←/→ (or J/K) through time, Esc closes.
+   * Keys: T today, D/W/M the view, ←/→ (or J/K) through time, C a new
+   * Calendar event, Esc closes.
    */
   import { onDestroy, onMount } from "svelte";
   import { calendar } from "./calendar.svelte";
@@ -15,6 +16,9 @@
   import MiniMonth from "./MiniMonth.svelte";
   import EventPopover from "./EventPopover.svelte";
   import CalendarAccounts from "./CalendarAccounts.svelte";
+  import EventEditor from "./EventEditor.svelte";
+  import ScopeChoice from "./ScopeChoice.svelte";
+  import { sameDay } from "./layout";
 
   onMount(() => calendar.start());
   onDestroy(() => calendar.stop());
@@ -47,10 +51,23 @@
 
   const viewNames = { day: "Day", week: "Week", month: "Month" } as const;
 
+  /**
+   * A new Calendar event from the toolbar or C: the next half hour today,
+   * or 9:00 on the day in view.
+   */
+  function newEvent(anchor: DOMRect | null) {
+    const now = new Date();
+    const base = sameDay(calendar.cursor, now) || calendar.view !== "day" ? now : calendar.cursor;
+    const start = sameDay(base, now)
+      ? new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours(), now.getMinutes() < 30 ? 30 : 60)
+      : new Date(base.getFullYear(), base.getMonth(), base.getDate(), 9);
+    calendar.create(start, new Date(start.getTime() + 30 * 60_000), false, anchor);
+  }
+
   $effect(() => {
     const onKey = (e: KeyboardEvent) => {
       // Only while on screen: a Space the rail has hidden keeps quiet.
-      if (calendar.accounts || !root?.offsetParent) return;
+      if (calendar.accounts || calendar.editing || calendar.asking || !root?.offsetParent) return;
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
       const action = keyAction(e);
@@ -65,6 +82,9 @@
           break;
         case "step":
           calendar.step(action.dir);
+          break;
+        case "new":
+          newEvent(null);
           break;
         case "close":
           calendar.selected = null;
@@ -150,6 +170,16 @@
             <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><circle cx="8" cy="5.5" r="2.6" fill="none" stroke="currentColor" stroke-width="1.5" /><path d="M2.8 13.5c.7-2.4 2.7-3.8 5.2-3.8s4.5 1.4 5.2 3.8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" /></svg>
           </button>
         {/if}
+        {#if calendar.writable.length}
+          <button
+            class="btn btn-primary new"
+            title="New Calendar event (C)"
+            onclick={(e) => newEvent(e.currentTarget.getBoundingClientRect())}
+          >
+            <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" /></svg>
+            {narrow ? "" : "New"}
+          </button>
+        {/if}
         {#if accounts.length}
           <button
             class="btn btn-ghost btn-icon"
@@ -196,11 +226,12 @@
           </svg>
           <h2>Bring in your calendar</h2>
           <p>
-            Your calendars stay with Google or your CalDAV server; this reads them, and so can your
-            agents.
+            Your calendars stay with Google, Microsoft or your CalDAV server. You read and write them
+            here, and your agents can read them and suggest Calendar events for you to send.
           </p>
           <div class="empty-actions">
             <button class="btn btn-primary btn-lg" onclick={() => (calendar.accounts = "google")}>Connect Google Calendar</button>
+            <button class="btn btn-lg" onclick={() => (calendar.accounts = "microsoft")}>Connect Outlook</button>
             <button class="btn btn-lg" onclick={() => (calendar.accounts = "caldav")}>Add a CalDAV account</button>
           </div>
         </div>
@@ -214,10 +245,18 @@
     {/if}
   </section>
 
-  {#if calendar.selected}
+  {#if calendar.selected && !calendar.editing}
     {#key calendar.selected.event.id}
       <EventPopover selection={calendar.selected} />
     {/key}
+  {/if}
+
+  {#if calendar.editing}
+    <EventEditor editing={calendar.editing} />
+  {/if}
+
+  {#if calendar.asking}
+    <ScopeChoice asking={calendar.asking} />
   {/if}
 
   {#if calendar.accounts}

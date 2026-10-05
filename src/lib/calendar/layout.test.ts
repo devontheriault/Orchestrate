@@ -47,6 +47,12 @@ function ev(start: string, end: string, title = `e${++n}`): CalendarEvent {
     recurring: false,
     tentative: false,
     busy: true,
+    uid: title,
+    occurrence: "",
+    repeat_rule: null,
+    can_edit: true,
+    draft_id: null,
+    draft_note: null,
   };
 }
 
@@ -201,6 +207,7 @@ test("keys", () => {
   assert.deepEqual(keyAction({ key: "m" }), { do: "view", view: "month" });
   assert.deepEqual(keyAction({ key: "ArrowRight" }), { do: "step", dir: 1 });
   assert.deepEqual(keyAction({ key: "k" }), { do: "step", dir: -1 });
+  assert.deepEqual(keyAction({ key: "c" }), { do: "new" });
   assert.equal(keyAction({ key: "t", ctrlKey: true }), null);
   assert.equal(keyAction({ key: "x" }), null);
 });

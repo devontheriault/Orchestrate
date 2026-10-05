@@ -108,7 +108,7 @@ What Turns have cost: tokens and dollars per Model, plus how much of the account
 _Avoid_: Cost (only half of it), Quota, Budget (nothing here enforces one), Stats.
 
 **Calendar event**:
-One entry in the user's calendar, as the Calendar Space shows it and an Agent reads it: a meeting, an appointment, an all-day day off. A repeating one is one Calendar event to its provider and many occurrences on screen; the Host expands it in the time zone it was made in, so it keeps its wall-clock time across a DST change. The provider (Google, or any CalDAV server) is its source of truth, and the Host keeps only a cache (ADR 0017). Always "Calendar event" in full, `CalendarEvent` in code, because an Event alone is a stream event.
+One entry in the user's calendar, as the Calendar Space shows it and an Agent reads it: a meeting, an appointment, an all-day day off. A repeating one is one Calendar event to its provider and many occurrences on screen; a change or a delete is for one occurrence or all of them. The Host expands repeats in the time zone they were made in, so they keep their wall-clock time across a DST change. The provider (Google, Microsoft or any CalDAV server) is its source of truth, and the Host keeps only a cache (ADR 0017). The user makes, changes and deletes Calendar events, invites people and answers invitations from the Space; an Agent can only leave a draft, shown dashed until the user sends it or throws it away, because sending is the user's. Always "Calendar event" in full, `CalendarEvent` in code, because an Event alone is a stream event.
 _Avoid_: Event (a stream event), Appointment, Meeting (only some are), Entry, Item (the stored record, in the code).
 
 ## Agent lifecycle

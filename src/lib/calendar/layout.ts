@@ -313,11 +313,13 @@ export type KeyAction =
   | { do: "today" }
   | { do: "view"; view: View }
   | { do: "step"; dir: -1 | 1 }
+  | { do: "new" }
   | { do: "close" };
 
 /**
  * The Calendar Space's keys, the ones Google Calendar and Fantastical share:
- * T for today, D/W/M for the view, and the arrows (or J and K) through time.
+ * T for today, D/W/M for the view, the arrows (or J and K) through time, and
+ * C to make a Calendar event.
  */
 export function keyAction(e: {
   key: string;
@@ -349,6 +351,9 @@ export function keyAction(e: {
     case "J":
     case "n":
       return { do: "step", dir: 1 };
+    case "c":
+    case "C":
+      return { do: "new" };
     case "Escape":
       return { do: "close" };
   }

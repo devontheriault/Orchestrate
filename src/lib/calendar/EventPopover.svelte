@@ -1,11 +1,12 @@
 <script lang="ts">
   /**
    * A Calendar event's detail, beside the box it was opened from: when, where,
-   * who, the notes, and the meeting to join. Read-only, like the Space: any
-   * change to a Calendar event is made at its provider (ADR 0017).
+   * who, the notes, and the meeting to join; and from here, changing it,
+   * deleting it, or answering its invitation. An Agent's draft says so, and
+   * offers to send it or throw it away.
    */
   import { openUrl } from "@tauri-apps/plugin-opener";
-  import type { Attendee } from "$lib/api";
+  import type { Attendee, CalendarAnswer } from "$lib/api";
   import LinkedText from "$lib/markdown/LinkedText.svelte";
   import { safeHref } from "$lib/markdown/markdown";
   import { dismissOnMove } from "$lib/menus/menu";
@@ -85,6 +86,25 @@
   }
 
   const going = $derived(event.attendees.filter((a) => a.response === "accepted").length);
+
+  /** The user, when they're invited rather than organizing: they can answer. */
+  const me = $derived(
+    event.draft_id ? undefined : event.attendees.find((a) => a.self && !a.organizer && !event.organizer?.self),
+  );
+  const answers: { value: CalendarAnswer; label: string }[] = [
+    { value: "accepted", label: "Yes" },
+    { value: "tentative", label: "Maybe" },
+    { value: "declined", label: "No" },
+  ];
+
+  function where(e: MouseEvent) {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    return { x: r.left, y: r.bottom + 6 };
+  }
+
+  function edit() {
+    calendar.edit(event, el?.getBoundingClientRect() ?? selection.anchor);
+  }
 </script>
 
 <div
@@ -107,6 +127,14 @@
   <header>
     <span class="swatch" aria-hidden="true"></span>
     <h2>{event.title || "(No title)"}</h2>
+    {#if event.can_edit && !event.draft_id}
+      <button class="btn btn-ghost btn-icon tool" aria-label="Change" title="Change" onclick={edit}>
+        <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M10.5 2.5l3 3-8 8H2.5v-3z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" /></svg>
+      </button>
+      <button class="btn btn-ghost btn-icon tool" aria-label="Delete" title="Delete" onclick={(e) => calendar.remove(event, where(e))}>
+        <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M2.5 4.5h11M6 4.5V3h4v1.5M4 4.5l.7 9h6.6l.7-9" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" /></svg>
+      </button>
+    {/if}
     <button class="btn btn-ghost btn-icon close" aria-label="Close" onclick={close}>
       <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
         <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
@@ -116,15 +144,40 @@
 
   <div class="when">
     <span>{whenLabel(event, calendar.hour12)}</span>
-    {#if event.recurring || zone || event.tentative || !event.busy}
+    {#if event.recurring || zone || event.tentative || (!event.busy && !event.draft_id)}
       <span class="tags">
         {#if event.recurring}<span class="badge">Repeats</span>{/if}
         {#if event.tentative}<span class="badge">Tentative</span>{/if}
-        {#if !event.busy}<span class="badge">Free</span>{/if}
+        {#if !event.busy && !event.draft_id}<span class="badge">Free</span>{/if}
         {#if zone}<span class="badge" title={`Made in ${event.time_zone}`}>{zone}</span>{/if}
       </span>
     {/if}
   </div>
+
+  {#if event.draft_id}
+    <div class="drafted">
+      <strong>Drafted by an Agent.</strong>
+      Nothing is saved or sent until you do.
+      {#if event.draft_note}<p class="why">“{event.draft_note}”</p>{/if}
+    </div>
+  {/if}
+
+  {#if me}
+    <div class="rsvp" role="group" aria-label="Going?">
+      <span>Going?</span>
+      {#each answers as a (a.value)}
+        <button
+          class="btn btn-sm"
+          class:on={me.response === a.value}
+          disabled={calendar.saving}
+          aria-pressed={me.response === a.value}
+          onclick={(e) => calendar.respond(event, a.value, where(e))}
+        >
+          {a.label}
+        </button>
+      {/each}
+    </div>
+  {/if}
 
   {#if meeting}
     <button class="btn btn-primary join" onclick={() => open(meeting)}>
@@ -195,9 +248,14 @@
       <span class="dot" aria-hidden="true"></span>
       {cal?.name ?? "Calendar"}
     </span>
-    {#if link}
+    {#if event.draft_id}
+      <span class="actions">
+        <button class="btn btn-ghost btn-sm" onclick={(e) => calendar.remove(event, where(e))}>Discard</button>
+        <button class="btn btn-primary btn-sm" onclick={edit}>Review and send</button>
+      </span>
+    {:else if link}
       <button class="btn btn-ghost btn-sm" onclick={() => open(link)}>
-        Open in {cal?.kind === "google" ? "Google Calendar" : "browser"}
+        Open in {cal?.kind === "google" ? "Google Calendar" : cal?.kind === "microsoft" ? "Outlook" : "browser"}
       </button>
     {/if}
   </footer>
@@ -252,6 +310,46 @@
 
   .close {
     margin: -0.2rem -0.5rem 0 0;
+  }
+
+  .tool {
+    margin-top: -0.2rem;
+  }
+
+  .drafted {
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-md);
+    background: var(--warning-soft-bg);
+    border: 1px solid var(--warning-soft-border);
+    font-size: var(--text-xs);
+  }
+
+  .why {
+    margin: var(--space-3) 0 0;
+    font-style: italic;
+  }
+
+  .rsvp {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding-left: calc(0.8rem + var(--space-4));
+    color: var(--fg-muted);
+  }
+
+  .rsvp span {
+    margin-right: var(--space-2);
+  }
+
+  .rsvp .btn.on {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 16%, var(--surface));
+    color: var(--fg);
+  }
+
+  .actions {
+    display: inline-flex;
+    gap: var(--space-3);
   }
 
   .when {

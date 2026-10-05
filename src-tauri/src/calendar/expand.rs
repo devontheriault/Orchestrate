@@ -401,5 +401,6 @@ pub fn to_event(
         repeat_rule: occ.rule.map(str::to_string),
         can_edit: false,
         draft_id: None,
+        draft_note: None,
     }
 }

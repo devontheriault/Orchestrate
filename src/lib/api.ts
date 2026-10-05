@@ -499,7 +499,52 @@ export type CalendarEvent = {
   recurring: boolean;
   tentative: boolean;
   busy: boolean;
+  /** Which Calendar event this is an occurrence of, and which occurrence. */
+  uid: string;
+  occurrence: string;
+  /** How the Calendar event it belongs to repeats, as an RRULE. */
+  repeat_rule: string | null;
+  /** Whether the user may change it. */
+  can_edit: boolean;
+  /** Set on an Agent's draft, which isn't in the calendar until the user sends it. */
+  draft_id: string | null;
+  /** Why the Agent suggested it: for the user, never sent. */
+  draft_note?: string | null;
 };
+
+/**
+ * A Calendar event as the user writes it. Times are wall-clock times in
+ * `time_zone`: `YYYY-MM-DDTHH:MM`, or `YYYY-MM-DD` for an all-day one.
+ * Mirrors `calendar::write::Draft`.
+ */
+export type CalendarDraft = {
+  title: string;
+  start: string;
+  /** Exclusive: the time it ends, or the day after the last. */
+  end: string;
+  all_day: boolean;
+  time_zone: string;
+  location: string | null;
+  description: string | null;
+  /** The people to invite, besides the user. */
+  attendees: { email: string; name: string | null }[];
+  /** An RRULE (`FREQ=WEEKLY;BYDAY=MO`), whose UNTIL may be a bare date. */
+  repeat: string | null;
+  busy: boolean;
+};
+
+/** A Calendar event to change, by its CalendarEvent's ids. Mirrors `write::Target`. */
+export type CalendarTarget = {
+  account_id: string;
+  calendar_id: string;
+  uid: string;
+  occurrence: string;
+};
+
+/** One occurrence of a repeating Calendar event, or every one. */
+export type CalendarScope = "this" | "all";
+
+export type CalendarAnswer = "accepted" | "tentative" | "declined";
 
 /** One of an account's calendars. Mirrors `calendar::CalendarInfo`. */
 export type CalendarInfo = {
@@ -510,6 +555,8 @@ export type CalendarInfo = {
   primary: boolean;
   /** Whether to show it until the user says otherwise. */
   selected: boolean;
+  /** Whether the user can add to it. */
+  writable: boolean;
 };
 
 /** Where a calendar account stands. Mirrors `calendar::Status`. */
@@ -520,9 +567,11 @@ export type CalendarStatus =
 
 export type CalendarAccount = {
   id: string;
-  kind: "google" | "caldav";
+  kind: "google" | "microsoft" | "caldav";
   /** The address or user name it signs in as. */
   name: string;
+  /** Whether the provider emails the people a Calendar event invites. */
+  invites: boolean;
   status: CalendarStatus;
   calendars: CalendarInfo[];
 };
@@ -534,6 +583,8 @@ export type CalendarOverview = {
   google_client: boolean;
   /** Where that client goes on the Host. */
   google_client_path: string;
+  /** Whether the Host has a Microsoft app to sign in as. */
+  microsoft_client: boolean;
 };
 
 /** Busy and free stretches, as RFC 3339 instants. */
@@ -819,11 +870,35 @@ export const api = {
     host<CalendarAccount>(hostId, "calendar_add_caldav", { url, username, password }),
   calendarSetGoogleClient: (hostId: string, clientId: string, clientSecret: string) =>
     host<void>(hostId, "calendar_set_google_client", { clientId, clientSecret }),
+  calendarSetMicrosoftClient: (hostId: string, clientId: string) =>
+    host<void>(hostId, "calendar_set_microsoft_client", { clientId }),
   /**
-   * Start signing in to Google: the URL to open in a browser on the Host's
-   * own machine. The account arrives with a `calendar-changed` event.
+   * Start signing in to Google or Microsoft: the URL to open in a browser on
+   * the Host's own machine. The account arrives with a `calendar-changed` event.
    */
-  calendarConnectGoogle: (hostId: string) => host<string>(hostId, "calendar_connect_google"),
+  calendarSignIn: (hostId: string, provider: "google" | "microsoft") =>
+    host<string>(hostId, "calendar_sign_in", { provider }),
+  /** Make a Calendar event, inviting the people on it. */
+  calendarCreate: (hostId: string, accountId: string, calendarId: string, draft: CalendarDraft) =>
+    host<void>(hostId, "calendar_create", { accountId, calendarId, draft }),
+  calendarUpdate: (
+    hostId: string,
+    target: CalendarTarget,
+    draft: CalendarDraft,
+    scope: CalendarScope,
+  ) => host<void>(hostId, "calendar_update", { target, draft, scope }),
+  calendarDelete: (hostId: string, target: CalendarTarget, scope: CalendarScope) =>
+    host<void>(hostId, "calendar_delete", { target, scope }),
+  /** Answer an invitation, telling its organizer. */
+  calendarRespond: (
+    hostId: string,
+    target: CalendarTarget,
+    answer: CalendarAnswer,
+    scope: CalendarScope,
+  ) => host<void>(hostId, "calendar_respond", { target, answer, scope }),
+  /** Throw away a Calendar event an Agent drafted. */
+  calendarDiscardDraft: (hostId: string, id: string) =>
+    host<void>(hostId, "calendar_discard_draft", { id }),
   calendarRemoveAccount: (hostId: string, id: string) =>
     host<void>(hostId, "calendar_remove_account", { id }),
 };

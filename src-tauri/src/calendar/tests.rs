@@ -1807,9 +1807,13 @@ async fn an_agent_drafts_a_calendar_event_and_only_the_user_sends_it() {
     assert_eq!(shown.len(), 1);
     let d = &shown[0];
     assert_eq!(d.title, "Pair on the rail");
-    assert!(d.draft_id.is_some() && !d.busy);
+    assert!(d.draft_id.is_some());
     assert_eq!(d.attendees[0].email, "ada@example.com");
-    assert_eq!(d.description.as_deref(), Some("You're both free then."));
+    assert_eq!(d.draft_note.as_deref(), Some("You're both free then."));
+    assert_eq!(
+        d.description, None,
+        "the note isn't part of the Calendar event"
+    );
     // An Agent reading the calendar sees its draft for what it is.
     let listed = mcp::list_events(
         mcp.clone(),

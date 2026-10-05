@@ -6,7 +6,7 @@
    */
   import type { CalendarEvent } from "$lib/api";
   import { calendar } from "./calendar.svelte";
-  import { bounds, hiddenOn, layoutBars, monthWeeks, sameDay, timeLabel } from "./layout";
+  import { addDays, bounds, hiddenOn, layoutBars, monthWeeks, sameDay, timeLabel } from "./layout";
 
   const weeks = $derived(monthWeeks(calendar.cursor, calendar.weekStart));
   const layouts = $derived(weeks.map((w) => layoutBars(calendar.visible, w)));
@@ -50,11 +50,19 @@
       {@const lanes = shown(lay.lanes)}
       <div class="week">
         {#each week as day, i (day.getTime())}
+          <!-- A press on a day's empty space makes an all-day Calendar event on it. -->
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
           <div
             class="cell"
             class:other={day.getMonth() !== calendar.cursor.getMonth()}
             class:weekend={day.getDay() === 0 || day.getDay() === 6}
             style:grid-column={i + 1}
+            role="presentation"
+            onclick={(e) => {
+              if (e.target === e.currentTarget) {
+                calendar.create(day, addDays(day, 1), true, e.currentTarget.getBoundingClientRect());
+              }
+            }}
           >
             <button
               class="num"
@@ -79,6 +87,7 @@
               class:cut-before={bar.continuesBefore}
               class:cut-after={bar.continuesAfter}
               class:selected={calendar.selected?.event.id === bar.event.id}
+              class:draft={!!bar.event.draft_id}
               style:--cal={calendar.color(bar.event)}
               style:grid-column={`${bar.col + 1} / span ${bar.span}`}
               style:grid-row={bar.lane + 1}
@@ -165,6 +174,10 @@
 
   .cell:first-child {
     border-left: none;
+  }
+
+  .cell {
+    cursor: copy;
   }
 
   .cell.weekend {
@@ -268,6 +281,11 @@
     margin-right: 0;
     border-top-right-radius: 0;
     border-bottom-right-radius: 0;
+  }
+
+  .item.draft {
+    outline: 1.5px dashed var(--c);
+    outline-offset: -1.5px;
   }
 
   .item.past {

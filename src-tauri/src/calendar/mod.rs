@@ -1,12 +1,13 @@
 //! The Calendar Space (ADR 0017): the user's calendars, read from their
 //! provider and kept here only as a cache the Host can throw away.
 //!
-//! An account is either Google, through its Calendar API, or any CalDAV
-//! server. Both sit behind [`Provider`], whose one job is to bring a cache
-//! level with the server as cheaply as the server allows: Google's sync
-//! tokens, CalDAV's ctag and etags. Everything after that — repeating Calendar
-//! events, time zones, search, free/busy — works on the cache alone, so it is
-//! the same for both (see [`expand`]).
+//! An account is Google, through its Calendar API; Microsoft (Outlook.com and
+//! Microsoft 365), through Graph; or any CalDAV server. All sit behind
+//! [`Provider`], which brings a cache level with the server as cheaply as the
+//! server allows (Google's sync tokens, Graph's delta links, CalDAV's ctag and
+//! etags), and writes to it (see [`write`]). Everything a read needs after
+//! that — repeating Calendar events, time zones, search, free/busy — works on
+//! the cache alone, so it is the same for every provider (see [`expand`]).
 //!
 //! A calendar entry is a [`CalendarEvent`], never an "event", which already
 //! means a stream event in this codebase.
@@ -14,8 +15,9 @@
 //! What lives on disk, under the state directory's `calendar/`:
 //! - `accounts.json`: the accounts and their secrets (tokens, passwords),
 //!   readable only by the user, for the same reason the Host's socket is.
-//! - `google-client.json`: the OAuth client the user made for themselves (see
-//!   `docs/google-calendar.md`), also readable only by the user.
+//! - `google-client.json`, `microsoft-client.json`: apps the user registered
+//!   themselves (see `docs/calendar-accounts.md`), in place of the build's.
+//! - `drafts.json`: Calendar events Agents drafted, waiting for the user.
 //! - `cache/<account>.json`: what the provider last said, rebuilt from it if
 //!   it's lost.
 
@@ -274,6 +276,9 @@ pub struct CalendarEvent {
     /// An Agent's suggestion, not yet saved: the draft's id (see `drafts`).
     #[serde(default)]
     pub draft_id: Option<String>,
+    /// Why the Agent suggested it, for the user; never part of what's sent.
+    #[serde(default)]
+    pub draft_note: Option<String>,
 }
 
 /// Find a video-call link in the given texts: the meeting a Calendar event's
@@ -469,6 +474,8 @@ pub struct AccountInfo {
     pub id: String,
     pub kind: &'static str,
     pub name: String,
+    /// Whether the provider emails the people a Calendar event invites.
+    pub invites: bool,
     pub status: Status,
     pub calendars: Vec<CalendarInfo>,
 }
@@ -628,6 +635,10 @@ impl Calendars {
                     id: a.id.clone(),
                     kind: a.source.kind(),
                     name: a.name.clone(),
+                    invites: match &a.source {
+                        Source::Caldav(login) => login.schedules,
+                        _ => true,
+                    },
                     status: status.get(&a.id).cloned().unwrap_or(Status::Idle),
                     calendars: caches
                         .get(&a.id)

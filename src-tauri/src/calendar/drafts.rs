@@ -123,7 +123,7 @@ impl Calendars {
                     all_day,
                     time_zone: Some(d.time_zone.clone()),
                     location: d.location.clone(),
-                    description: p.note.clone().or_else(|| d.description.clone()),
+                    description: d.description.clone(),
                     attendees: d
                         .attendees
                         .iter()
@@ -140,12 +140,13 @@ impl Calendars {
                     link: None,
                     recurring: d.repeat.is_some(),
                     tentative: false,
-                    busy: false,
+                    busy: d.busy,
                     uid: String::new(),
                     occurrence: String::new(),
                     repeat_rule: d.repeat.clone(),
                     can_edit: true,
                     draft_id: Some(p.id),
+                    draft_note: p.note,
                 })
             })
             .collect()

@@ -3,6 +3,10 @@
    * The day and week views: a column of hours for each day, the Calendar
    * events in them side by side where they overlap, and a strip across the
    * top for the all-day ones. Where everything sits is `layout.ts`'s.
+   *
+   * Press on empty time to make a Calendar event there (drag for its length),
+   * on the strip for an all-day one; drag one to move it, its bottom edge to
+   * change its length. Where they land is `edit.ts`'s.
    */
   import type { CalendarEvent } from "$lib/api";
   import { calendar } from "./calendar.svelte";
@@ -17,7 +21,9 @@
     sameDay,
     timeLabel,
     bounds,
+    addDays,
   } from "./layout";
+  import { dragged, fromWallClock, spanOnDay } from "./edit";
 
   let { days }: { days: Date[] } = $props();
 
@@ -90,6 +96,122 @@
     return e.attendees.some((a) => a.self && a.response === "declined");
   }
 
+  // ---- making one
+  /** A new Calendar event being pressed out on day `day`, from `a` to `b` minutes. */
+  let making = $state<{ day: number; a: number; b: number } | null>(null);
+  let makingEl: HTMLElement | undefined = $state();
+
+  function minuteAt(col: HTMLElement, y: number): number {
+    const r = col.getBoundingClientRect();
+    return Math.max(0, Math.min(DAY_MINUTES, ((y - r.top) / r.height) * DAY_MINUTES));
+  }
+
+  function columnDown(e: PointerEvent, i: number) {
+    if (e.button !== 0 || (e.target as HTMLElement).closest(".event")) return;
+    const col = e.currentTarget as HTMLElement;
+    col.setPointerCapture(e.pointerId);
+    const m = minuteAt(col, e.clientY);
+    making = { day: i, a: m, b: m };
+  }
+
+  function columnMove(e: PointerEvent) {
+    if (making) making.b = minuteAt(e.currentTarget as HTMLElement, e.clientY);
+  }
+
+  function columnUp() {
+    if (!making) return;
+    const span = spanOnDay(days[making.day], making.a, making.b);
+    const rect = makingEl?.getBoundingClientRect() ?? null;
+    making = null;
+    calendar.create(span.start, span.end, false, rect);
+  }
+
+  /** The new one being pressed out, as it will be made. */
+  const pressed = $derived(making ? spanOnDay(days[making.day], making.a, making.b) : null);
+
+  /** The new one in the editor, drawn where it will go. */
+  const pending = $derived.by(() => {
+    const ed = calendar.editing;
+    if (!ed || ed.event || ed.draftId || ed.draft.all_day) return null;
+    const start = fromWallClock(ed.draft.start);
+    const end = fromWallClock(ed.draft.end);
+    const i = days.findIndex((d) => sameDay(d, start));
+    if (i < 0) return null;
+    return { day: i, start, end, title: ed.draft.title };
+  });
+
+  const minutesOf = (d: Date) => d.getHours() * 60 + d.getMinutes();
+
+  // ---- moving one
+  type Drag = {
+    event: CalendarEvent;
+    resize: boolean;
+    x0: number;
+    y0: number;
+    dx: number;
+    dy: number;
+    /** A day column's width and height, to turn pixels into days and minutes. */
+    w: number;
+    h: number;
+    moved: boolean;
+  };
+  let drag = $state<Drag | null>(null);
+  /** Set by a drag's release, so the click that follows doesn't also open it. */
+  let swallowClick = false;
+
+  function eventDown(e: PointerEvent, event: CalendarEvent) {
+    if (e.button !== 0 || !event.can_edit || event.draft_id) return;
+    const el = e.currentTarget as HTMLElement;
+    const col = el.closest(".col") as HTMLElement | null;
+    if (!col) return;
+    el.setPointerCapture(e.pointerId);
+    drag = {
+      event,
+      resize: (e.target as HTMLElement).classList.contains("grip"),
+      x0: e.clientX,
+      y0: e.clientY,
+      dx: 0,
+      dy: 0,
+      w: col.offsetWidth,
+      h: col.offsetHeight,
+      moved: false,
+    };
+  }
+
+  function eventMove(e: PointerEvent) {
+    if (!drag) return;
+    drag.dx = e.clientX - drag.x0;
+    drag.dy = e.clientY - drag.y0;
+    if (Math.abs(drag.dx) > 4 || Math.abs(drag.dy) > 4) drag.moved = true;
+  }
+
+  /** Where the dragged one would land now. */
+  const landing = $derived.by(() => {
+    if (!drag?.moved) return null;
+    const minutes = (drag.dy / drag.h) * DAY_MINUTES;
+    const shift = drag.resize ? 0 : Math.round(drag.dx / drag.w);
+    return { ...dragged(drag.event, minutes, shift, drag.resize), shift };
+  });
+
+  function eventUp(e: PointerEvent) {
+    const d = drag;
+    const land = landing;
+    drag = null;
+    if (!d?.moved || !land) return;
+    swallowClick = true;
+    const { start, end } = bounds(d.event);
+    if (land.start.getTime() === start.getTime() && land.end.getTime() === end.getTime()) return;
+    calendar.move(d.event, land.start, land.end, { x: e.clientX, y: e.clientY });
+  }
+
+  function eventClick(e: MouseEvent, event: CalendarEvent) {
+    if (swallowClick) {
+      swallowClick = false;
+      return;
+    }
+    calendar.select(event, e.currentTarget as Element);
+  }
+
   function weekday(d: Date): string {
     return d.toLocaleDateString(undefined, { weekday: "short" });
   }
@@ -129,8 +251,15 @@
         {/if}
       </div>
       <div class="bars" style:--lanes={shownLanes}>
-        {#each days as _, i}
-          <div class="bar-col" class:today={i === todayCol} style:grid-column={i + 1}></div>
+        {#each days as day, i}
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <div
+            class="bar-col"
+            class:today={i === todayCol}
+            style:grid-column={i + 1}
+            role="presentation"
+            onclick={(e) => calendar.create(day, addDays(day, 1), true, e.currentTarget.getBoundingClientRect())}
+          ></div>
         {/each}
         {#each strip.bars.filter((b) => b.lane < shownLanes) as bar (bar.event.id)}
           <button
@@ -145,6 +274,7 @@
             style:--cal={calendar.color(bar.event)}
             style:grid-column={`${bar.col + 1} / span ${bar.span}`}
             style:grid-row={bar.lane + 1}
+            class:draft={!!bar.event.draft_id}
             onclick={(e) => calendar.select(bar.event, e.currentTarget)}
           >
             <span class="title">{bar.event.title || "(No title)"}</span>
@@ -172,12 +302,21 @@
           class="col"
           class:today={i === todayCol}
           class:weekend={day.getDay() === 0 || day.getDay() === 6}
+          role="presentation"
+          onpointerdown={(e) => columnDown(e, i)}
+          onpointermove={columnMove}
+          onpointerup={columnUp}
+          onpointercancel={() => (making = null)}
         >
           {#each placed[i] as p (p.event.id)}
             {@const short = p.height < 40}
+            {@const moving = drag?.event.id === p.event.id && landing}
             <button
               class="event block"
               class:short
+              class:draft={!!p.event.draft_id}
+              class:dragging={!!moving}
+              class:editable={p.event.can_edit && !p.event.draft_id}
               class:past={past(p.event)}
               class:free={!p.event.busy}
               class:tentative={p.event.tentative}
@@ -186,22 +325,51 @@
               class:cut-after={p.continuesAfter}
               class:selected={calendar.selected?.event.id === p.event.id}
               style:--cal={calendar.color(p.event)}
-              style:top={pct(p.top)}
-              style:height={pct(Math.max(p.height, MIN_MINUTES))}
+              style:top={pct(moving ? minutesOf(moving.start) : p.top)}
+              style:height={pct(
+                Math.max(moving ? (moving.end.getTime() - moving.start.getTime()) / 60000 : p.height, MIN_MINUTES),
+              )}
               style:left={`calc(${(p.col / p.cols) * 100}% + 1px)`}
               style:width={`calc(${(p.span / p.cols) * 100}% - 3px)`}
-              onclick={(e) => calendar.select(p.event, e.currentTarget)}
+              style:transform={moving ? `translateX(${moving.shift * 100}%)` : undefined}
+              onpointerdown={(e) => eventDown(e, p.event)}
+              onpointermove={eventMove}
+              onpointerup={eventUp}
+              onpointercancel={() => (drag = null)}
+              onclick={(e) => eventClick(e, p.event)}
             >
               <span class="title">{p.event.title || "(No title)"}</span>
               <span class="time">
-                {timeLabel(bounds(p.event).start, calendar.hour12)}{#if !short && p.event.location}<span
+                {timeLabel(moving ? moving.start : bounds(p.event).start, calendar.hour12)}{#if !short && p.event.location}<span
                     class="where"
                   >
                     · {p.event.location}</span
                   >{/if}
               </span>
+              {#if p.event.can_edit && !p.event.draft_id && !p.continuesAfter}
+                <span class="grip" aria-hidden="true"></span>
+              {/if}
             </button>
           {/each}
+          {#if pressed && making?.day === i}
+            <div
+              class="event block ghost"
+              bind:this={makingEl}
+              style:top={pct(minutesOf(pressed.start))}
+              style:height={pct((pressed.end.getTime() - pressed.start.getTime()) / 60000)}
+            >
+              <span class="time">{timeLabel(pressed.start, calendar.hour12)} – {timeLabel(pressed.end, calendar.hour12)}</span>
+            </div>
+          {:else if pending?.day === i}
+            <div
+              class="event block ghost"
+              style:top={pct(minutesOf(pending.start))}
+              style:height={pct(Math.max((pending.end.getTime() - pending.start.getTime()) / 60000, MIN_MINUTES))}
+            >
+              <span class="title">{pending.title || "New event"}</span>
+              <span class="time">{timeLabel(pending.start, calendar.hour12)} – {timeLabel(pending.end, calendar.hour12)}</span>
+            </div>
+          {/if}
           {#if i === todayCol}
             <div class="now" style:top={pct(now)} aria-hidden="true"></div>
           {/if}
@@ -544,6 +712,62 @@
   .block.cut-after {
     border-bottom-left-radius: 0;
     border-bottom-right-radius: 0;
+  }
+
+  .bar-col {
+    cursor: copy;
+  }
+
+  .col {
+    touch-action: pan-y;
+    cursor: copy;
+  }
+
+  .event.editable {
+    cursor: grab;
+  }
+
+  .event.dragging {
+    cursor: grabbing;
+    z-index: 5;
+    box-shadow:
+      inset 3px 0 0 var(--c),
+      var(--shadow-popover);
+    opacity: 0.92;
+  }
+
+  .grip {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 6px;
+    cursor: ns-resize;
+  }
+
+  /* A Calendar event not yet made: the one being pressed out, or written. */
+  .ghost {
+    --c: var(--cal, var(--accent));
+    pointer-events: none;
+    left: 1px;
+    width: calc(100% - 3px);
+    background: color-mix(in srgb, var(--c) 30%, var(--surface));
+    box-shadow:
+      inset 3px 0 0 var(--c),
+      var(--shadow-sm);
+    z-index: 4;
+  }
+
+  /* An Agent's draft: dashed, as something not yet in the calendar. */
+  .event.draft:not(.selected) {
+    background: repeating-linear-gradient(
+      -45deg,
+      color-mix(in srgb, var(--c) 10%, var(--surface)) 0 6px,
+      color-mix(in srgb, var(--c) 4%, var(--surface)) 6px 12px
+    );
+    box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--c) 70%, transparent);
+    outline: 1.5px dashed var(--c);
+    outline-offset: -1.5px;
   }
 
   .title {
