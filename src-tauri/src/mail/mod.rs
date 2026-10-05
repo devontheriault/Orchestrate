@@ -156,7 +156,8 @@ pub struct Download {
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct AccountInfo {
     pub email: String,
-    /// `"google"` for Gmail signed in with OAuth, `"password"` otherwise.
+    /// `"google"` or `"microsoft"` for an account signed in with OAuth,
+    /// `"password"` otherwise.
     pub auth: String,
     pub server: String,
 }
@@ -336,37 +337,40 @@ pub async fn set_up(setup: Setup) -> Result<SetUpOutcome> {
             connect_saved().await?;
             Ok(SetUpOutcome::Connected(status()))
         }
-        Setup::Google(g) => {
-            let url = oauth::begin(g, |outcome| async move {
-                match outcome {
-                    Ok(saved) => {
-                        let saved_ok = account::save(&saved).and_then(|()| cache::clear());
-                        if let Err(e) = saved_ok {
-                            set_status("error", Some(e));
-                            announce(None);
-                        } else if let Err(e) = connect_saved().await {
-                            set_status("error", Some(e));
-                            announce(None);
-                        }
-                    }
-                    Err(e) => {
-                        set_status(
-                            if account_info().is_some() {
-                                "error"
-                            } else {
-                                "none"
-                            },
-                            Some(e),
-                        );
-                        announce(None);
-                    }
-                }
-            })
-            .await?;
-            set_status("signing_in", None);
-            Ok(SetUpOutcome::Browser { url })
-        }
+        Setup::Google(o) => sign_in(account::OAuthProvider::Google, o).await,
+        Setup::Microsoft(o) => sign_in(account::OAuthProvider::Microsoft, o).await,
     }
+}
+
+/// Start signing in with `provider` in the browser. The account is saved and
+/// connected once the user comes back, which a `mail-changed` event says.
+async fn sign_in(provider: account::OAuthProvider, o: account::OAuthSetup) -> Result<SetUpOutcome> {
+    let url = oauth::begin(provider, o, |outcome| async move {
+        match outcome {
+            Ok(saved) => {
+                let saved_ok = account::save(&saved).and_then(|()| cache::clear());
+                if let Err(e) = saved_ok {
+                    set_status("error", Some(e));
+                    announce(None);
+                } else if let Err(e) = connect_saved().await {
+                    set_status("error", Some(e));
+                    announce(None);
+                }
+            }
+            Err(e) => {
+                let state = if account_info().is_some() {
+                    "error"
+                } else {
+                    "none"
+                };
+                set_status(state, Some(e));
+                announce(None);
+            }
+        }
+    })
+    .await?;
+    set_status("signing_in", None);
+    Ok(SetUpOutcome::Browser { url })
 }
 
 fn account_info() -> Option<AccountInfo> {

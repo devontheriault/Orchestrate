@@ -473,7 +473,7 @@ export type MailMessage = {
 };
 
 export type MailStatus = {
-  account: { email: string; auth: "google" | "password"; server: string } | null;
+  account: { email: string; auth: "google" | "microsoft" | "password"; server: string } | null;
   state: "none" | "signing_in" | "connecting" | "connected" | "error";
   error: string | null;
 };
@@ -489,7 +489,18 @@ export type MailSetup =
       username?: string;
       password: string;
     }
-  | { auth: "google"; email: string; clientId: string; clientSecret: string };
+  /**
+   * Signing in in the browser, with the user's own OAuth client: Google's
+   * has a secret, Microsoft's desktop client none. `tenant` is Microsoft's
+   * directory, `common` when unset.
+   */
+  | {
+      auth: "google" | "microsoft";
+      email: string;
+      clientId: string;
+      clientSecret?: string;
+      tenant?: string;
+    };
 
 export type MailSetUpOutcome =
   | ({ next: "connected" } & MailStatus)

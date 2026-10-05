@@ -153,14 +153,22 @@ export function bytes(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+/** How an account signs in: in the browser with its provider, or with a password. */
+export type SignIn = "google" | "microsoft";
+
 /** A provider the setup knows the server of. */
 export type Provider = {
   id: string;
   label: string;
   server: string;
   port: number;
-  /** Where its users make the app password IMAP takes. */
-  help: string;
+  /** The provider's own sign-in in the browser, where it has one. */
+  signIn?: SignIn;
+  /**
+   * Where its users make the app password IMAP takes, or null for a provider
+   * that takes no password from other apps at all.
+   */
+  help: string | null;
 };
 
 export const PROVIDERS: Provider[] = [
@@ -169,7 +177,18 @@ export const PROVIDERS: Provider[] = [
     label: "Gmail",
     server: "imap.gmail.com",
     port: 993,
+    signIn: "google",
     help: "With 2-Step Verification on, make one at myaccount.google.com/apppasswords.",
+  },
+  {
+    // Microsoft turned password sign-in off for other apps, on Outlook.com
+    // and Microsoft 365 alike, so this one is sign-in only.
+    id: "outlook",
+    label: "Outlook",
+    server: "outlook.office365.com",
+    port: 993,
+    signIn: "microsoft",
+    help: null,
   },
   {
     id: "icloud",
@@ -186,13 +205,6 @@ export const PROVIDERS: Provider[] = [
     help: "Make one in Settings → Privacy & Security → Manage app passwords.",
   },
   {
-    id: "outlook",
-    label: "Outlook",
-    server: "outlook.office365.com",
-    port: 993,
-    help: "Make one in your Microsoft account's Security settings, under App passwords.",
-  },
-  {
     id: "yahoo",
     label: "Yahoo",
     server: "imap.mail.yahoo.com",
@@ -201,24 +213,34 @@ export const PROVIDERS: Provider[] = [
   },
 ];
 
-/** The provider an address is probably at. */
+/** The provider an address is probably at. Microsoft 365 on a company's own
+ * domain can't be told from its address, so the user picks Outlook for it. */
 export function providerFor(email: string): Provider | null {
   const domain = email.split("@")[1]?.toLowerCase() ?? "";
   const byDomain: Record<string, string> = {
     "gmail.com": "gmail",
     "googlemail.com": "gmail",
+    "outlook.com": "outlook",
+    "hotmail.com": "outlook",
+    "live.com": "outlook",
+    "msn.com": "outlook",
     "icloud.com": "icloud",
     "me.com": "icloud",
     "mac.com": "icloud",
     "fastmail.com": "fastmail",
     "fastmail.fm": "fastmail",
-    "outlook.com": "outlook",
-    "hotmail.com": "outlook",
-    "live.com": "outlook",
     "yahoo.com": "yahoo",
   };
-  return PROVIDERS.find((p) => p.id === byDomain[domain]) ?? null;
+  const id =
+    byDomain[domain] ??
+    // outlook.fr, hotmail.co.uk, live.de…
+    (/^(outlook|hotmail|live)\.[a-z.]+$/.test(domain) ? "outlook" : undefined) ??
+    (/^yahoo\.[a-z.]+$/.test(domain) ? "yahoo" : undefined);
+  return PROVIDERS.find((p) => p.id === id) ?? null;
 }
+
+/** What the browser sign-in is called, by the company behind it. */
+export const SIGN_IN_NAME: Record<SignIn, string> = { google: "Google", microsoft: "Microsoft" };
 
 /** What an Agent is asked when the user gives it no words of their own. */
 export const DEFAULT_ASK = "Read this email and tell me what it needs from me.";

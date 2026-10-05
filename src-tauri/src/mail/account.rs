@@ -15,10 +15,13 @@ use crate::paths;
 #[serde(tag = "auth", rename_all = "snake_case")]
 pub enum Setup {
     /// Any IMAP server, with a password: for Gmail, iCloud, Fastmail and
-    /// Outlook, an app password made in the account's security settings.
+    /// Yahoo, an app password made in the account's security settings.
     Password(PasswordSetup),
     /// Gmail, signed in with Google in the browser.
-    Google(GoogleSetup),
+    Google(OAuthSetup),
+    /// Outlook.com, Hotmail and Microsoft 365, signed in with Microsoft in the
+    /// browser: Microsoft no longer lets other apps sign in with a password.
+    Microsoft(OAuthSetup),
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -34,14 +37,47 @@ pub struct PasswordSetup {
     pub password: String,
 }
 
-/// The user's own OAuth client: Google hands one out free to anyone, for
-/// their own account, from the Cloud console.
+/// The user's own OAuth client, made free in Google's Cloud console or
+/// Microsoft's Entra admin center, for their own account.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct GoogleSetup {
+pub struct OAuthSetup {
+    /// A hint for the sign-in page; the account is whichever is signed in to.
+    #[serde(default)]
     pub email: String,
     pub client_id: String,
-    pub client_secret: String,
+    /// Google's clients have one. Microsoft's desktop clients have none.
+    #[serde(default)]
+    pub client_secret: Option<String>,
+    /// Microsoft's directory to sign in through: `common` (the default) for
+    /// personal and work accounts alike, or one organisation's.
+    #[serde(default)]
+    pub tenant: Option<String>,
+}
+
+/// Who an account signs in with, for IMAP's XOAUTH2.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OAuthProvider {
+    Google,
+    Microsoft,
+}
+
+impl OAuthProvider {
+    pub fn name(self) -> &'static str {
+        match self {
+            OAuthProvider::Google => "Google",
+            OAuthProvider::Microsoft => "Microsoft",
+        }
+    }
+
+    /// The IMAP server its accounts are read from.
+    pub fn server(self) -> &'static str {
+        match self {
+            OAuthProvider::Google => "imap.gmail.com",
+            OAuthProvider::Microsoft => "outlook.office365.com",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -70,15 +106,16 @@ pub enum Secret {
     Password {
         password: String,
     },
-    Google {
+    OAuth {
+        provider: OAuthProvider,
         client_id: String,
-        client_secret: String,
+        #[serde(default)]
+        client_secret: Option<String>,
+        #[serde(default)]
+        tenant: Option<String>,
         refresh_token: String,
     },
 }
-
-/// Gmail's IMAP server, which a Google sign-in always connects to.
-pub const GMAIL_SERVER: &str = "imap.gmail.com";
 
 impl Saved {
     pub fn password(p: PasswordSetup) -> Result<Self> {
@@ -110,21 +147,24 @@ impl Saved {
         })
     }
 
-    pub fn google(
+    /// An account signed in with `provider`, read from its own IMAP server.
+    pub fn oauth(
+        provider: OAuthProvider,
         email: String,
-        client_id: String,
-        client_secret: String,
+        setup: &OAuthSetup,
         refresh_token: String,
     ) -> Self {
         Self {
             username: email.clone(),
             email,
-            server: GMAIL_SERVER.into(),
+            server: provider.server().into(),
             port: 993,
             security: Security::Tls,
-            secret: Secret::Google {
-                client_id,
-                client_secret,
+            secret: Secret::OAuth {
+                provider,
+                client_id: setup.client_id.trim().to_string(),
+                client_secret: setup.client_secret.clone(),
+                tenant: setup.tenant.clone(),
                 refresh_token,
             },
         }
@@ -135,7 +175,14 @@ impl Saved {
             email: self.email.clone(),
             auth: match self.secret {
                 Secret::Password { .. } => "password",
-                Secret::Google { .. } => "google",
+                Secret::OAuth {
+                    provider: OAuthProvider::Google,
+                    ..
+                } => "google",
+                Secret::OAuth {
+                    provider: OAuthProvider::Microsoft,
+                    ..
+                } => "microsoft",
             }
             .into(),
             server: self.server.clone(),

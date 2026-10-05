@@ -18,6 +18,7 @@ use async_imap::imap_proto::{
     AttributeValue, MailboxDatum, MessageSection, NameAttribute, Response, SectionPath, Status,
 };
 use async_imap::{Authenticator, Client, Session};
+use base64::Engine;
 use futures_util::TryStreamExt;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::TcpStream;
@@ -167,26 +168,34 @@ async fn connect(account: &Saved) -> Result<Conn> {
         Security::Tls => Stream::Tls(Box::new(tls(&account.server, tcp).await?)),
     };
     let mut client = Client::new(stream);
-    match client.read_response().await {
-        Ok(Some(_greeting)) => {}
+    let sasl_ir = match client.read_response().await {
+        Ok(Some(greeting)) => !lacks_sasl_ir(greeting.parsed()),
         Ok(None) => return Err(offline("it hung up before saying hello")),
         Err(e) => return Err(offline(e)),
-    }
+    };
     let mut session = match &account.secret {
         Secret::Password { password } => client
             .login(&account.username, password)
             .await
             .map_err(|(e, _)| refused_login(account, e))?,
-        Secret::Google { .. } => {
+        Secret::OAuth { .. } => {
             let token = oauth::access_token(account).await?;
-            let auth = XOAuth2 {
-                response: Some(format!(
-                    "user={}\x01auth=Bearer {token}\x01\x01",
-                    account.username
-                )),
+            let response = format!("user={}\x01auth=Bearer {token}\x01\x01", account.username);
+            // With SASL-IR the token rides on the command itself, which some
+            // servers insist on; without it, it answers the server's "+".
+            let (command, auth) = if sasl_ir {
+                let encoded = base64::engine::general_purpose::STANDARD.encode(&response);
+                (format!("XOAUTH2 {encoded}"), XOAuth2 { response: None })
+            } else {
+                (
+                    "XOAUTH2".to_string(),
+                    XOAuth2 {
+                        response: Some(response),
+                    },
+                )
             };
             client
-                .authenticate("XOAUTH2", auth)
+                .authenticate(command, auth)
                 .await
                 .map_err(|(e, _)| refused_login(account, e))?
         }
@@ -209,19 +218,49 @@ fn refused_login(account: &Saved, e: async_imap::error::Error) -> String {
     match e {
         E::Io(_) | E::ConnectionLost => offline(e),
         E::No(why) | E::Bad(why) => {
-            let hint = if account.server.ends_with("gmail.com")
-                && matches!(account.secret, Secret::Password { .. })
-            {
-                " Gmail takes an app password here, not your Google password."
-            } else {
-                ""
-            };
+            let password = matches!(account.secret, Secret::Password { .. });
+            let hint = login_hint(&account.server, password);
             format!(
                 "{} refused the sign-in for {}: {why}.{hint}",
                 account.server, account.username
             )
         }
         other => format!("could not sign in to {}: {other}", account.server),
+    }
+}
+
+/// Whether a server's greeting lists its capabilities without SASL-IR, the
+/// one case where a sign-in can't send its first answer with the command.
+fn lacks_sasl_ir(greeting: &Response<'_>) -> bool {
+    use async_imap::imap_proto::{Capability, ResponseCode};
+    let Response::Data { outcome, .. } = greeting else {
+        return false;
+    };
+    match &outcome.code {
+        Some(ResponseCode::Capabilities(caps)) => !caps
+            .iter()
+            .any(|c| matches!(c, Capability::Atom(a) if a.eq_ignore_ascii_case("SASL-IR"))),
+        _ => false,
+    }
+}
+
+/// What to try when a provider refuses a sign-in.
+pub fn login_hint(server: &str, password: bool) -> &'static str {
+    let server = server.to_ascii_lowercase();
+    let microsoft = server.ends_with("office365.com") || server.ends_with("outlook.com");
+    match (microsoft, password) {
+        (true, true) => {
+            " Microsoft no longer lets other apps sign in to Outlook with a password; \
+             sign in with Microsoft instead."
+        }
+        (true, false) => {
+            " Check that IMAP is on for this mailbox: in Outlook.com, Settings → Mail → \
+             Forwarding and IMAP; for a work account, your admin must allow it."
+        }
+        (false, true) if server.ends_with("gmail.com") => {
+            " Gmail takes an app password here, not your Google password."
+        }
+        _ => "",
     }
 }
 
@@ -477,7 +516,6 @@ pub fn decode_folder_name(name: &str) -> String {
             out.push('&');
         } else {
             let b64 = encoded.replace(',', "/");
-            use base64::Engine;
             let decoded = base64::engine::general_purpose::STANDARD_NO_PAD.decode(b64.as_bytes());
             match decoded {
                 Ok(bytes) if bytes.len() % 2 == 0 => {
@@ -524,7 +562,7 @@ fn role_by_name(name: &str) -> Option<Role> {
         "sent" | "sent items" | "sent messages" | "sent mail" => Some(Role::Sent),
         "drafts" => Some(Role::Drafts),
         "trash" | "deleted items" | "deleted messages" | "bin" => Some(Role::Trash),
-        "junk" | "spam" | "junk e-mail" => Some(Role::Junk),
+        "junk" | "spam" | "junk e-mail" | "junk email" => Some(Role::Junk),
         "archive" | "archives" => Some(Role::Archive),
         _ => None,
     }

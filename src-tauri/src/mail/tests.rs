@@ -731,3 +731,165 @@ fn snippets_leave_out_what_a_reply_quotes() {
     });
     assert_eq!(s.snippet, "Yes, Thursday works. Marco");
 }
+
+fn microsoft(tenant: Option<&str>) -> account::OAuthSetup {
+    serde_json::from_value(serde_json::json!({
+        "email": "me@outlook.com",
+        "clientId": " 00000000-1111-2222-3333-444444444444 ",
+        "tenant": tenant,
+    }))
+    .unwrap()
+}
+
+#[test]
+fn outlook_signs_in_with_microsoft() {
+    let setup: account::Setup = serde_json::from_value(serde_json::json!({
+        "auth": "microsoft",
+        "email": "me@outlook.com",
+        "clientId": "abc",
+    }))
+    .unwrap();
+    assert!(matches!(setup, account::Setup::Microsoft(_)));
+
+    let url = oauth::auth_url(
+        account::OAuthProvider::Microsoft,
+        &microsoft(None),
+        "http://localhost:4711",
+        "CHALLENGE",
+        "STATE",
+    )
+    .unwrap();
+    let parsed = url::Url::parse(&url).unwrap();
+    assert_eq!(parsed.host_str(), Some("login.microsoftonline.com"));
+    assert_eq!(parsed.path(), "/common/oauth2/v2.0/authorize");
+    let q: HashMap<_, _> = parsed.query_pairs().into_owned().collect();
+    assert_eq!(q["client_id"], "00000000-1111-2222-3333-444444444444");
+    assert_eq!(q["redirect_uri"], "http://localhost:4711");
+    assert!(q["scope"].contains("https://outlook.office.com/IMAP.AccessAsUser.All"));
+    assert!(q["scope"].contains("offline_access"));
+    assert_eq!(q["code_challenge_method"], "S256");
+    assert_eq!(q["login_hint"], "me@outlook.com");
+    assert!(!q.contains_key("client_secret"));
+
+    let work = oauth::auth_url(
+        account::OAuthProvider::Microsoft,
+        &microsoft(Some("contoso.onmicrosoft.com")),
+        "http://localhost:1",
+        "c",
+        "s",
+    )
+    .unwrap();
+    assert!(work.starts_with("https://login.microsoftonline.com/contoso.onmicrosoft.com/"));
+    // The directory goes into the URL's path, so it can't carry anything else.
+    for hostile in ["evil.example/x?", "../common", "a b"] {
+        assert!(oauth::endpoints(account::OAuthProvider::Microsoft, Some(hostile)).is_err());
+    }
+}
+
+#[test]
+fn token_requests_carry_a_secret_only_where_there_is_one() {
+    use account::OAuthProvider::{Google, Microsoft};
+    use oauth::Grant;
+    let ms = oauth::token_form(Microsoft, "id", None, Grant::Refresh("r1"));
+    let ms: HashMap<_, _> = ms.into_iter().collect();
+    assert!(!ms.contains_key("client_secret"));
+    assert_eq!(ms["grant_type"], "refresh_token");
+    assert_eq!(ms["refresh_token"], "r1");
+    assert!(ms["scope"].contains("IMAP.AccessAsUser.All"));
+
+    let g = oauth::token_form(
+        Google,
+        "id",
+        Some("sec"),
+        Grant::Code {
+            code: "c",
+            verifier: "v",
+            redirect: "http://127.0.0.1:9",
+        },
+    );
+    let g: HashMap<_, _> = g.into_iter().collect();
+    assert_eq!(g["client_secret"], "sec");
+    assert_eq!(g["code_verifier"], "v");
+    assert!(!g.contains_key("scope"));
+}
+
+#[test]
+fn microsoft_accounts_name_their_address_as_preferred_username() {
+    // {"preferred_username":"me@contoso.com","name":"Me"}
+    let token = "x.eyJwcmVmZXJyZWRfdXNlcm5hbWUiOiJtZUBjb250b3NvLmNvbSIsIm5hbWUiOiJNZSJ9.sig";
+    assert_eq!(oauth::email_of(token).as_deref(), Some("me@contoso.com"));
+}
+
+#[test]
+fn outlook_accounts_read_from_office365() {
+    let saved = Saved::oauth(
+        account::OAuthProvider::Microsoft,
+        "me@outlook.com".into(),
+        &microsoft(None),
+        "refresh".into(),
+    );
+    assert_eq!(saved.server, "outlook.office365.com");
+    assert_eq!(saved.port, 993);
+    assert_eq!(saved.security, Security::Tls);
+    assert_eq!(saved.info().auth, "microsoft");
+    let shown = serde_json::to_string(&saved.info()).unwrap();
+    assert!(!shown.contains("refresh"));
+}
+
+#[test]
+fn refusals_say_what_to_try() {
+    use super::imap::login_hint;
+    assert!(login_hint("outlook.office365.com", true).contains("sign in with Microsoft"));
+    assert!(login_hint("Outlook.Office365.com", false).contains("IMAP is on"));
+    assert!(login_hint("imap.gmail.com", true).contains("app password"));
+    assert_eq!(login_hint("imap.fastmail.com", true), "");
+}
+
+#[test]
+fn outlooks_folders_are_known_by_name() {
+    let l = |p: &str| (p.to_string(), Some("/".to_string()), Vec::new());
+    let folders = folders_from(vec![
+        l("INBOX"),
+        l("Sent Items"),
+        l("Deleted Items"),
+        l("Junk Email"),
+        l("Archive"),
+        l("Drafts"),
+        l("Conversation History"),
+    ]);
+    let role = |p: &str| folders.iter().find(|f| f.path == p).unwrap().role;
+    assert_eq!(role("Sent Items"), Some(Role::Sent));
+    assert_eq!(role("Deleted Items"), Some(Role::Trash));
+    assert_eq!(role("Junk Email"), Some(Role::Junk));
+    assert_eq!(role("Conversation History"), None);
+    assert_eq!(
+        destination(&folders, Role::Archive).as_deref(),
+        Some("Archive")
+    );
+}
+
+/// XOAUTH2 end to end, against GreenMail, which takes the password as the
+/// token. Run as `reads_a_real_server` is.
+#[tokio::test]
+#[ignore]
+async fn signs_in_with_xoauth2() {
+    use super::imap::Imap;
+    use super::MailStore;
+    let Ok(addr) = std::env::var("ORCHESTRATE_TEST_IMAP") else {
+        return;
+    };
+    let (server, port) = addr.split_once(':').unwrap();
+    let _env = StateEnv::new();
+    let mut saved = Saved::oauth(
+        account::OAuthProvider::Microsoft,
+        "dev@example.test".into(),
+        &microsoft(None),
+        "refresh".into(),
+    );
+    saved.server = server.into();
+    saved.port = port.parse().unwrap();
+    saved.security = Security::Plain;
+    oauth::hold(&saved, "devpass");
+    let folders = Imap::new(saved).folders().await.unwrap();
+    assert!(folders.iter().any(|f| f.role == Some(Role::Inbox)));
+}
