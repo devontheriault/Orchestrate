@@ -10,6 +10,7 @@
   import { onDestroy, onMount } from "svelte";
   import { hosts } from "$lib/state/hosts.svelte";
   import { viewport } from "$lib/layout/viewport.svelte";
+  import { space } from "$lib/spaces/space.svelte";
   import NoteEditor from "./NoteEditor.svelte";
   import NoteSidebar from "./NoteSidebar.svelte";
   import { notes } from "./notes.svelte";
@@ -40,6 +41,9 @@
 
   $effect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // The rail keeps Notes mounted behind the other Spaces; its keys are
+      // only its own while it's showing.
+      if (space.current !== "notes") return;
       if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
       const key = e.key.toLowerCase();
       if (key === "n" && !e.shiftKey) {
