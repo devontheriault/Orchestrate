@@ -41,6 +41,11 @@ reqwest = { version = "0.13", features = ["json", "rustls"] }
 tokio = { version = "1", features = ["process", "io-util", "sync", "time", "macros", "rt-multi-thread", "net", "signal"] }
 # Attachments cross to the Host inside JSON, which has no bytes of its own.
 base64 = "0.22"
+# `orchestrate --mcp`, the server Agents and other MCP clients reach every
+# Space through (ADR 0017). schemars writes each tool's input schema from the
+# struct its arguments arrive in; it is the version rmcp itself uses.
+rmcp = { version = "3.5", default-features = false, features = ["server", "transport-io"] }
+schemars = "1"
 
 # The Mail Space (ADR 0017): IMAP with IDLE, over rustls as reqwest already is,
 # with the same platform verifier. mail-parser reads what the server sends,
@@ -63,6 +68,11 @@ url = "2"
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 arboard = { version = "3", features = ["wayland-data-control"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
+# Notes (ADR 0017): watching the notes folder, so an edit made in another
+# editor or by an Agent shows up in every window, and deleting a note to the
+# system trash rather than for good. A phone has no Host to keep notes on.
+notify = "8"
+trash = "5"
 
 # Takes iOS's form bar off the keyboard (see `hide_form_bar`). Already in the
 # build through Tauri's own iOS code; this names it so the app can use it too.
@@ -79,6 +89,8 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Securit
 
 [dev-dependencies]
 tempfile = "3"
+# The other end of `--mcp`, to test it the way an MCP client uses it.
+rmcp = { version = "3.5", default-features = false, features = ["client", "transport-child-process"] }
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]

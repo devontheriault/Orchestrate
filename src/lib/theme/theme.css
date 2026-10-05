@@ -256,6 +256,9 @@
      controls, which want a constant hit target however small the window. */
   --titlebar-h: 2.8rem;
   --rail: 3.4rem;
+  /* The rail of Spaces down the window's left edge (ADR 0017). Not `--rail`,
+     which is the project list squeezed to its initials. */
+  --spaces-rail: 3.25rem;
   /* Breathing room scales too, so a narrow window spends it on content. */
   --pad-x: clamp(0.6rem, 1.1vw, 1.1rem);
   --pad-y: clamp(0.5rem, 0.8vh, 0.8rem);

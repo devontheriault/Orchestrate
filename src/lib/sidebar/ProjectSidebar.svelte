@@ -362,9 +362,13 @@
     </ul>
   {/if}
 
-  <footer>
-    <SettingsMenu {collapsed} />
-  </footer>
+  <!-- On a desktop, Settings is at the foot of the Spaces rail instead, in
+       reach from every Space. A phone's tab bar has no room for it. -->
+  {#if phone}
+    <footer>
+      <SettingsMenu />
+    </footer>
+  {/if}
 </aside>
 
 {#if trusting}

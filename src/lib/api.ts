@@ -1,7 +1,7 @@
 /**
  * The IPC boundary: every call the backend answers, the events it pushes, and
  * the shapes that cross over. Types here mirror the Rust structs they
- * deserialize from (`src-tauri/src/domain.rs`, `git/`, `usage/`), so a field
+ * deserialize from (`src-tauri/src/domain.rs`, `git/`, `usage/`, `notes/`), so a field
  * added there is added here.
  *
  * Nearly every call is for a Host, the process that owns a machine's Agents,
@@ -387,6 +387,70 @@ export type UsageSummary = {
   limits: Limits | null;
 };
 
+/** A note as the list shows it. Mirrors `notes::NoteSummary`. */
+export type NoteSummary = {
+  /** Relative to the notes folder, `/`-separated. What every notes call names it by. */
+  path: string;
+  /** Its first heading, or the file name without one. */
+  title: string;
+  /** The first prose after the title, as plain words. */
+  snippet: string;
+  /** Milliseconds since the epoch. */
+  modified: number;
+};
+
+/** The notes folder's contents: notes newest first, and every subfolder. */
+export type NoteList = {
+  /** Where the folder is on its Host. */
+  folder: string;
+  notes: NoteSummary[];
+  folders: string[];
+};
+
+/** One note's whole text, and the version a write of it must name. */
+export type Note = {
+  path: string;
+  content: string;
+  version: string;
+  modified: number;
+};
+
+/**
+ * How a write came out. A conflict isn't an error: nothing was written, since
+ * the note changed on disk after `version`. `current` is how it is now, or
+ * null if it's gone.
+ */
+export type NoteSaved =
+  | { outcome: "saved"; version: string; modified: number }
+  | { outcome: "conflict"; current: Note | null };
+
+/** How a delete came out: with no trash to take it, nothing was deleted. */
+export type NoteDeleted =
+  | { outcome: "trashed" }
+  | { outcome: "removed" }
+  | { outcome: "no_trash"; reason: string };
+
+export type NoteHit = {
+  path: string;
+  title: string;
+  /** The best matching line, trimmed around the match; empty if only the title matched. */
+  excerpt: string;
+  /** That line's number from 1, or 0. */
+  line: number;
+  modified: number;
+};
+
+export type NotesFolder = {
+  folder: string;
+  /** `~/Notes` on that Host, where they're kept unless the user picks. */
+  default: string;
+};
+
+export type NotesChanged = {
+  /** Paths relative to the folder that changed; empty means anything may have. */
+  paths: string[];
+};
+
 export type AgentEvent = {
   ts: string;
   event: unknown;
@@ -743,6 +807,27 @@ export const api = {
 
   usageSummary: (hostId: string) => host<UsageSummary>(hostId, "usage_summary"),
 
+  /** The notes on `hostId` (ADR 0017): the files in its notes folder. */
+  notesList: (hostId: string) => host<NoteList>(hostId, "notes_list"),
+  notesRead: (hostId: string, path: string) => host<Note>(hostId, "notes_read", { path }),
+  /** Save a note read at `version`; null for a note that has no file yet. */
+  notesWrite: (hostId: string, path: string, content: string, version: string | null) =>
+    host<NoteSaved>(hostId, "notes_write", { path, content, version }),
+  notesCreate: (hostId: string, dir: string | null, name: string | null, content = "") =>
+    host<Note>(hostId, "notes_create", { dir, name, content }),
+  /** Rename or move a note or folder, never onto another; answers with where it went. */
+  notesRename: (hostId: string, from: string, to: string) =>
+    host<string>(hostId, "notes_rename", { from, to }),
+  /** To the trash, or for good with `permanent` once the user has confirmed. */
+  notesDelete: (hostId: string, path: string, permanent = false) =>
+    host<NoteDeleted>(hostId, "notes_delete", { path, permanent }),
+  notesSearch: (hostId: string, query: string) =>
+    host<NoteHit[]>(hostId, "notes_search", { query }),
+  notesFolder: (hostId: string) => host<NotesFolder>(hostId, "notes_folder"),
+  /** Keep notes in `folder` from now on, or with null in `~/Notes`. */
+  setNotesFolder: (hostId: string, folder: string | null) =>
+    host<NotesFolder>(hostId, "set_notes_folder", { folder }),
+
   startupOrphans: async (hostId: string) =>
     stamp(hostId, await host<Omit<Agent, "host">[]>(hostId, "startup_orphans")),
   dismissOrphans: (hostId: string) => host<void>(hostId, "dismiss_orphans"),
@@ -788,6 +873,10 @@ export const events = {
   /** An agent's record moved; it carries its Host in `host`. */
   onAgentStateChanged: (fn: (agent: Agent) => void): Promise<UnlistenFn> =>
     listen<Agent>("agent-state-changed", (msg) => fn(msg.payload)),
+
+  /** Notes changed on a Host's disk: in this app, another editor, or by an Agent. */
+  onNotesChanged: (fn: (change: HostEvent<NotesChanged>) => void): Promise<UnlistenFn> =>
+    listen<HostEvent<NotesChanged>>("notes-changed", (msg) => fn(msg.payload)),
 
   onHostStatus: (fn: (status: HostEvent<HostStatus>) => void): Promise<UnlistenFn> =>
     listen<HostEvent<HostStatus>>("host-status", (msg) => fn(msg.payload)),

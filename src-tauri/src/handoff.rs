@@ -49,7 +49,7 @@ pub async fn hand_off(project: &Project, agent: &Agent, machine: &str) -> Result
     }
     let branch = git::handoff_branch(&new_id());
     git::publish(&project.path, &agent.branch, &branch).await?;
-    let answer = last_answer(&agent.id);
+    let answer = storage::last_answer(&agent.id).unwrap_or_default();
     Ok(Handoff {
         brief: brief(agent, &answer, machine),
         branch,
@@ -62,22 +62,6 @@ pub async fn hand_off(project: &Project, agent: &Agent, machine: &str) -> Result
 /// the user said to do next.
 pub fn task(handoff: &Handoff, prompt: &str) -> String {
     format!("{}\n\n{}", handoff.brief, prompt.trim())
-}
-
-/// The final answer of the Agent's last Turn that gave one, from its log.
-fn last_answer(agent_id: &str) -> String {
-    storage::read_events(agent_id)
-        .unwrap_or_default()
-        .iter()
-        .rev()
-        .find_map(|e| {
-            (e.event.get("type")?.as_str()? == "result")
-                .then(|| e.event.get("result")?.as_str())
-                .flatten()
-                .filter(|r| !r.trim().is_empty())
-                .map(str::to_owned)
-        })
-        .unwrap_or_default()
 }
 
 fn quote(text: &str) -> String {

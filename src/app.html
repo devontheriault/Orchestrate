@@ -30,7 +30,11 @@
          And the project pane's width, when the user has dragged it: the
          rendered page has the default, and would visibly snap to the chosen
          width once the app took over. The keys and the variables are the ones
-         `src/lib/layout/panes.svelte.ts` reads and writes. -->
+         `src/lib/layout/panes.svelte.ts` reads and writes.
+
+         And the Space the window was last left on (ADR 0017), which decides
+         what fills the window beside the rail. The rendered page is Agents;
+         `src/lib/spaces/spaces.ts` shows whichever Space this names instead. -->
     <script>
       (() => {
         const pref = localStorage.getItem("orchestrate:theme");
@@ -60,6 +64,7 @@
             document.documentElement.style.setProperty("--rail", px);
           }
         } catch {}
+        document.documentElement.dataset.space = localStorage.getItem("orchestrate:space") || "agents";
       })();
     </script>
     %sveltekit.head%

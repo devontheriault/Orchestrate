@@ -3,6 +3,7 @@
 //! task (see `turn`); this module keeps the map of which Agents have one.
 
 mod events;
+pub mod mcp;
 mod turn;
 
 #[cfg(test)]
@@ -60,6 +61,10 @@ pub struct AgentRuntime {
     emitter: Emitter,
     /// The `claude` binary to invoke. Overridable in tests.
     claude_bin: Arc<String>,
+    /// What each Turn passes `claude` so its Agent can reach the Spaces (see
+    /// [`crate::mcp::turn_args`]). Empty in tests: a fake `claude` has no use
+    /// for it.
+    mcp_args: Arc<Vec<String>>,
     /// Whether a finished Turn spends a second `claude` call naming the Agent.
     /// Off in most tests, so the fake `claude` sees one invocation per Turn.
     naming: bool,
@@ -77,6 +82,7 @@ impl AgentRuntime {
             inner: Arc::new(RwLock::new(HashMap::new())),
             emitter: Emitter::new(tx),
             claude_bin: Arc::new("claude".to_string()),
+            mcp_args: Arc::new(crate::mcp::turn_args()),
             naming: true,
             closed: Arc::default(),
         };
@@ -90,6 +96,7 @@ impl AgentRuntime {
         let (rt, rx) = Self::new();
         let rt = Self {
             claude_bin: Arc::new(bin.into()),
+            mcp_args: Arc::default(),
             naming: false,
             ..rt
         };
@@ -449,7 +456,15 @@ impl AgentRuntime {
             return Err(Error::HostClosing);
         }
 
-        let child = turn::command(&self.claude_bin, &agent, prompt, attached, how).spawn();
+        let child = turn::command(
+            &self.claude_bin,
+            &self.mcp_args,
+            &agent,
+            prompt,
+            attached,
+            how,
+        )
+        .spawn();
 
         let child = match child {
             Ok(child) => child,
