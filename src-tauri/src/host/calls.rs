@@ -137,6 +137,11 @@ pub enum Call {
     AgentEvents {
         agent_id: String,
     },
+    /// The final answer of the Agent's last Turn that gave one, or `null`.
+    /// For `agent_last_answer` over MCP, which wants that without the log.
+    AgentLastAnswer {
+        agent_id: String,
+    },
     /// Everything the Agent has produced in its Worktree, relative to its Base.
     /// Safe in any state, including while the Agent runs.
     AgentDiff {
@@ -494,6 +499,8 @@ async fn handle(host: &Host, call: Call) -> Result<Value, String> {
         Call::DiscardAgent { agent_id } => ok(discard(&agent_id).await?),
 
         Call::AgentEvents { agent_id } => ok(storage::read_events(&agent_id).map_err(err)?),
+
+        Call::AgentLastAnswer { agent_id } => ok(storage::last_answer(&agent_id)),
 
         Call::AgentDiff { agent_id } => {
             let agent = storage::load_agent(&agent_id).map_err(err)?;

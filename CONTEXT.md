@@ -8,6 +8,11 @@ A desktop app for all of the user's work. At its centre it spawns, monitors and 
 One of the app's top-level areas, which the user switches between with the rail of icons on the far left: Agents, Notes, Calendar and Mail. Each Space has the whole window to the right of the rail. Its data lives on a Host in an open format other software can read: Markdown files for Notes, and the user's own calendar and mail servers for Calendar and Mail (ADR 0017). Agents reach every Space through the app's MCP server.
 _Avoid_: App (the whole thing is the app), Module (that's the code), Tab (the Diff tab is one), Section, View, Page.
 
+**Rail**:
+The column of Space icons down the window's left edge, with Settings at its foot. It switches Spaces and remembers the last one, and on a phone it is a tab bar along the bottom instead. Leaving a Space keeps it as it was, so coming back to Agents finds the same Agent, scrolled to the same place, with the same draft.
+The project list squeezed to its initials in a narrow window is not the Rail, though the code calls that a rail too (`panes.railed`, `--rail`).
+_Avoid_: Sidebar (that's the project list), Dock, Activity bar, Tab bar (only what it becomes on a phone).
+
 **Note**:
 One Markdown file in the Notes folder: by default `~/Notes`, or another the user picks, kept on one Host. The folder is the whole store, with no database or index of our own, so a Note can sit in any subfolder and be edited by any other app or by an Agent. Its title is its first heading, or else its file name. Every save names the version it was read at, so a Note that changed on disk meanwhile is never overwritten: the user is shown a **conflict** and picks which version to keep.
 _Avoid_: Document, Page (a Space isn't one either), Memo, Entry.
@@ -61,6 +66,10 @@ _Avoid_: Command on its own (too close to a Tauri command), Macro, Action.
 **Options**:
 The Claude Code settings an Agent runs every Turn with: its advisor (the model Claude consults at key moments) and its output style. They are set for the Agent, not picked per prompt. You set them with `/advisor` and `/output-style`. They are handed to each Turn as `claude --settings`, layered over the user's own settings. Each one is optional, and an unset one is left to Claude Code's own configuration. A new Agent spawns with the Options last set on any Agent, because they are meant to stick. They can be changed while a Turn runs, like the Title and the Tag, and take effect from the next Turn.
 _Avoid_: Settings (that's Claude Code's own file), Preferences, Config.
+
+**MCP server**:
+The app's binary run as `orchestrate --mcp`, which gives the Spaces to Agents as tools (ADR 0017). Each Turn gets it through `claude --mcp-config`, the way it gets Options through `--settings`. It sits beside the user's and the Project's own MCP servers rather than replacing them. Any other MCP client, such as Claude Desktop or a plain `claude`, can add the same command. It talks to the Host for its state directory and forwards each tool call to it as an ordinary Host call, keeping nothing of its own. Each Space brings its own tools. A tool that only reads may run in any Turn, plan mode included. One that writes something local the user can see and undo, such as a note, runs only where the Agent may write anyway. Nothing that leaves the machine is ever a tool: an Agent may draft an email or a Calendar event, but only the user sends it. For now the Agents tools only read: list the Agents, one Agent's status, and its last answer. Spawning, sending and Merging over MCP are left for a later decision.
+_Avoid_: Plugin (that's Claude Code's), Integration, API, Bridge.
 
 **Host**:
 A machine Agents run on: it owns their `claude` processes, Worktrees, Sessions and logs, and keeps them working whether or not any window is open. Every Agent belongs to exactly one Host for its whole life, because its Session and Worktree cannot leave that machine; its work can, by Hand off. A window can show and control Agents on any Host it can reach; the machine the window runs on is usually a Host too. A phone never is, since it can't run `claude`, so the app there shows other machines' Hosts only (ADR 0016). The Host's own disk is the only record of its Agents. When a Host is off or unreachable, or runs a different version from the window, its Agents stay listed as they were last seen, dimmed and with every control disabled, because hiding them would read as if they had been Discarded.
