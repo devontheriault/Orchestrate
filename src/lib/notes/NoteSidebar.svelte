@@ -264,21 +264,17 @@
 </aside>
 
 <style>
+  /* Fills the box NotesSpace sizes, whose divider is the seam to the right. */
   aside {
-    width: var(--pane-projects);
-    flex: 0 0 var(--pane-projects);
-    min-width: 13rem;
+    flex: 1;
+    min-width: 0;
     background: var(--panel-bg);
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    border-right: var(--border-width) solid var(--border);
   }
 
   aside.phone {
-    width: auto;
-    flex: 1 1 auto;
-    border-right: none;
     padding-bottom: var(--safe-bottom);
   }
 

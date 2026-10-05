@@ -5,6 +5,8 @@
   import FolderList from "./FolderList.svelte";
   import { mailKey, typing } from "./list";
   import { hosts } from "$lib/state/hosts.svelte";
+  import { panes, MIN_DETAIL, MIN_SIDE } from "$lib/layout/panes.svelte";
+  import PaneDivider from "$lib/layout/PaneDivider.svelte";
   import { space } from "$lib/spaces/space.svelte";
   import { mail } from "./mail.svelte";
   import MailSetup from "./MailSetup.svelte";
@@ -25,6 +27,14 @@
   let reading = $state(false);
 
   const columns = $derived(width >= 980 ? 3 : width >= 640 ? 2 : 1);
+
+  /** The folders' size, unrounded, so the title bar's lead segment meets their edge exactly. */
+  let foldersBox = $state<readonly ResizeObserverSize[]>();
+
+  // The title bar tops the folders, while they have a column of their own.
+  $effect(() => {
+    panes.lead.mail = columns === 3 ? (foldersBox?.[0]?.inlineSize ?? 0) : 0;
+  });
 
   onMount(() => {
     void mail.start();
@@ -106,10 +116,28 @@
 
     <div class="columns" data-columns={columns}>
       {#if columns === 3}
-        <div class="col folders-col"><FolderList /></div>
+        <div
+          class="col folders-col"
+          style:flex-basis={panes.basis("folders")}
+          style:min-width="{MIN_SIDE.folders}px"
+          bind:borderBoxSize={foldersBox}
+        >
+          <FolderList />
+        </div>
+        <PaneDivider
+          label="Resize folders"
+          min={MIN_SIDE.folders}
+          minLast={MIN_DETAIL}
+          onresize={(w) => panes.setSide("folders", w)}
+          onreset={() => panes.setSide("folders", null)}
+        />
       {/if}
       {#if columns > 1 || !reading}
-        <div class="col list-col">
+        <div
+          class="col list-col"
+          style:flex-basis={columns > 1 ? panes.basis("threads") : undefined}
+          style:min-width={columns > 1 ? `${MIN_SIDE.threads}px` : undefined}
+        >
           <ThreadList
             compact={columns < 3}
             bind:search
@@ -118,8 +146,18 @@
           />
         </div>
       {/if}
+      {#if columns > 1}
+        <PaneDivider
+          label="Resize conversations"
+          ruled
+          min={MIN_SIDE.threads}
+          minLast={MIN_DETAIL}
+          onresize={(w) => panes.setSide("threads", w)}
+          onreset={() => panes.setSide("threads", null)}
+        />
+      {/if}
       {#if columns > 1 || reading}
-        <div class="col reader-col">
+        <div class="col reader-col" style:min-width={columns > 1 ? `${MIN_DETAIL}px` : undefined}>
           <Reader bind:sending onback={columns === 1 ? () => (reading = false) : undefined} />
         </div>
       {/if}
@@ -151,22 +189,12 @@
     background: var(--surface);
   }
 
+  /* Each column but the reader sized by its divider, which is the seam to its
+     right; past that they give up width before the reader does. */
   .columns {
     flex: 1;
     min-height: 0;
-    display: grid;
-  }
-
-  .columns[data-columns="3"] {
-    grid-template-columns: minmax(11rem, 15rem) minmax(18rem, 26rem) minmax(0, 1fr);
-  }
-
-  .columns[data-columns="2"] {
-    grid-template-columns: minmax(16rem, 40%) minmax(0, 1fr);
-  }
-
-  .columns[data-columns="1"] {
-    grid-template-columns: minmax(0, 1fr);
+    display: flex;
   }
 
   .col {
@@ -174,12 +202,21 @@
     min-height: 0;
   }
 
-  .list-col {
-    border-right: 1px solid var(--border);
+  .folders-col {
+    flex: 0 1 15rem;
   }
 
+  .list-col {
+    flex: 0 1 26rem;
+  }
+
+  .columns[data-columns="2"] .list-col {
+    flex-basis: max(16rem, 40%);
+  }
+
+  .reader-col,
   .columns[data-columns="1"] .list-col {
-    border-right: none;
+    flex: 1 1 0;
   }
 
   .unreachable {

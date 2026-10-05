@@ -10,6 +10,8 @@
    */
   import { onDestroy, onMount } from "svelte";
   import { space } from "$lib/spaces/space.svelte";
+  import { panes, MIN_SIDE } from "$lib/layout/panes.svelte";
+  import PaneDivider from "$lib/layout/PaneDivider.svelte";
   import { calendar } from "./calendar.svelte";
   import { keyAction, viewDays, viewTitle, VIEWS, calendarKey, ago } from "./layout";
   import TimeGrid from "./TimeGrid.svelte";
@@ -25,8 +27,17 @@
   onDestroy(() => calendar.stop());
 
   let width = $state(1200);
+  /** The narrowest a week stays readable at, which the side panel leaves it. */
+  const MIN_VIEW = 512;
   /** Too narrow for the side panel beside a readable week. */
   const narrow = $derived(width < 760);
+  /** The sidebar's size, unrounded, so the title bar's lead segment meets its edge exactly. */
+  let sideBox = $state<readonly ResizeObserverSize[]>();
+
+  // The title bar tops the side panel, while there is one.
+  $effect(() => {
+    panes.lead.calendar = narrow ? 0 : (sideBox?.[0]?.inlineSize ?? 0);
+  });
 
   const days = $derived(
     calendar.started ? viewDays(calendar.view, calendar.cursor, calendar.weekStart) : [],
@@ -98,153 +109,168 @@
 </script>
 
 <div class="space" bind:clientWidth={width}>
-  {#if !narrow}
-    <aside class="side">
-      {#if calendar.started}
-        <MiniMonth />
-      {/if}
+  <div class="panes">
+    {#if !narrow}
+      <aside
+        class="side"
+        style:flex-basis={panes.basis("calendar")}
+        style:min-width="{MIN_SIDE.calendar}px"
+        style:max-width="calc(100% - {MIN_VIEW}px)"
+        bind:borderBoxSize={sideBox}
+      >
+        {#if calendar.started}
+          <MiniMonth />
+        {/if}
 
-      <div class="calendars">
-        {#each accounts as a (a.id)}
-          <section>
-            <h3 title={a.name}>{a.name}</h3>
-            <ul>
-              {#each a.calendars as c (c.id)}
-                {@const on = calendar.isShown(a.id, c.id)}
-                <li>
-                  <label class="cal" style:--cal={c.color}>
-                    <input
-                      type="checkbox"
-                      checked={on}
-                      onchange={() => calendar.toggle(a.id, c.id)}
-                      aria-label={`Show ${c.name}`}
-                    />
-                    <span class="check" aria-hidden="true">
-                      <svg viewBox="0 0 12 12" width="9" height="9"><path d="M2.5 6.2l2.2 2.2 4.8-4.8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" /></svg>
-                    </span>
-                    <span class="cal-name" data-key={calendarKey(a.id, c.id)}>{c.name}</span>
-                  </label>
-                </li>
-              {/each}
-            </ul>
-          </section>
-        {/each}
-      </div>
-
-      <footer>
-        <button class="btn btn-ghost btn-sm accounts-btn" onclick={() => (calendar.accounts = "list")}>
-          <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" /></svg>
-          {accounts.length ? "Accounts" : "Add an account"}
-        </button>
-        {#if accounts.length}
-          <span class="sync-note" title={trouble ? (trouble.status as { message: string }).message : ""}>
-            {#if syncingNow}
-              Syncing…
-            {:else if trouble}
-              <span class="bad">{trouble.status.state === "reconnect" ? "Sign in again" : "Sync failed"}</span>
-            {:else if lastSync}
-              Synced {ago(lastSync, calendar.now)}
-            {/if}
-          </span>
-        {/if}
-      </footer>
-    </aside>
-  {/if}
-
-  <section class="main">
-    <header class="toolbar">
-      <div class="nav">
-        <button class="btn" onclick={() => calendar.today()} title="Today (T)">Today</button>
-        <div class="arrows">
-          <button class="btn btn-ghost btn-icon" aria-label="Previous" title="Previous (←)" onclick={() => calendar.step(-1)}>
-            <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M10 3 5 8l5 5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" /></svg>
-          </button>
-          <button class="btn btn-ghost btn-icon" aria-label="Next" title="Next (→)" onclick={() => calendar.step(1)}>
-            <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="m6 3 5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" /></svg>
-          </button>
-        </div>
-        <h1>{title}</h1>
-      </div>
-      <div class="tools">
-        {#if narrow}
-          <button class="btn btn-ghost btn-icon" aria-label="Calendar accounts" onclick={() => (calendar.accounts = "list")}>
-            <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><circle cx="8" cy="5.5" r="2.6" fill="none" stroke="currentColor" stroke-width="1.5" /><path d="M2.8 13.5c.7-2.4 2.7-3.8 5.2-3.8s4.5 1.4 5.2 3.8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" /></svg>
-          </button>
-        {/if}
-        {#if calendar.writable.length}
-          <button
-            class="btn btn-primary new"
-            title="New Calendar event (C)"
-            onclick={(e) => newEvent(e.currentTarget.getBoundingClientRect())}
-          >
-            <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" /></svg>
-            {narrow ? "" : "New"}
-          </button>
-        {/if}
-        {#if accounts.length}
-          <button
-            class="btn btn-ghost btn-icon"
-            class:spinning={syncingNow}
-            aria-label="Sync now"
-            title="Sync now"
-            disabled={syncingNow}
-            onclick={() => calendar.sync()}
-          >
-            <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5v3h-3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
-          </button>
-        {/if}
-        <div class="segmented" role="tablist" aria-label="View">
-          {#each VIEWS as v}
-            <button
-              role="tab"
-              aria-selected={calendar.view === v}
-              class:on={calendar.view === v}
-              title={`${viewNames[v]} (${v[0].toUpperCase()})`}
-              onclick={() => calendar.setView(v)}
-            >
-              {viewNames[v]}
-            </button>
+        <div class="calendars">
+          {#each accounts as a (a.id)}
+            <section>
+              <h3 title={a.name}>{a.name}</h3>
+              <ul>
+                {#each a.calendars as c (c.id)}
+                  {@const on = calendar.isShown(a.id, c.id)}
+                  <li>
+                    <label class="cal" style:--cal={c.color}>
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        onchange={() => calendar.toggle(a.id, c.id)}
+                        aria-label={`Show ${c.name}`}
+                      />
+                      <span class="check" aria-hidden="true">
+                        <svg viewBox="0 0 12 12" width="9" height="9"><path d="M2.5 6.2l2.2 2.2 4.8-4.8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                      </span>
+                      <span class="cal-name" data-key={calendarKey(a.id, c.id)}>{c.name}</span>
+                    </label>
+                  </li>
+                {/each}
+              </ul>
+            </section>
           {/each}
         </div>
-      </div>
-    </header>
 
-    {#if calendar.error}
-      <div class="banner" role="alert">
-        {calendar.error}
-        <button class="btn btn-ghost btn-sm" onclick={() => (calendar.error = null)}>Dismiss</button>
-      </div>
+        <footer>
+          <button class="btn btn-ghost btn-sm accounts-btn" onclick={() => (calendar.accounts = "list")}>
+            <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" /></svg>
+            {accounts.length ? "Accounts" : "Add an account"}
+          </button>
+          {#if accounts.length}
+            <span class="sync-note" title={trouble ? (trouble.status as { message: string }).message : ""}>
+              {#if syncingNow}
+                Syncing…
+              {:else if trouble}
+                <span class="bad">{trouble.status.state === "reconnect" ? "Sign in again" : "Sync failed"}</span>
+              {:else if lastSync}
+                Synced {ago(lastSync, calendar.now)}
+              {/if}
+            </span>
+          {/if}
+        </footer>
+      </aside>
+      <PaneDivider
+        label="Resize calendar sidebar"
+        min={MIN_SIDE.calendar}
+        minLast={MIN_VIEW}
+        onresize={(w) => panes.setSide("calendar", w)}
+        onreset={() => panes.setSide("calendar", null)}
+      />
     {/if}
 
-    {#if loaded && !accounts.length}
-      <div class="empty">
-        <div class="empty-card">
-          <svg viewBox="0 0 48 48" width="44" height="44" aria-hidden="true">
-            <rect x="6" y="9" width="36" height="33" rx="7" fill="none" stroke="currentColor" stroke-width="2.2" />
-            <path d="M6 19h36M16 5v8M32 5v8" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" />
-            <circle cx="17" cy="28" r="2" fill="currentColor" /><circle cx="24" cy="28" r="2" fill="currentColor" /><circle cx="31" cy="28" r="2" fill="currentColor" />
-            <circle cx="17" cy="35" r="2" fill="currentColor" /><circle cx="24" cy="35" r="2" fill="currentColor" />
-          </svg>
-          <h2>Bring in your calendar</h2>
-          <p>
-            Your calendars stay with Google, Microsoft or your CalDAV server. You read and write them
-            here, and your agents can read them and suggest Calendar events for you to send.
-          </p>
-          <div class="empty-actions">
-            <button class="btn btn-primary btn-lg" onclick={() => (calendar.accounts = "google")}>Connect Google Calendar</button>
-            <button class="btn btn-lg" onclick={() => (calendar.accounts = "microsoft")}>Connect Outlook</button>
-            <button class="btn btn-lg" onclick={() => (calendar.accounts = "caldav")}>Add a CalDAV account</button>
+    <section class="main">
+      <header class="toolbar">
+        <div class="nav">
+          <button class="btn" onclick={() => calendar.today()} title="Today (T)">Today</button>
+          <div class="arrows">
+            <button class="btn btn-ghost btn-icon" aria-label="Previous" title="Previous (←)" onclick={() => calendar.step(-1)}>
+              <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M10 3 5 8l5 5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" /></svg>
+            </button>
+            <button class="btn btn-ghost btn-icon" aria-label="Next" title="Next (→)" onclick={() => calendar.step(1)}>
+              <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="m6 3 5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" /></svg>
+            </button>
+          </div>
+          <h1>{title}</h1>
+        </div>
+        <div class="tools">
+          {#if narrow}
+            <button class="btn btn-ghost btn-icon" aria-label="Calendar accounts" onclick={() => (calendar.accounts = "list")}>
+              <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><circle cx="8" cy="5.5" r="2.6" fill="none" stroke="currentColor" stroke-width="1.5" /><path d="M2.8 13.5c.7-2.4 2.7-3.8 5.2-3.8s4.5 1.4 5.2 3.8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" /></svg>
+            </button>
+          {/if}
+          {#if calendar.writable.length}
+            <button
+              class="btn btn-primary new"
+              title="New Calendar event (C)"
+              onclick={(e) => newEvent(e.currentTarget.getBoundingClientRect())}
+            >
+              <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" /></svg>
+              {narrow ? "" : "New"}
+            </button>
+          {/if}
+          {#if accounts.length}
+            <button
+              class="btn btn-ghost btn-icon"
+              class:spinning={syncingNow}
+              aria-label="Sync now"
+              title="Sync now"
+              disabled={syncingNow}
+              onclick={() => calendar.sync()}
+            >
+              <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5v3h-3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
+            </button>
+          {/if}
+          <div class="segmented" role="tablist" aria-label="View">
+            {#each VIEWS as v}
+              <button
+                role="tab"
+                aria-selected={calendar.view === v}
+                class:on={calendar.view === v}
+                title={`${viewNames[v]} (${v[0].toUpperCase()})`}
+                onclick={() => calendar.setView(v)}
+              >
+                {viewNames[v]}
+              </button>
+            {/each}
           </div>
         </div>
-      </div>
-    {:else if calendar.started}
-      {#if calendar.view === "month"}
-        <MonthGrid />
-      {:else}
-        <TimeGrid {days} />
+      </header>
+
+      {#if calendar.error}
+        <div class="banner" role="alert">
+          {calendar.error}
+          <button class="btn btn-ghost btn-sm" onclick={() => (calendar.error = null)}>Dismiss</button>
+        </div>
       {/if}
-    {/if}
-  </section>
+
+      {#if loaded && !accounts.length}
+        <div class="empty">
+          <div class="empty-card">
+            <svg viewBox="0 0 48 48" width="44" height="44" aria-hidden="true">
+              <rect x="6" y="9" width="36" height="33" rx="7" fill="none" stroke="currentColor" stroke-width="2.2" />
+              <path d="M6 19h36M16 5v8M32 5v8" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" />
+              <circle cx="17" cy="28" r="2" fill="currentColor" /><circle cx="24" cy="28" r="2" fill="currentColor" /><circle cx="31" cy="28" r="2" fill="currentColor" />
+              <circle cx="17" cy="35" r="2" fill="currentColor" /><circle cx="24" cy="35" r="2" fill="currentColor" />
+            </svg>
+            <h2>Bring in your calendar</h2>
+            <p>
+              Your calendars stay with Google, Microsoft or your CalDAV server. You read and write them
+              here, and your agents can read them and suggest Calendar events for you to send.
+            </p>
+            <div class="empty-actions">
+              <button class="btn btn-primary btn-lg" onclick={() => (calendar.accounts = "google")}>Connect Google Calendar</button>
+              <button class="btn btn-lg" onclick={() => (calendar.accounts = "microsoft")}>Connect Outlook</button>
+              <button class="btn btn-lg" onclick={() => (calendar.accounts = "caldav")}>Add a CalDAV account</button>
+            </div>
+          </div>
+        </div>
+      {:else if calendar.started}
+        {#if calendar.view === "month"}
+          <MonthGrid />
+        {:else}
+          <TimeGrid {days} />
+        {/if}
+      {/if}
+    </section>
+  </div>
 
   {#if calendar.selected && !calendar.editing}
     {#key calendar.selected.event.id}
@@ -274,14 +300,21 @@
     background: var(--surface);
   }
 
+  .panes {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+  }
+
+  /* Its divider is the seam to the right. */
   .side {
-    flex: 0 0 15.5rem;
+    flex: 0 1 15.5rem;
     display: flex;
     flex-direction: column;
     gap: var(--space-6);
     padding: var(--space-5) var(--space-5) var(--space-4);
     background: var(--panel-bg);
-    border-right: 1px solid var(--border);
     min-height: 0;
   }
 
