@@ -1765,3 +1765,68 @@ async fn caldav_writes_against_a_real_server() {
         .await
         .unwrap();
 }
+
+// ---------------------------------------------------------------- drafts
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_agent_drafts_a_calendar_event_and_only_the_user_sends_it() {
+    let _env = crate::test_util::StateEnv::new();
+    crate::paths::ensure_dirs().unwrap();
+    let (rt, rx) = crate::runtime::AgentRuntime::with_bin("true");
+    let host = crate::host::Host::new(rt, rx, vec![]);
+    let socket = crate::paths::host_socket().unwrap();
+    let listener = crate::host::local::Listener::bind(&socket).unwrap();
+    let serving = tokio::spawn(crate::host::serve(host, listener, std::future::ready(None)));
+
+    let mcp = crate::mcp::Host::local().await.unwrap();
+    let said = mcp::draft_event(
+        mcp.clone(),
+        mcp::DraftArgs {
+            title: "Pair on the rail".into(),
+            start: "2026-10-06T14:00:00-03:00".into(),
+            end: "2026-10-06T15:00:00-03:00".into(),
+            location: None,
+            description: None,
+            attendees: Some(vec!["ada@example.com".into()]),
+            repeat: None,
+            note: Some("You're both free then.".into()),
+        },
+    )
+    .await
+    .unwrap();
+    assert!(said.contains("nothing is saved"), "{said}");
+
+    // A window sees it, marked as a draft, and nothing went anywhere.
+    let shown: Vec<CalendarEvent> = mcp
+        .call_as(
+            "calendar_events",
+            json!({ "from": "2026-10-06T00:00:00-03:00", "to": "2026-10-07T00:00:00-03:00" }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(shown.len(), 1);
+    let d = &shown[0];
+    assert_eq!(d.title, "Pair on the rail");
+    assert!(d.draft_id.is_some() && !d.busy);
+    assert_eq!(d.attendees[0].email, "ada@example.com");
+    assert_eq!(d.description.as_deref(), Some("You're both free then."));
+    // An Agent reading the calendar sees its draft for what it is.
+    let listed = mcp::list_events(
+        mcp.clone(),
+        mcp::Range {
+            from: Some("2026-10-06".into()),
+            to: Some("2026-10-07".into()),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(listed.len(), 1);
+    assert!(listed[0].draft);
+
+    mcp.call("calendar_discard_draft", json!({ "id": d.draft_id }))
+        .await
+        .unwrap();
+    let drafts: Vec<drafts::Proposed> = mcp.call_as("calendar_drafts", json!({})).await.unwrap();
+    assert!(drafts.is_empty());
+    serving.abort();
+}

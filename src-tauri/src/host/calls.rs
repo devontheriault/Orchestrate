@@ -297,6 +297,19 @@ pub enum Call {
         target: crate::calendar::write::Target,
         scope: crate::calendar::write::Scope,
     },
+    /// Calendar events Agents drafted, waiting for the user.
+    CalendarDrafts {},
+    /// Keep a Calendar event an Agent drafted, for the user to send: it is
+    /// never sent from here (ADR 0017).
+    CalendarPropose {
+        draft: crate::calendar::write::Draft,
+        account_id: Option<String>,
+        calendar_id: Option<String>,
+        note: Option<String>,
+    },
+    CalendarDiscardDraft {
+        id: String,
+    },
     /// Answer an invitation.
     CalendarRespond {
         target: crate::calendar::write::Target,
@@ -723,7 +736,7 @@ async fn handle(host: &Host, call: Call) -> Result<Value, String> {
 
         Call::CalendarOverview {} => ok(host.calendar.overview()),
 
-        Call::CalendarEvents { from, to } => ok(host.calendar.events(&from, &to)?),
+        Call::CalendarEvents { from, to } => ok(host.calendar.events_and_drafts(&from, &to)?),
 
         Call::CalendarSearch {
             query,
@@ -789,6 +802,19 @@ async fn handle(host: &Host, call: Call) -> Result<Value, String> {
             .calendar
             .write(&target.account_id.clone(), Op::Delete { target, scope })
             .await?),
+
+        Call::CalendarDrafts {} => ok(host.calendar.drafts()),
+
+        Call::CalendarPropose {
+            draft,
+            account_id,
+            calendar_id,
+            note,
+        } => ok(host
+            .calendar
+            .propose(draft, account_id, calendar_id, note)?),
+
+        Call::CalendarDiscardDraft { id } => ok(host.calendar.discard_draft(&id)?),
 
         Call::CalendarRespond {
             target,

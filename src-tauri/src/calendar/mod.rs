@@ -20,6 +20,7 @@
 //!   it's lost.
 
 pub mod caldav;
+pub mod drafts;
 pub mod expand;
 pub mod google;
 pub mod ical;
@@ -532,6 +533,8 @@ pub struct Calendars {
     status: Mutex<HashMap<String, Status>>,
     /// Held for a whole sync, so two never run over one cache at once.
     syncing: tokio::sync::Mutex<()>,
+    /// Calendar events Agents drafted, waiting for the user.
+    drafts: Mutex<Vec<drafts::Proposed>>,
     /// A Google sign-in waiting for its browser, to abandon if another starts.
     signing_in: Mutex<Option<tokio::task::JoinHandle<()>>>,
     notify: Notify,
@@ -576,6 +579,7 @@ impl Calendars {
             .timeout(HTTP_TIMEOUT)
             .build()
             .unwrap_or_default();
+        let drafts = store::load_drafts(&dir);
         Arc::new(Self {
             dir,
             http,
@@ -584,6 +588,7 @@ impl Calendars {
             caches: Mutex::new(caches),
             status: Mutex::new(HashMap::new()),
             syncing: tokio::sync::Mutex::new(()),
+            drafts: Mutex::new(drafts),
             signing_in: Mutex::new(None),
             notify,
             home: home_zone(),
@@ -681,6 +686,15 @@ impl Calendars {
                 }
             }
         }
+        out.sort_by_key(sort_key);
+        Ok(out)
+    }
+
+    /// What a window shows for `from`..`to`: the Calendar events, and the
+    /// drafts Agents left there.
+    pub fn events_and_drafts(&self, from: &str, to: &str) -> Result<Vec<CalendarEvent>, String> {
+        let mut out = self.events(from, to)?;
+        out.extend(self.draft_events(parse_time(from)?, parse_time(to)?));
         out.sort_by_key(sort_key);
         Ok(out)
     }

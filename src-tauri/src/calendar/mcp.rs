@@ -1,6 +1,7 @@
 //! The Calendar Space's MCP tools (see `crate::mcp` for how tools work). They
-//! read the Host's cache of the user's calendars. Nothing here sends: an
-//! invitation or an answer to one is the user's, from the Space (ADR 0017).
+//! read the Host's cache of the user's calendars, and may draft a Calendar
+//! event. Nothing here sends: a Calendar event, an invitation or an answer to
+//! one is the user's to send, from the Space (ADR 0017).
 
 use chrono::{DateTime, Local, NaiveDate, TimeZone};
 use schemars::JsonSchema;
@@ -32,16 +33,91 @@ pub fn tools() -> Vec<Tool> {
              Use it to suggest a time.",
             free_busy,
         ),
+        Tool::writes(
+            "calendar_draft_event",
+            "Draft a Calendar event for the user to look over: it appears in their \
+             Calendar Space, marked as a draft, and nothing is saved to their calendar or \
+             sent to anyone until they send it themselves. Use it to suggest a meeting, \
+             a reminder or a block of time; check calendar_free_busy first.",
+            draft_event,
+        ),
     ]
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
-struct Range {
+pub(super) struct DraftArgs {
+    /// What it's called.
+    pub(super) title: String,
+    /// When it starts: RFC 3339 (2026-10-05T14:00:00-03:00), a local time
+    /// (2026-10-05T14:00) in the user's zone, or a date for an all-day one.
+    pub(super) start: String,
+    /// When it ends, the same way, exclusive. For an all-day one, the day after
+    /// the last.
+    pub(super) end: String,
+    pub(super) location: Option<String>,
+    /// Notes for the Calendar event itself.
+    pub(super) description: Option<String>,
+    /// Email addresses of people to invite. They're only invited if the user
+    /// sends it.
+    pub(super) attendees: Option<Vec<String>>,
+    /// How it repeats, as an iCalendar RRULE like FREQ=WEEKLY;BYDAY=MO.
+    pub(super) repeat: Option<String>,
+    /// A sentence to the user on why you suggest it.
+    pub(super) note: Option<String>,
+}
+
+/// A time the model gave as a wall-clock time in the user's zone.
+fn wall_clock(s: &str) -> Result<String, String> {
+    let s = s.trim();
+    if let Ok(t) = DateTime::parse_from_rfc3339(s) {
+        return Ok(t.with_timezone(&Local).format("%Y-%m-%dT%H:%M").to_string());
+    }
+    chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M")
+        .or_else(|_| chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S"))
+        .map(|t| t.format("%Y-%m-%dT%H:%M").to_string())
+        .map_err(|_| {
+            format!("not a time: {s}; give RFC 3339, a local time like 2026-10-05T14:00, or a date")
+        })
+}
+
+pub(super) async fn draft_event(host: Host, a: DraftArgs) -> Result<String, String> {
+    let all_day = NaiveDate::parse_from_str(a.start.trim(), "%Y-%m-%d").is_ok();
+    let (start, end) = if all_day {
+        (a.start.trim().to_string(), a.end.trim().to_string())
+    } else {
+        (wall_clock(&a.start)?, wall_clock(&a.end)?)
+    };
+    let draft = json!({
+        "title": a.title,
+        "start": start,
+        "end": end,
+        "all_day": all_day,
+        "time_zone": crate::calendar::home_zone().name(),
+        "location": a.location,
+        "description": a.description,
+        "attendees": a.attendees.unwrap_or_default().into_iter()
+            .map(|email| json!({ "email": email })).collect::<Vec<_>>(),
+        "repeat": a.repeat,
+    });
+    host.call(
+        "calendar_propose",
+        json!({ "draft": draft, "accountId": null, "calendarId": null, "note": a.note }),
+    )
+    .await?;
+    Ok(
+        "Drafted. It waits in the user's Calendar Space, marked as a draft; nothing is saved \
+        to their calendar or sent to anyone until they send it."
+            .into(),
+    )
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub(super) struct Range {
     /// Where the range starts: an RFC 3339 time like 2026-10-05T09:00:00-03:00, or a
     /// date like 2026-10-05 for that day's start in the user's zone. Defaults to now.
-    from: Option<String>,
+    pub(super) from: Option<String>,
     /// Where it ends, the same way, exclusive. Defaults to a week after `from`.
-    to: Option<String>,
+    pub(super) to: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -90,26 +166,29 @@ fn range(r: &Range) -> Result<(String, String), String> {
 
 /// A Calendar event as the model reads it.
 #[derive(Serialize)]
-struct Listed {
-    title: String,
+pub(super) struct Listed {
+    pub(super) title: String,
     /// In the user's zone, or a date for an all-day one.
-    start: String,
-    end: String,
-    all_day: bool,
-    calendar: String,
+    pub(super) start: String,
+    pub(super) end: String,
+    pub(super) all_day: bool,
+    pub(super) calendar: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    location: Option<String>,
+    pub(super) location: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    people: Vec<String>,
+    pub(super) people: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    meeting_url: Option<String>,
+    pub(super) meeting_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    notes: Option<String>,
+    pub(super) notes: Option<String>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
-    repeats: bool,
+    pub(super) repeats: bool,
+    /// A draft an Agent left, which the user hasn't sent: not in their calendar.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub(super) draft: bool,
     /// Whether the user said no to it.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
-    declined: bool,
+    pub(super) declined: bool,
 }
 
 fn local(s: &str) -> String {
@@ -162,6 +241,7 @@ fn listed(events: Vec<CalendarEvent>, names: &Names) -> Vec<Listed> {
             meeting_url: e.meeting_url,
             notes: e.description,
             repeats: e.recurring,
+            draft: e.draft_id.is_some(),
             title: e.title,
         })
         .collect()
@@ -190,7 +270,7 @@ async fn names(host: &Host) -> Result<Names, String> {
         .collect())
 }
 
-async fn list_events(host: Host, r: Range) -> Result<Vec<Listed>, String> {
+pub(super) async fn list_events(host: Host, r: Range) -> Result<Vec<Listed>, String> {
     let (from, to) = range(&r)?;
     let events = host
         .call_as("calendar_events", json!({ "from": from, "to": to }))

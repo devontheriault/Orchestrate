@@ -147,3 +147,21 @@ pub fn save_microsoft_client(dir: &Path, client_id: &str) -> Result<(), String> 
     .map_err(|e| e.to_string())?;
     write(&microsoft_client_path(dir), &text, false)
 }
+
+fn drafts_path(dir: &Path) -> PathBuf {
+    dir.join("drafts.json")
+}
+
+/// The Calendar events Agents drafted, waiting for the user.
+pub fn load_drafts(dir: &Path) -> Vec<super::drafts::Proposed> {
+    std::fs::read_to_string(drafts_path(dir))
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_default()
+}
+
+pub fn save_drafts(dir: &Path, drafts: &[super::drafts::Proposed]) -> Result<(), String> {
+    let text = serde_json::to_vec_pretty(drafts).map_err(|e| e.to_string())?;
+    // They name people and times, like the cache.
+    write(&drafts_path(dir), &text, true)
+}
