@@ -222,6 +222,20 @@
     box-shadow: var(--shadow-modal);
   }
 
+  /* Floats over the conversations, so under a see-through theme it needs a
+     fill of its own (see `--float-bg`) or their lines read through its rows.
+     On a layer of its own: a backdrop filter on the drawer would make it the
+     box its account menu, a fixed popover, is placed in. */
+  .drawer::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background: var(--float-bg, var(--surface));
+    -webkit-backdrop-filter: var(--float-filter, none);
+    backdrop-filter: var(--float-filter, none);
+  }
+
   .toast {
     position: absolute;
     left: 50%;
