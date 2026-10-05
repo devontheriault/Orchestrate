@@ -869,13 +869,20 @@ async fn resume_is_refused_while_the_agent_is_working() {
 }
 
 /// A fake `claude` that plays both roles: a Turn when invoked like one, and
-/// the namer when it sees the namer's flags. Every naming bumps a counter
+/// the namer when it sees the namer's flags. Naming a Spawn, whose ask has no
+/// answer in it, says "Opening name"; naming a finished Turn bumps a counter
 /// file and answers with it, so a test can see how many times it was asked.
-fn fake_claude_and_namer(counter: &std::path::Path) -> String {
+/// A Turn's own `claude` answers at once, or if `turn_hangs` works until
+/// Stopped.
+fn fake_claude_and_namer(counter: &std::path::Path, turn_hangs: bool) -> String {
     write_script(&format!(
         r#"#!/bin/sh
 for a in "$@"; do
   if [ "$a" = "--safe-mode" ]; then
+    case "$*" in
+      *Assistant:*) ;;
+      *) echo "Opening name"; exit 0 ;;
+    esac
     n=$(cat {counter} 2>/dev/null || echo 0)
     n=$((n+1))
     echo $n > {counter}
@@ -884,25 +891,26 @@ for a in "$@"; do
   fi
 done
 echo '{{"type":"system","event":"init"}}'
+{hang}
 echo '{{"type":"result","result":"did the thing"}}'
 exit 0
 "#,
-        counter = counter.display()
+        counter = counter.display(),
+        // `exec`, so a Stop's signal reaches the sleep rather than leaving it
+        // holding stdout open.
+        hang = if turn_hangs { "exec sleep 600" } else { "" },
     ))
 }
 
-/// Wait for the Agent record to come back carrying a name we have not seen.
-async fn wait_for_name(
-    rx: &mut mpsc::UnboundedReceiver<RuntimeEvent>,
-    previous: Option<&str>,
-) -> Agent {
+/// Wait for the Agent record to come back carrying the name `want`.
+async fn wait_for_name(rx: &mut mpsc::UnboundedReceiver<RuntimeEvent>, want: &str) -> Agent {
     loop {
         let ev = tokio::time::timeout(Duration::from_secs(20), rx.recv())
             .await
             .expect("the namer should answer")
             .expect("channel open");
         if let RuntimeEvent::StateChanged { agent, .. } = ev {
-            if agent.title.is_some() && agent.title.as_deref() != previous {
+            if agent.title.as_deref() == Some(want) {
                 return *agent;
             }
         }
@@ -910,12 +918,12 @@ async fn wait_for_name(
 }
 
 #[tokio::test]
-async fn a_finished_turn_names_the_agent() {
+async fn an_agent_is_named_as_it_spawns_not_when_its_turn_ends() {
     let _env = StateEnv::new();
     let repo = init_repo().await;
     let project = sample_project(repo.path().to_path_buf());
     let counter = std::env::temp_dir().join(format!("cw-namer-{}", new_id()));
-    let (rt, mut rx) = AgentRuntime::with_bin_naming(fake_claude_and_namer(&counter));
+    let (rt, mut rx) = AgentRuntime::with_bin_naming(fake_claude_and_namer(&counter, true));
 
     let agent = rt
         .spawn(
@@ -931,13 +939,62 @@ async fn a_finished_turn_names_the_agent() {
         .unwrap();
     assert_eq!(agent.title, None, "a fresh Agent has no name to show yet");
 
-    let named = wait_for_name(&mut rx, None).await;
-    assert_eq!(named.title.as_deref(), Some("Name 1"));
+    let named = wait_for_name(&mut rx, "Opening name").await;
+    assert_eq!(
+        named.state,
+        AgentState::Running,
+        "named while still working"
+    );
     assert_eq!(
         storage::load_agent(&agent.id).unwrap().title.as_deref(),
-        Some("Name 1"),
+        Some("Opening name"),
         "the name is persisted, not just announced"
     );
+    rt.stop(&agent.id).await.unwrap();
+}
+
+/// A Spawn's name fills a blank only: one drawn from a Turn's answer, which
+/// may land first if the Turn was quick, is the better of the two.
+#[tokio::test]
+async fn the_spawn_name_never_replaces_a_turn_name() {
+    let _env = StateEnv::new();
+    let repo = init_repo().await;
+    let project = sample_project(repo.path().to_path_buf());
+    let counter = std::env::temp_dir().join(format!("cw-namer-{}", new_id()));
+    let bin = fake_claude_and_namer(&counter, true);
+    let (rt, mut rx) = AgentRuntime::with_bin_naming(bin.clone());
+
+    let agent = rt
+        .spawn(
+            &project,
+            "do the thing".into(),
+            vec![],
+            None,
+            None,
+            None,
+            AgentOptions::default(),
+        )
+        .await
+        .unwrap();
+    wait_for_name(&mut rx, "Opening name").await;
+    let mut on_disk = storage::load_agent(&agent.id).unwrap();
+    on_disk.title = Some("From the answer".into());
+    storage::save_agent(&on_disk).unwrap();
+
+    let namer = Arc::new(bin);
+    turn::name_agent(namer.clone(), agent.clone(), None, rt.emitter.clone()).await;
+    assert_eq!(
+        storage::load_agent(&agent.id).unwrap().title.as_deref(),
+        Some("From the answer")
+    );
+
+    // A Turn's name still replaces whatever came before it.
+    turn::name_agent(namer, agent.clone(), Some("ok".into()), rt.emitter.clone()).await;
+    assert_eq!(
+        storage::load_agent(&agent.id).unwrap().title.as_deref(),
+        Some("Name 1")
+    );
+    rt.stop(&agent.id).await.unwrap();
 }
 
 /// The name settles: rewritten at the end of Turns 1-3, untouched after.
@@ -947,7 +1004,7 @@ async fn the_name_stops_changing_after_the_third_turn() {
     let repo = init_repo().await;
     let project = sample_project(repo.path().to_path_buf());
     let counter = std::env::temp_dir().join(format!("cw-namer-{}", new_id()));
-    let (rt, mut rx) = AgentRuntime::with_bin_naming(fake_claude_and_namer(&counter));
+    let (rt, mut rx) = AgentRuntime::with_bin_naming(fake_claude_and_namer(&counter, false));
 
     let agent = rt
         .spawn(
@@ -961,15 +1018,13 @@ async fn the_name_stops_changing_after_the_third_turn() {
         )
         .await
         .unwrap();
-    let mut name = wait_for_name(&mut rx, None).await.title;
-    assert_eq!(name.as_deref(), Some("Name 1"));
+    wait_for_name(&mut rx, "Name 1").await;
 
     for turn in 2..=3 {
         rt.resume(&agent.id, format!("turn {turn}"), vec![], None, None, None)
             .await
             .unwrap();
-        name = wait_for_name(&mut rx, name.as_deref()).await.title;
-        assert_eq!(name.as_deref(), Some(&*format!("Name {turn}")));
+        wait_for_name(&mut rx, &format!("Name {turn}")).await;
     }
 
     // The fourth Turn runs, but nothing asks for a name.

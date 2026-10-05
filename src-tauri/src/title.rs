@@ -2,8 +2,8 @@
 //!
 //! An Agent's opening prompt makes a poor label — it is as long as the user
 //! felt like typing, and the interesting part is often at the end. So we ask
-//! Claude for a short name once the Agent has done some work and has something
-//! to be named after.
+//! Claude for a short name as soon as the Agent spawns, off its prompt, and
+//! again once it has done some work and has more to be named after.
 //!
 //! Claude Code writes its own `ai-title` for interactive sessions, but not for
 //! the headless (`--print`) ones we spawn, and the titles it does write are
@@ -15,8 +15,8 @@ use std::time::Duration;
 
 use crate::process::command;
 
-/// Turns whose ending re-writes the title. The first Turn names the Agent; the
-/// next two let the name catch up as the work reveals itself. After that it is
+/// Turns whose ending re-writes the title. The Spawn names the Agent off its
+/// prompt; these let the name catch up as the work reveals itself. After that it is
 /// frozen — a familiar name in the sidebar is worth more than an accurate one.
 pub const TITLE_TURNS: u32 = 3;
 

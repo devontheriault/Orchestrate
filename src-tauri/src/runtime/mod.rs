@@ -65,7 +65,8 @@ pub struct AgentRuntime {
     /// [`crate::mcp::turn_args`]). Empty in tests: a fake `claude` has no use
     /// for it.
     mcp_args: Arc<Vec<String>>,
-    /// Whether a finished Turn spends a second `claude` call naming the Agent.
+    /// Whether a Spawn and a finished Turn spend a second `claude` call naming
+    /// the Agent.
     /// Off in most tests, so the fake `claude` sees one invocation per Turn.
     naming: bool,
     /// Set once the Host has decided to exit (see [`Self::close_if_idle`]).
@@ -292,6 +293,17 @@ impl AgentRuntime {
         // Every window hears of a new Agent, not only the one that spawned it:
         // on another machine, the spawner may not be a window here at all.
         self.emitter.announce(&agent);
+        // Named off its Task now, rather than when the first Turn ends, so the
+        // sidebar has a real name within seconds. A handed-off Agent already
+        // goes by the other Agent's Title.
+        if self.naming && agent.title.is_none() {
+            tokio::spawn(turn::name_agent(
+                self.claude_bin.clone(),
+                agent.clone(),
+                None,
+                self.emitter.clone(),
+            ));
+        }
         Ok(agent)
     }
 
