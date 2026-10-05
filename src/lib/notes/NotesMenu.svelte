@@ -1,8 +1,7 @@
 <script lang="ts">
   /**
-   * Where the notes are kept: the folder on its Host, and, with more than one
-   * Host to choose from, which Host. Both are the user's to change; the folder
-   * setting lives on the Host itself, the choice of Host in this window.
+   * Which folder the notes are kept in on their Host, for the user to change.
+   * The setting lives on the Host itself. Which Host is the picker beside this.
    */
   import { open as pickFolder } from "@tauri-apps/plugin-dialog";
   import { api } from "$lib/api";
@@ -22,29 +21,15 @@
   /** Typing a folder by hand: for a Host on another machine, which this one can't browse. */
   let typing = $state<string | null>(null);
 
-  type Row = { label: string; note?: string; on?: boolean; run: () => void };
+  type Row = { label: string; note?: string; run: () => void };
 
   const rows = $derived.by((): Row[] => {
     const out: Row[] = [{ label: "Change folder…", run: change }];
     if (defaultFolder && defaultFolder !== notes.folder) {
       out.push({ label: "Use ~/Notes", note: "default", run: () => use(null) });
     }
-    const reachable = hosts.list.filter((h) => hosts.reachable(h.id));
-    if (reachable.length > 1) {
-      for (const h of reachable) {
-        out.push({
-          label: hosts.label(h.id),
-          on: h.id === notes.host,
-          run: () => {
-            close();
-            notes.useHost(h.id);
-          },
-        });
-      }
-    }
     return out;
   });
-  const hostRowsFrom = $derived(rows.findIndex((r) => r.on !== undefined));
 
   async function show() {
     if (!triggerEl) return;
@@ -162,13 +147,8 @@
     {/if}
     <div class="menu-sep"></div>
     {#each rows as row, i}
-      {#if i === hostRowsFrom}
-        <div class="menu-sep"></div>
-        <div class="group">Keep notes on</div>
-      {/if}
       <div
         class="menu-item"
-        class:on={row.on}
         role="menuitem"
         tabindex="-1"
         data-active={i === active}
@@ -176,7 +156,6 @@
         onclick={row.run}
         onkeydown={() => {}}
       >
-        {#if row.on !== undefined}<span class="menu-tick">{row.on ? "✓" : ""}</span>{/if}
         <span class="menu-label">{row.label}</span>
         {#if row.note}<span class="menu-note">{row.note}</span>{/if}
       </div>
@@ -213,14 +192,5 @@
     display: flex;
     gap: var(--space-3);
     padding: var(--space-2) var(--menu-item-pad-x);
-  }
-
-  .group {
-    padding: var(--space-2) var(--menu-item-pad-x);
-    font-size: var(--text-2xs);
-    font-weight: var(--weight-semibold);
-    color: var(--fg-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
   }
 </style>

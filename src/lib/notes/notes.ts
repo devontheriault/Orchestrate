@@ -192,3 +192,25 @@ export function lineStart(text: string, n: number): number {
   }
   return at;
 }
+
+/** A Host the notes could be kept on, as the picker lists it. */
+export type NotesHostChoice = { id: string; name: string; note?: string; disabled: boolean };
+
+/**
+ * The Hosts the notes could be kept on, or null when there's only one: every
+ * Host the window knows, and `current` even if it's since been removed, so the
+ * picker still names it. One that can't be reached says why.
+ */
+export function notesHostChoices(
+  known: string[],
+  current: string,
+  label: (id: string) => string,
+  problem: (id: string) => string | null,
+): NotesHostChoice[] | null {
+  const ids = known.includes(current) ? known : [...known, current];
+  if (ids.length < 2) return null;
+  return ids.map((id) => {
+    const note = known.includes(id) ? problem(id) : "No longer one of your Hosts";
+    return { id, name: label(id), note: note ?? undefined, disabled: !!note };
+  });
+}
