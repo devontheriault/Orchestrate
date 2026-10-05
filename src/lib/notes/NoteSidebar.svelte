@@ -4,9 +4,10 @@
    * first. The list draws only the rows on screen, so a folder of thousands
    * of notes scrolls as lightly as one of ten.
    */
+  import Picker from "$lib/menus/Picker.svelte";
   import { hosts } from "$lib/state/hosts.svelte";
   import { notes } from "./notes.svelte";
-  import { folderOf, folderRows, mark, onScreen, when } from "./notes";
+  import { folderOf, folderRows, mark, notesHostChoices, onScreen, when } from "./notes";
   import NotesMenu from "./NotesMenu.svelte";
 
   let {
@@ -109,12 +110,30 @@
   }
 
   const total = $derived(notes.notes.length);
+
+  const hostOptions = $derived(
+    notesHostChoices(
+      hosts.list.map((h) => h.id),
+      notes.host,
+      (id) => hosts.label(id),
+      (id) => hosts.problem(id),
+    ),
+  );
 </script>
 
 <aside class:phone>
   <header>
     <span class="title">Notes</span>
     <div class="actions">
+      {#if hostOptions}
+        <Picker
+          value={notes.host}
+          options={hostOptions}
+          onpick={(h) => notes.useHost(h)}
+          compact
+          label="Host the notes are on"
+        />
+      {/if}
       <NotesMenu />
       <button
         class="btn btn-icon add"
@@ -299,6 +318,7 @@
     display: flex;
     align-items: center;
     gap: var(--space-2);
+    min-width: 0;
   }
 
   .add {
