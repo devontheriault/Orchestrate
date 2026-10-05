@@ -56,5 +56,9 @@ export default defineConfig(() => ({
       // 3. tell Vite to ignore watching `src-tauri`
       ignored: ["**/src-tauri/**"],
     },
+    // 4. keep the webview from caching modules: WebKit fetches a cached page's
+    //    old modules again when the next session starts, so a file deleted
+    //    since shows up as a 404 in the dev server's log
+    headers: { "Cache-Control": "no-store" },
   },
 }));

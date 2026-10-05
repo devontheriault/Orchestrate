@@ -4,8 +4,8 @@
   "description": "Lightweight control layer for Claude Code — spawn, monitor, and control agents in isolated Git worktrees.",
   "type": "module",
   "scripts": {
-    "dev": "vite dev",
-    "build": "vite build",
+    "dev": "node --no-experimental-webstorage node_modules/vite/bin/vite.js dev",
+    "build": "node --no-experimental-webstorage node_modules/vite/bin/vite.js build",
     "preview": "vite preview",
     "prepare": "svelte-kit sync || echo ''",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
