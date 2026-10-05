@@ -115,6 +115,32 @@ pub async fn save_attachment(request: tauri::ipc::Request<'_>) -> Result<PathBuf
     crate::attachments::save(name, bytes).map_err(err)
 }
 
+/// Write a file the user chose a place for in the save dialog: an attachment
+/// from the Mail Space. The bytes come raw, as [`save_attachment`]'s do, and
+/// the path rides in a header, percent-encoded since headers carry only ASCII.
+/// Never opened afterwards: mail attachments are only ever saved.
+#[tauri::command]
+pub async fn save_file(request: tauri::ipc::Request<'_>) -> Result<(), String> {
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err("expected the file's bytes as the request body".into());
+    };
+    let path = request
+        .headers()
+        .get("x-path")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|p| {
+            let query = format!("p={p}");
+            let decoded = url::form_urlencoded::parse(query.as_bytes())
+                .next()?
+                .1
+                .into_owned();
+            Some(PathBuf::from(decoded))
+        })
+        .filter(|p| p.is_absolute())
+        .ok_or("expected where to save the file")?;
+    std::fs::write(&path, bytes).map_err(|e| format!("could not save {}: {e}", path.display()))
+}
+
 /// Save the image on the OS clipboard, for a paste whose event carried none —
 /// all a paste on Linux ever carries, since WebKitGTK withholds clipboard
 /// images from the page. `None` when there's no image there either.
