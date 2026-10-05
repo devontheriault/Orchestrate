@@ -4,6 +4,7 @@
   import { flip } from "svelte/animate";
   import { cubicOut } from "svelte/easing";
   import { api } from "$lib/api";
+  import { panes } from "$lib/layout/panes.svelte";
   import { mobile } from "$lib/layout/platform";
   import { hosts } from "$lib/state/hosts.svelte";
   import { orderProjects } from "$lib/state/projects";
@@ -246,7 +247,14 @@
   }
 </script>
 
-<aside bind:this={asideEl} class:collapsed class:phone class:dragging={!!drag}>
+<aside
+  bind:this={asideEl}
+  class:collapsed
+  class:phone
+  class:dragging={!!drag}
+  style:--pane-projects={panes.vars}
+  style:--rail={panes.vars}
+>
   <header>
     {#if !collapsed}<span class="title">Projects</span>{/if}
     <button class="btn btn-icon add" onclick={add} title={addLabel} aria-label={addLabel}
@@ -391,6 +399,7 @@
     role="dialog"
     aria-label={`Agents in ${flyoutProject.name}`}
     style={`top: ${flyout.top}px; left: ${flyout.left}px; max-height: ${flyout.maxHeight}px`}
+    style:--rail={panes.vars}
   >
     <div class="flyout-head">
       <span class="flyout-name" title={flyoutProject.path}>{flyoutProject.name}</span>

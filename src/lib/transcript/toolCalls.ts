@@ -114,10 +114,28 @@ export function bashOutputLanguage(c: ToolCall): string {
 }
 
 /**
+ * What `fileChange` and `readLines` last gave for a call, by its input: the
+ * one object that stays the same while the transcript rebuilds the call
+ * around it on every event. Handing back the same answer is what keeps a
+ * card's code from being highlighted afresh each time its Row changes —
+ * which a result arriving does, and a highlighted file can be thousands of
+ * lines.
+ */
+const changes = new WeakMap<object, ReturnType<typeof readFileChange>>();
+const reads = new WeakMap<object, { result: unknown; lines: ReturnType<typeof parseRead> }>();
+
+/**
  * What an Edit or Write call puts in a file, if that's what `c` is: an
  * Edit's text before and after, a Write's whole new contents.
  */
-export function fileChange(
+export function fileChange(c: ToolCall): ReturnType<typeof readFileChange> {
+  const key = c.input;
+  if (!key || typeof key !== "object") return readFileChange(c);
+  if (!changes.has(key)) changes.set(key, readFileChange(c));
+  return changes.get(key);
+}
+
+function readFileChange(
   c: ToolCall,
 ): { lang: string; before?: string; after: string; everywhere: boolean } | undefined {
   const o = c.input as Record<string, unknown> | null;
@@ -135,7 +153,17 @@ export function fileChange(
  * now), plus whatever trails them. A result that doesn't start that way —
  * an error, an image — isn't one of these.
  */
-export function readLines(
+export function readLines(c: ToolCall): ReturnType<typeof parseRead> {
+  const key = c.input;
+  if (!key || typeof key !== "object") return parseRead(c);
+  const last = reads.get(key);
+  if (last && last.result === c.result) return last.lines;
+  const lines = parseRead(c);
+  reads.set(key, { result: c.result, lines });
+  return lines;
+}
+
+function parseRead(
   c: ToolCall,
 ): { lang: string; lines: { n: string; text: string }[]; rest: string } | undefined {
   const o = c.input as Record<string, unknown> | null;

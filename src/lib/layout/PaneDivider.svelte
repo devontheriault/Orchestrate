@@ -8,6 +8,7 @@
    * flexes to fill) is reserved. That keeps the maths right whichever seam
    * this is, and at any window size.
    */
+  import { panes } from "./panes.svelte";
 
   let {
     label,
@@ -106,6 +107,7 @@
     pointerX = e.clientX;
     dragging = true;
     el.setPointerCapture(e.pointerId);
+    panes.dragging = true;
     document.body.classList.add("resizing-panes");
     e.preventDefault();
   }
@@ -123,6 +125,7 @@
       cancelAnimationFrame(frame);
       frame = 0;
     }
+    panes.dragging = false;
     document.body.classList.remove("resizing-panes");
   }
 
