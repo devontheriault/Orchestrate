@@ -24,7 +24,10 @@ pub mod expand;
 pub mod google;
 pub mod ical;
 pub mod mcp;
+pub mod microsoft;
+pub mod oauth;
 mod store;
+pub mod write;
 
 #[cfg(test)]
 mod tests;
@@ -258,6 +261,18 @@ pub struct CalendarEvent {
     pub tentative: bool,
     /// Shown as busy, for free/busy.
     pub busy: bool,
+    /// Which Calendar event this is an occurrence of, and which occurrence:
+    /// what a change to it names (see [`write::Target`]).
+    pub uid: String,
+    pub occurrence: String,
+    /// How the Calendar event it belongs to repeats, as an RRULE.
+    pub repeat_rule: Option<String>,
+    /// Whether the user may change it: it's on a calendar they can write, and
+    /// they organize it, or nobody else does.
+    pub can_edit: bool,
+    /// An Agent's suggestion, not yet saved: the draft's id (see `drafts`).
+    #[serde(default)]
+    pub draft_id: Option<String>,
 }
 
 /// Find a video-call link in the given texts: the meeting a Calendar event's
@@ -297,6 +312,12 @@ pub struct CachedCalendar {
     /// Whether the provider shows it by default.
     #[serde(default = "yes")]
     pub selected: bool,
+    /// Whether the user can add to it and change what's on it.
+    #[serde(default = "yes")]
+    pub writable: bool,
+    /// Microsoft's sync covers a window of time; where it began.
+    #[serde(default)]
+    pub window_start: Option<String>,
     /// Google's `nextSyncToken`, or CalDAV's `getctag`: how to ask the server
     /// only what changed since.
     pub sync_token: Option<String>,
@@ -314,6 +335,11 @@ fn yes() -> bool {
 pub struct Resource {
     pub etag: Option<String>,
     pub items: Vec<Item>,
+    /// The CalDAV object as the server sent it, which a change edits rather
+    /// than rewrites, so what the app doesn't read (alarms, other apps'
+    /// properties) survives.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw: Option<String>,
 }
 
 /// One account's cache.
@@ -342,6 +368,9 @@ impl std::fmt::Display for SyncError {
 
 /// Where the Calendar Space's data comes from. The provider is the source of
 /// truth; the cache is only ever brought level with it.
+///
+/// Writing goes to the provider and nowhere else: the Host syncs afterwards,
+/// and the cache learns of the change the way it learns of any other.
 pub trait Provider: Send {
     /// Bring `cache` level with the server, fetching only what changed since
     /// the last sync where the server can tell. True if anything changed.
@@ -349,6 +378,40 @@ pub trait Provider: Send {
         &'a mut self,
         cache: &'a mut AccountCache,
     ) -> impl Future<Output = Result<bool, SyncError>> + Send + 'a;
+
+    /// Make a Calendar event on `cal`, inviting its attendees.
+    fn create<'a>(
+        &'a mut self,
+        cal: &'a CachedCalendar,
+        draft: &'a write::Draft,
+    ) -> impl Future<Output = Result<(), SyncError>> + Send + 'a;
+
+    /// Change the Calendar event `found`, or with [`write::Scope::This`] only
+    /// the one occurrence, telling its attendees.
+    fn update<'a>(
+        &'a mut self,
+        cal: &'a CachedCalendar,
+        found: &'a write::Found,
+        draft: &'a write::Draft,
+        scope: write::Scope,
+    ) -> impl Future<Output = Result<(), SyncError>> + Send + 'a;
+
+    /// Delete it, or the one occurrence, telling its attendees.
+    fn delete<'a>(
+        &'a mut self,
+        cal: &'a CachedCalendar,
+        found: &'a write::Found,
+        scope: write::Scope,
+    ) -> impl Future<Output = Result<(), SyncError>> + Send + 'a;
+
+    /// Answer an invitation to it, telling its organizer.
+    fn respond<'a>(
+        &'a mut self,
+        cal: &'a CachedCalendar,
+        found: &'a write::Found,
+        answer: write::Answer,
+        scope: write::Scope,
+    ) -> impl Future<Output = Result<(), SyncError>> + Send + 'a;
 }
 
 /// An account and its secrets, as kept in `accounts.json`.
@@ -364,8 +427,9 @@ pub struct Account {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Source {
-    Google(google::Tokens),
+    Google(oauth::Tokens),
     Caldav(caldav::Login),
+    Microsoft(oauth::Tokens),
 }
 
 impl Source {
@@ -373,6 +437,7 @@ impl Source {
         match self {
             Source::Google(_) => "google",
             Source::Caldav(_) => "caldav",
+            Source::Microsoft(_) => "microsoft",
         }
     }
 }
@@ -415,6 +480,8 @@ pub struct CalendarInfo {
     pub primary: bool,
     /// Whether to show it until the user says otherwise.
     pub selected: bool,
+    /// Whether the user can add to it.
+    pub writable: bool,
 }
 
 /// Everything the Calendar Space opens on.
@@ -426,6 +493,8 @@ pub struct Overview {
     pub google_client: bool,
     /// Where that client goes, for the setup steps to name.
     pub google_client_path: String,
+    /// The same for Microsoft.
+    pub microsoft_client: bool,
 }
 
 /// A stretch of time, as free/busy answers it.
@@ -441,6 +510,14 @@ pub struct FreeBusy {
     pub free: Vec<Span>,
 }
 
+/// Where the providers that sign in with OAuth are. Only tests point these
+/// anywhere else.
+#[derive(Debug, Clone, Default)]
+pub struct Endpoints {
+    pub google: google::Endpoints,
+    pub microsoft: microsoft::Endpoints,
+}
+
 /// How a calendar change reaches every window: an event by `name`.
 pub type Notify = Arc<dyn Fn(&str, Value) + Send + Sync>;
 
@@ -449,7 +526,7 @@ pub type Notify = Arc<dyn Fn(&str, Value) + Send + Sync>;
 pub struct Calendars {
     dir: PathBuf,
     http: reqwest::Client,
-    pub(crate) google: google::Endpoints,
+    pub(crate) endpoints: Endpoints,
     accounts: Mutex<Vec<Account>>,
     caches: Mutex<HashMap<String, AccountCache>>,
     status: Mutex<HashMap<String, Status>>,
@@ -483,14 +560,10 @@ impl Calendars {
     /// The Calendar Space kept in `dir`, telling windows of changes through
     /// `notify`.
     pub fn new(dir: PathBuf, notify: Notify) -> Arc<Self> {
-        Self::with_endpoints(dir, notify, google::Endpoints::default())
+        Self::with_endpoints(dir, notify, Endpoints::default())
     }
 
-    pub(crate) fn with_endpoints(
-        dir: PathBuf,
-        notify: Notify,
-        google: google::Endpoints,
-    ) -> Arc<Self> {
+    pub(crate) fn with_endpoints(dir: PathBuf, notify: Notify, endpoints: Endpoints) -> Arc<Self> {
         let accounts = store::load_accounts(&dir).unwrap_or_else(|e| {
             eprintln!("calendar: could not read the accounts: {e}");
             Vec::new()
@@ -506,7 +579,7 @@ impl Calendars {
         Arc::new(Self {
             dir,
             http,
-            google,
+            endpoints,
             accounts: Mutex::new(accounts),
             caches: Mutex::new(caches),
             status: Mutex::new(HashMap::new()),
@@ -562,14 +635,16 @@ impl Calendars {
                                     color: cal.color.clone(),
                                     primary: cal.primary,
                                     selected: cal.selected,
+                                    writable: cal.writable,
                                 })
                                 .collect()
                         })
                         .unwrap_or_default(),
                 })
                 .collect(),
-            google_client: store::load_google_client(&self.dir).is_some(),
+            google_client: self.google_client().is_some(),
             google_client_path: store::google_client_path(&self.dir).display().to_string(),
+            microsoft_client: self.microsoft_client().is_some(),
         }
     }
 
@@ -592,13 +667,17 @@ impl Calendars {
             for cal in &cache.calendars {
                 let items: Vec<&Item> = cal.resources.values().flat_map(|r| &r.items).collect();
                 for occ in expand::expand(&items, from, to, self.home) {
-                    out.push(expand::to_event(
-                        &occ,
-                        &account.id,
-                        &cal.id,
-                        me.as_deref(),
-                        self.home,
-                    ));
+                    let mut e =
+                        expand::to_event(&occ, &account.id, &cal.id, me.as_deref(), self.home);
+                    let organizer = occ.item.organizer.as_ref();
+                    e.can_edit = cal.writable
+                        && organizer.is_none_or(|o| {
+                            o.is_self
+                                || me
+                                    .as_deref()
+                                    .is_some_and(|m| o.email.eq_ignore_ascii_case(m))
+                        });
+                    out.push(e);
                 }
             }
         }
@@ -715,50 +794,34 @@ impl Calendars {
     /// level without any lock held over the network, and put back.
     pub async fn sync_account(&self, id: &str) {
         let _one_at_a_time = self.syncing.lock().await;
-        let Some(mut account) = self
+        self.sync_locked(id).await;
+    }
+
+    /// The account `id` and its cache, copied out to work on without a lock.
+    fn take(&self, id: &str) -> Option<(Account, AccountCache)> {
+        let account = self
             .accounts
             .lock()
             .unwrap()
             .iter()
             .find(|a| a.id == id)
-            .cloned()
-        else {
-            return;
-        };
-        let mut cache = self
+            .cloned()?;
+        let cache = self
             .caches
             .lock()
             .unwrap()
             .get(id)
             .cloned()
             .unwrap_or_default();
-        self.set_status(id, Status::Syncing);
-        self.changed();
+        Some((account, cache))
+    }
 
-        let before = account.clone();
-        let outcome = match &mut account.source {
-            Source::Google(tokens) => match store::load_google_client(&self.dir) {
-                Some(client) => {
-                    google::Google::new(&self.http, &self.google, &client, tokens)
-                        .sync(&mut cache)
-                        .await
-                }
-                None => Err(SyncError::Auth(format!(
-                    "this Host has no Google OAuth client; put one in {}",
-                    store::google_client_path(&self.dir).display()
-                ))),
-            },
-            Source::Caldav(login) => {
-                caldav::CalDav::new(&self.http, login)
-                    .sync(&mut cache)
-                    .await
-            }
-        };
-
-        // The account may have been removed while it synced.
+    /// Put back an account whose secrets changed while it was out: a refreshed
+    /// token. False if it was removed meanwhile.
+    fn put_back(&self, account: &Account, before: &Account) -> bool {
         let still_here = {
             let mut accounts = self.accounts.lock().unwrap();
-            match accounts.iter_mut().find(|a| a.id == id) {
+            match accounts.iter_mut().find(|a| a.id == account.id) {
                 Some(a) => {
                     if account != before {
                         *a = account.clone();
@@ -768,13 +831,63 @@ impl Calendars {
                 None => false,
             }
         };
-        if !still_here {
-            return;
-        }
-        if account != before {
+        if still_here && account != before {
             if let Err(e) = self.save_accounts() {
                 eprintln!("calendar: could not save the accounts: {e}");
             }
+        }
+        still_here
+    }
+
+    /// The provider an account is with, signed in as it.
+    fn provider<'a>(&'a self, source: &'a mut Source) -> Result<AnyProvider<'a>, SyncError> {
+        Ok(match source {
+            Source::Google(tokens) => {
+                let client = self.google_client().ok_or_else(|| {
+                    SyncError::Auth(format!(
+                        "this Host has no Google OAuth client; put one in {}",
+                        store::google_client_path(&self.dir).display()
+                    ))
+                })?;
+                AnyProvider::Google(google::Google::new(
+                    &self.http,
+                    &self.endpoints.google,
+                    client,
+                    tokens,
+                ))
+            }
+            Source::Caldav(login) => AnyProvider::Caldav(caldav::CalDav::new(&self.http, login)),
+            Source::Microsoft(tokens) => {
+                let client = self.microsoft_client().ok_or_else(|| {
+                    SyncError::Auth("this Host has no Microsoft app to sign in as".into())
+                })?;
+                AnyProvider::Microsoft(microsoft::Graph::new(
+                    &self.http,
+                    &self.endpoints.microsoft,
+                    client,
+                    tokens,
+                ))
+            }
+        })
+    }
+
+    /// Sync one account, holding the sync lock. Its cache and its secrets are
+    /// copied out, brought level without any lock held over the network, and
+    /// put back.
+    async fn sync_locked(&self, id: &str) {
+        let Some((mut account, mut cache)) = self.take(id) else {
+            return;
+        };
+        self.set_status(id, Status::Syncing);
+        self.changed();
+
+        let before = account.clone();
+        let outcome = match self.provider(&mut account.source) {
+            Ok(mut p) => p.sync(&mut cache).await,
+            Err(e) => Err(e),
+        };
+        if !self.put_back(&account, &before) {
+            return;
         }
         let status = match outcome {
             Ok(changed) => {
@@ -795,6 +908,37 @@ impl Calendars {
         self.changed();
     }
 
+    /// Make, change, delete or answer a Calendar event at its provider, then
+    /// sync the account, so the cache learns of it from the provider itself.
+    pub async fn write(&self, account_id: &str, op: Op) -> Result<(), String> {
+        {
+            let _one_at_a_time = self.syncing.lock().await;
+            let (mut account, cache) = self
+                .take(account_id)
+                .ok_or_else(|| format!("no calendar account {account_id}"))?;
+            let before = account.clone();
+            let outcome = match self.provider(&mut account.source) {
+                Ok(mut p) => op.run(&mut p, &cache, self.home).await,
+                Err(e) => Err(e),
+            };
+            self.put_back(&account, &before);
+            if let Err(e) = outcome {
+                if let SyncError::Auth(message) = &e {
+                    self.set_status(
+                        account_id,
+                        Status::Reconnect {
+                            message: message.clone(),
+                        },
+                    );
+                    self.changed();
+                }
+                return Err(e.to_string());
+            }
+        }
+        self.sync_account(account_id).await;
+        Ok(())
+    }
+
     fn save_accounts(&self) -> Result<(), String> {
         let accounts = self.accounts.lock().unwrap().clone();
         store::save_accounts(&self.dir, &accounts)
@@ -805,7 +949,7 @@ impl Calendars {
     pub(crate) async fn add(&self, account: Account) -> Result<AccountInfo, String> {
         let id = {
             let mut accounts = self.accounts.lock().unwrap();
-            let id = match accounts
+            match accounts
                 .iter_mut()
                 .find(|a| a.name == account.name && a.source.kind() == account.source.kind())
             {
@@ -820,8 +964,7 @@ impl Calendars {
                     accounts.push(account);
                     id
                 }
-            };
-            id
+            }
         };
         self.save_accounts()?;
         self.caches.lock().unwrap().entry(id.clone()).or_default();
@@ -845,19 +988,27 @@ impl Calendars {
             username: username.trim().to_string(),
             password: password.to_string(),
             home: None,
+            address: None,
+            schedules: false,
         };
         caldav::CalDav::new(&self.http, &mut login)
             .discover()
             .await
             .map_err(|e| e.to_string())?;
-        let name = if login.username.is_empty() {
-            reqwest::Url::parse(&login.url)
-                .ok()
-                .and_then(|u| u.host_str().map(str::to_string))
-                .unwrap_or_else(|| login.url.clone())
-        } else {
-            login.username.clone()
-        };
+        let name = login
+            .address
+            .clone()
+            .filter(|_| !login.username.contains('@'))
+            .unwrap_or_else(|| {
+                if login.username.is_empty() {
+                    reqwest::Url::parse(&login.url)
+                        .ok()
+                        .and_then(|u| u.host_str().map(str::to_string))
+                        .unwrap_or_else(|| login.url.clone())
+                } else {
+                    login.username.clone()
+                }
+            });
         self.add(Account {
             id: new_id(),
             name,
@@ -878,6 +1029,32 @@ impl Calendars {
         Ok(())
     }
 
+    /// The OAuth client this Host signs in to Google as: the user's own, or
+    /// the one the build came with.
+    fn google_client(&self) -> Option<oauth::Client> {
+        store::load_google_client(&self.dir)
+            .map(|c| oauth::Client {
+                id: c.client_id,
+                secret: Some(c.client_secret),
+            })
+            .or_else(|| {
+                Some(oauth::Client {
+                    id: option_env!("ORCHESTRATE_GOOGLE_CLIENT_ID")?.to_string(),
+                    secret: option_env!("ORCHESTRATE_GOOGLE_CLIENT_SECRET").map(str::to_string),
+                })
+            })
+            .filter(|c| !c.id.is_empty())
+    }
+
+    /// The app this Host signs in to Microsoft as: the user's own, or the one
+    /// the build came with.
+    fn microsoft_client(&self) -> Option<oauth::Client> {
+        store::load_microsoft_client(&self.dir)
+            .or_else(|| option_env!("ORCHESTRATE_MICROSOFT_CLIENT_ID").map(str::to_string))
+            .filter(|id| !id.is_empty())
+            .map(|id| oauth::Client { id, secret: None })
+    }
+
     /// Keep the Google OAuth client the user made, as the setup doc has them
     /// paste it.
     pub fn set_google_client(&self, client_id: &str, client_secret: &str) -> Result<(), String> {
@@ -893,33 +1070,80 @@ impl Calendars {
         Ok(())
     }
 
-    /// Start signing in to Google: the URL for the user's browser. The Host
-    /// waits for the browser to come back to it on this machine, then adds
-    /// the account and tells every window.
-    pub async fn begin_google(self: &Arc<Self>) -> Result<String, String> {
-        let client = store::load_google_client(&self.dir).ok_or_else(|| {
-            format!(
-                "this Host has no Google OAuth client yet; see docs/google-calendar.md, or put one in {}",
-                store::google_client_path(&self.dir).display()
-            )
-        })?;
-        let pending = google::SignIn::start(&self.google, &client).await?;
+    /// Keep the Microsoft app the user registered.
+    pub fn set_microsoft_client(&self, client_id: &str) -> Result<(), String> {
+        let id = client_id.trim();
+        if id.is_empty() {
+            return Err("the application (client) ID is needed".into());
+        }
+        store::save_microsoft_client(&self.dir, id)?;
+        self.changed();
+        Ok(())
+    }
+
+    /// Start signing in to Google or Microsoft: the URL for the user's
+    /// browser. The Host waits for the browser to come back to it on this
+    /// machine, then adds the account and tells every window.
+    pub async fn begin_sign_in(self: &Arc<Self>, provider: &str) -> Result<String, String> {
+        let (oauth, client) = match provider {
+            "google" => (
+                self.endpoints.google.oauth(),
+                self.google_client().ok_or_else(|| {
+                    format!(
+                        "this Host has no Google OAuth client yet; see docs/calendar-accounts.md, or put one in {}",
+                        store::google_client_path(&self.dir).display()
+                    )
+                })?,
+            ),
+            "microsoft" => (
+                self.endpoints.microsoft.oauth(),
+                self.microsoft_client().ok_or(
+                    "this Host has no Microsoft app to sign in as yet; see docs/calendar-accounts.md",
+                )?,
+            ),
+            other => return Err(format!("no sign-in for {other}")),
+        };
+        let pending = oauth::SignIn::start(&oauth, &client).await?;
         let url = pending.url.clone();
         let me = self.clone();
+        let provider = provider.to_string();
         let task = tokio::spawn(async move {
-            let outcome = match pending.finish(&me.http, &me.google, &client).await {
-                Ok((name, tokens)) => me
-                    .add(Account {
-                        id: new_id(),
-                        name,
-                        source: Source::Google(tokens),
-                    })
+            let outcome = async {
+                let mut tokens = pending.finish(&me.http, &client).await?;
+                let (name, source) = if provider == "google" {
+                    let name = google::Google::new(
+                        &me.http,
+                        &me.endpoints.google,
+                        client.clone(),
+                        &mut tokens,
+                    )
+                    .address()
                     .await
-                    .map(|_| ()),
-                Err(e) => Err(e),
-            };
+                    .map_err(|e| e.to_string())?;
+                    (name, Source::Google(tokens))
+                } else {
+                    let name = microsoft::Graph::new(
+                        &me.http,
+                        &me.endpoints.microsoft,
+                        client.clone(),
+                        &mut tokens,
+                    )
+                    .address()
+                    .await
+                    .map_err(|e| e.to_string())?;
+                    (name, Source::Microsoft(tokens))
+                };
+                me.add(Account {
+                    id: new_id(),
+                    name,
+                    source,
+                })
+                .await
+                .map(|_| ())
+            }
+            .await;
             if let Err(e) = outcome {
-                eprintln!("calendar: Google sign-in failed: {e}");
+                eprintln!("calendar: sign-in failed: {e}");
                 (me.notify)(
                     "calendar-sign-in-failed",
                     serde_json::json!({ "message": e }),
@@ -933,8 +1157,197 @@ impl Calendars {
     }
 }
 
+/// A write, as [`Calendars::write`] takes it.
+#[derive(Debug, Clone)]
+pub enum Op {
+    Create {
+        calendar_id: String,
+        draft: write::Draft,
+    },
+    Update {
+        target: write::Target,
+        draft: write::Draft,
+        scope: write::Scope,
+    },
+    Delete {
+        target: write::Target,
+        scope: write::Scope,
+    },
+    Respond {
+        target: write::Target,
+        answer: write::Answer,
+        scope: write::Scope,
+    },
+}
+
+impl Op {
+    async fn run<P: Provider>(
+        &self,
+        p: &mut P,
+        cache: &AccountCache,
+        home: Tz,
+    ) -> Result<(), SyncError> {
+        let calendar = |id: &str| {
+            cache
+                .calendars
+                .iter()
+                .find(|c| c.id == id)
+                .ok_or_else(|| SyncError::Other(format!("no calendar {id} on this account")))
+        };
+        let writable = |cal: &CachedCalendar| {
+            if cal.writable {
+                Ok(())
+            } else {
+                Err(SyncError::Other(format!(
+                    "{} can't be changed from here",
+                    cal.name
+                )))
+            }
+        };
+        match self {
+            Op::Create { calendar_id, draft } => {
+                draft.check().map_err(SyncError::Other)?;
+                let cal = calendar(calendar_id)?;
+                writable(cal)?;
+                p.create(cal, draft).await
+            }
+            Op::Update {
+                target,
+                draft,
+                scope,
+            } => {
+                draft.check().map_err(SyncError::Other)?;
+                let cal = calendar(&target.calendar_id)?;
+                writable(cal)?;
+                let found = find(cal, target, home)?;
+                p.update(cal, &found, draft, *scope).await
+            }
+            Op::Delete { target, scope } => {
+                let cal = calendar(&target.calendar_id)?;
+                writable(cal)?;
+                let found = find(cal, target, home)?;
+                p.delete(cal, &found, *scope).await
+            }
+            Op::Respond {
+                target,
+                answer,
+                scope,
+            } => {
+                let cal = calendar(&target.calendar_id)?;
+                let found = find(cal, target, home)?;
+                p.respond(cal, &found, *answer, *scope).await
+            }
+        }
+    }
+}
+
+/// Where a Calendar event a window named lives in the cache.
+fn find(cal: &CachedCalendar, target: &write::Target, home: Tz) -> Result<write::Found, SyncError> {
+    let mut found = write::Found {
+        uid: target.uid.clone(),
+        occurrence: target.occurrence.clone(),
+        ..Default::default()
+    };
+    for (key, res) in &cal.resources {
+        for item in res.items.iter().filter(|i| i.uid == target.uid) {
+            if item.recurrence_id.is_none() && found.master.is_none() {
+                found.master = Some((key.clone(), item.clone()));
+                found.raw = res.raw.clone();
+                found.etag = res.etag.clone();
+            }
+        }
+    }
+    for (key, res) in &cal.resources {
+        for item in res.items.iter().filter(|i| i.uid == target.uid) {
+            let Some(r) = &item.recurrence_id else {
+                continue;
+            };
+            let master = found.master.as_ref().map(|(_, m)| m).unwrap_or(item);
+            if !target.occurrence.is_empty() && expand::key_of(r, master, home) == target.occurrence
+            {
+                found.exception = Some((key.clone(), item.clone()));
+                if found.raw.is_none() {
+                    found.raw = res.raw.clone();
+                    found.etag = res.etag.clone();
+                }
+            }
+        }
+    }
+    if found.master.is_none() && found.exception.is_none() {
+        return Err(SyncError::Other(
+            "that Calendar event isn't there any more; it may have changed elsewhere".into(),
+        ));
+    }
+    Ok(found)
+}
+
+/// Whichever provider an account is with.
+pub enum AnyProvider<'a> {
+    Google(google::Google<'a>),
+    Caldav(caldav::CalDav<'a>),
+    Microsoft(microsoft::Graph<'a>),
+}
+
+macro_rules! each {
+    ($self:ident, $p:ident => $body:expr) => {
+        match $self {
+            AnyProvider::Google($p) => $body,
+            AnyProvider::Caldav($p) => $body,
+            AnyProvider::Microsoft($p) => $body,
+        }
+    };
+}
+
+impl Provider for AnyProvider<'_> {
+    async fn sync(&mut self, cache: &mut AccountCache) -> Result<bool, SyncError> {
+        each!(self, p => p.sync(cache).await)
+    }
+
+    async fn create(
+        &mut self,
+        cal: &CachedCalendar,
+        draft: &write::Draft,
+    ) -> Result<(), SyncError> {
+        each!(self, p => p.create(cal, draft).await)
+    }
+
+    async fn update(
+        &mut self,
+        cal: &CachedCalendar,
+        found: &write::Found,
+        draft: &write::Draft,
+        scope: write::Scope,
+    ) -> Result<(), SyncError> {
+        each!(self, p => p.update(cal, found, draft, scope).await)
+    }
+
+    async fn delete(
+        &mut self,
+        cal: &CachedCalendar,
+        found: &write::Found,
+        scope: write::Scope,
+    ) -> Result<(), SyncError> {
+        each!(self, p => p.delete(cal, found, scope).await)
+    }
+
+    async fn respond(
+        &mut self,
+        cal: &CachedCalendar,
+        found: &write::Found,
+        answer: write::Answer,
+        scope: write::Scope,
+    ) -> Result<(), SyncError> {
+        each!(self, p => p.respond(cal, found, answer, scope).await)
+    }
+}
+
 /// The user's own address on an account, to tell which attendee is them.
 fn self_email(account: &Account) -> Option<String> {
+    if let Source::Caldav(login) = &account.source {
+        if let Some(a) = &login.address {
+            return Some(a.to_lowercase());
+        }
+    }
     account
         .name
         .contains('@')

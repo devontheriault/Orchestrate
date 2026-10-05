@@ -120,3 +120,30 @@ pub fn save_google_client(dir: &Path, client: &GoogleClient) -> Result<(), Strin
     let text = serde_json::to_vec_pretty(client).map_err(|e| e.to_string())?;
     write(&google_client_path(dir), &text, true)
 }
+
+pub fn microsoft_client_path(dir: &Path) -> PathBuf {
+    dir.join("microsoft-client.json")
+}
+
+#[derive(Serialize, Deserialize)]
+struct MicrosoftClient {
+    client_id: String,
+}
+
+/// The application (client) ID of the app the user registered with
+/// Microsoft, which has no secret: it's an app on the user's own machine.
+pub fn load_microsoft_client(dir: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(microsoft_client_path(dir)).ok()?;
+    serde_json::from_str::<MicrosoftClient>(&text)
+        .ok()
+        .map(|c| c.client_id)
+        .filter(|id| !id.is_empty())
+}
+
+pub fn save_microsoft_client(dir: &Path, client_id: &str) -> Result<(), String> {
+    let text = serde_json::to_vec_pretty(&MicrosoftClient {
+        client_id: client_id.to_string(),
+    })
+    .map_err(|e| e.to_string())?;
+    write(&microsoft_client_path(dir), &text, false)
+}

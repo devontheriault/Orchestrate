@@ -44,6 +44,8 @@ pub struct Occurrence<'a> {
     pub recurring: bool,
     /// Which occurrence of its master this is; empty for a one-off.
     pub key: String,
+    /// How its master repeats, where the master is known.
+    pub rule: Option<&'a str>,
 }
 
 /// The range asked for, both as instants and as the days it covers in the
@@ -103,7 +105,7 @@ fn span(item: &Item, home: Tz) -> (Moment, Moment) {
 
 /// Which occurrence `when` names, keyed the way the master's occurrences
 /// are: by date for an all-day master, by instant otherwise.
-fn key_of(when: &When, master: &Item, home: Tz) -> String {
+pub(crate) fn key_of(when: &When, master: &Item, home: Tz) -> String {
     match (&master.start, when) {
         (When::Date { .. }, When::Date { date }) => date.format("%Y%m%d").to_string(),
         (When::Date { .. }, When::Time { at, .. }) => at.date().format("%Y%m%d").to_string(),
@@ -160,6 +162,7 @@ pub fn expand<'a>(
                         end,
                         recurring: item.recurrence_id.is_some(),
                         key,
+                        rule: None,
                     });
                 }
             }
@@ -189,6 +192,7 @@ pub fn expand<'a>(
                     end,
                     recurring: true,
                     key,
+                    rule: master.rrule.first().map(String::as_str),
                 });
             }
         }
@@ -301,6 +305,7 @@ fn repeat<'a>(master: &'a Item, range: &Range, home: Tz) -> Vec<Occurrence<'a>> 
                 end,
                 recurring: true,
                 key,
+                rule: master.rrule.first().map(String::as_str),
             })
         })
         .collect()
@@ -391,5 +396,10 @@ pub fn to_event(
         recurring: occ.recurring,
         tentative: item.tentative,
         busy: !item.transparent && !declined,
+        uid: item.uid.clone(),
+        occurrence: occ.key.clone(),
+        repeat_rule: occ.rule.map(str::to_string),
+        can_edit: false,
+        draft_id: None,
     }
 }

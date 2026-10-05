@@ -1,36 +1,30 @@
 //! Google Calendar, through its own API: Google offers CalDAV too, but not to
 //! an app signing in with OAuth the way a desktop app should.
 //!
-//! Signing in is OAuth 2.0 for installed apps: the user's browser goes to
-//! Google with a PKCE challenge, and Google sends it back to a port the Host
-//! listens on at 127.0.0.1 — so the browser has to be on the Host's machine.
-//! The client it signs in as is the user's own (`docs/google-calendar.md`).
+//! Signing in is OAuth 2.0 for installed apps (see [`super::oauth`]), as an
+//! OAuth client the build comes with or the user made themselves
+//! (`docs/calendar-accounts.md`).
 //!
 //! Syncing reads each calendar's Calendar events once in full and then only
 //! what changed, by Google's sync token. Repeating ones come as their rule
 //! and their exceptions, never expanded, so they are expanded the same way a
-//! CalDAV server's are.
+//! CalDAV server's are. Writing asks Google to email the people invited.
 
-use std::time::Duration;
+use chrono::{DateTime, NaiveDate};
+use reqwest::{Method, StatusCode};
+use serde_json::{json, Value};
 
-use base64::Engine;
-use chrono::{DateTime, NaiveDate, Utc};
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use sha2::{Digest, Sha256};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpListener;
-
+use super::oauth::{encode, escape, Client, OAuth, Session, Tokens};
+use super::write::{Answer, Draft, Found, Scope};
 use super::{
-    ical, meeting_link, AccountCache, Attendee, CachedCalendar, GoogleClient, Item, Provider,
-    Resource, SyncError, When,
+    ical, meeting_link, AccountCache, Attendee, CachedCalendar, Item, Provider, Resource,
+    SyncError, When,
 };
 
-/// Read access to every calendar the account can see. Nothing is written.
-pub const SCOPE: &str = "https://www.googleapis.com/auth/calendar.readonly";
-
-/// How long a sign-in waits for the browser to come back.
-const SIGN_IN_WAIT: Duration = Duration::from_secs(10 * 60);
+/// Reading every calendar the account can see, and changing Calendar events
+/// on the ones it can write. Nothing else of the account's.
+pub const SCOPE: &str =
+    "https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events";
 
 /// Where Google is. Only tests point these anywhere else.
 #[derive(Debug, Clone)]
@@ -50,299 +44,18 @@ impl Default for Endpoints {
     }
 }
 
-/// What signing in left the Host with.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Tokens {
-    pub access_token: String,
-    pub refresh_token: String,
-    /// When `access_token` stops working, in Unix seconds.
-    pub expires_at: i64,
-}
-
-/// `s` percent-encoded, for a query value or a path segment.
-pub fn escape(s: &str) -> String {
-    s.bytes()
-        .map(|b| match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                (b as char).to_string()
-            }
-            _ => format!("%{b:02X}"),
-        })
-        .collect()
-}
-
-/// `application/x-www-form-urlencoded`, for a query or a form body.
-pub fn encode(pairs: &[(&str, &str)]) -> String {
-    pairs
-        .iter()
-        .map(|(k, v)| format!("{}={}", escape(k), escape(v)))
-        .collect::<Vec<_>>()
-        .join("&")
-}
-
-fn decode(s: &str) -> String {
-    let bytes = s.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        match bytes[i] {
-            b'+' => out.push(b' '),
-            b'%' if i + 2 < bytes.len() => {
-                match std::str::from_utf8(&bytes[i + 1..i + 3])
-                    .ok()
-                    .and_then(|h| u8::from_str_radix(h, 16).ok())
-                {
-                    Some(b) => {
-                        out.push(b);
-                        i += 2;
-                    }
-                    None => out.push(b'%'),
-                }
-            }
-            b => out.push(b),
-        }
-        i += 1;
-    }
-    String::from_utf8_lossy(&out).into_owned()
-}
-
-/// The `key=value` pairs of a query string, decoded.
-pub fn query_pairs(query: &str) -> Vec<(String, String)> {
-    query
-        .split('&')
-        .filter(|p| !p.is_empty())
-        .map(|p| match p.split_once('=') {
-            Some((k, v)) => (decode(k), decode(v)),
-            None => (decode(p), String::new()),
-        })
-        .collect()
-}
-
-fn now() -> i64 {
-    Utc::now().timestamp()
-}
-
-#[derive(Deserialize)]
-struct TokenReply {
-    access_token: String,
-    expires_in: i64,
-    refresh_token: Option<String>,
-}
-
-/// Ask Google's token endpoint for tokens, by the `form` given.
-async fn token(
-    http: &reqwest::Client,
-    endpoints: &Endpoints,
-    form: &[(&str, &str)],
-) -> Result<TokenReply, SyncError> {
-    let res = http
-        .post(&endpoints.token)
-        .header("content-type", "application/x-www-form-urlencoded")
-        .body(encode(form))
-        .send()
-        .await
-        .map_err(|e| SyncError::Other(format!("could not reach Google: {e}")))?;
-    let status = res.status();
-    let body: Value = res.json().await.unwrap_or_default();
-    if status.is_success() {
-        return serde_json::from_value(body)
-            .map_err(|e| SyncError::Other(format!("Google's token reply was unreadable: {e}")));
-    }
-    let code = body["error"].as_str().unwrap_or_default();
-    let why = body["error_description"].as_str().unwrap_or(code);
-    // A refresh token the user revoked, or one Google expired (as it does
-    // after a week for an app still "in testing"), can't be used again.
-    if matches!(
-        code,
-        "invalid_grant" | "invalid_client" | "unauthorized_client"
-    ) {
-        Err(SyncError::Auth(format!(
-            "Google wants you to sign in again ({why})"
-        )))
-    } else {
-        Err(SyncError::Other(format!(
-            "Google refused the sign-in: {status} {why}"
-        )))
-    }
-}
-
-/// A sign-in waiting for the browser to come back.
-pub struct SignIn {
-    /// Where to send the user's browser.
-    pub url: String,
-    listener: TcpListener,
-    redirect: String,
-    verifier: String,
-    state: String,
-}
-
-fn random(len: usize) -> String {
-    const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
-    (0..len)
-        .map(|_| CHARS[rand::random_range(0..CHARS.len())] as char)
-        .collect()
-}
-
-/// The PKCE challenge for `verifier`: its SHA-256, base64url without padding.
-pub fn challenge(verifier: &str) -> String {
-    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()))
-}
-
-/// The page the browser lands on when it comes back.
-fn page(title: &str, body: &str) -> String {
-    let html = format!(
-        "<!doctype html><meta charset=utf-8><title>{title}</title>\
-         <body style=\"font:16px system-ui;margin:4rem auto;max-width:32rem;color:#333\">\
-         <h1 style=\"font-size:1.3rem\">{title}</h1><p>{body}</p></body>"
-    );
-    format!(
-        "HTTP/1.1 200 OK\r\ncontent-type: text/html; charset=utf-8\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{html}",
-        html.len()
-    )
-}
-
-impl SignIn {
-    /// Listen for Google's redirect, and say where to send the browser.
-    pub async fn start(endpoints: &Endpoints, client: &GoogleClient) -> Result<Self, String> {
-        let listener = TcpListener::bind("127.0.0.1:0")
-            .await
-            .map_err(|e| format!("could not listen for Google's answer: {e}"))?;
-        let port = listener.local_addr().map_err(|e| e.to_string())?.port();
-        let redirect = format!("http://127.0.0.1:{port}");
-        let verifier = random(64);
-        let state = random(24);
-        let url = format!(
-            "{}?{}",
-            endpoints.auth,
-            encode(&[
-                ("client_id", &client.client_id),
-                ("redirect_uri", &redirect),
-                ("response_type", "code"),
-                ("scope", SCOPE),
-                ("code_challenge", &challenge(&verifier)),
-                ("code_challenge_method", "S256"),
-                ("state", &state),
-                // A refresh token, every time: without `consent` Google only
-                // gives one the first time an account agrees.
-                ("access_type", "offline"),
-                ("prompt", "consent"),
-            ])
-        );
-        Ok(Self {
-            url,
-            listener,
-            redirect,
-            verifier,
-            state,
-        })
-    }
-
-    /// Wait for the browser, trade its code for tokens, and find which
-    /// account it signed in as.
-    pub async fn finish(
-        self,
-        http: &reqwest::Client,
-        endpoints: &Endpoints,
-        client: &GoogleClient,
-    ) -> Result<(String, Tokens), String> {
-        let code = tokio::time::timeout(SIGN_IN_WAIT, self.wait_for_code())
-            .await
-            .map_err(|_| "the sign-in wasn't finished in the browser in time".to_string())??;
-        let reply = token(
-            http,
-            endpoints,
-            &[
-                ("client_id", &client.client_id),
-                ("client_secret", &client.client_secret),
-                ("code", &code),
-                ("code_verifier", &self.verifier),
-                ("redirect_uri", &self.redirect),
-                ("grant_type", "authorization_code"),
-            ],
-        )
-        .await
-        .map_err(|e| e.to_string())?;
-        let mut tokens = Tokens {
-            access_token: reply.access_token,
-            refresh_token: reply
-                .refresh_token
-                .ok_or("Google gave no refresh token, so the Host couldn't stay signed in")?,
-            expires_at: now() + reply.expires_in,
-        };
-        // The primary calendar's id is the account's address.
-        let primary = Google::new(http, endpoints, client, &mut tokens)
-            .get(&format!("{}/users/me/calendarList/primary", endpoints.api))
-            .await
-            .map_err(|e| e.to_string())?;
-        let name = primary["id"].as_str().unwrap_or("Google").to_string();
-        Ok((name, tokens))
-    }
-
-    async fn wait_for_code(&self) -> Result<String, String> {
-        loop {
-            let (mut stream, _) = self.listener.accept().await.map_err(|e| e.to_string())?;
-            let mut buf = vec![0u8; 8192];
-            let n = stream.read(&mut buf).await.unwrap_or(0);
-            let request = String::from_utf8_lossy(&buf[..n]);
-            let target = request
-                .lines()
-                .next()
-                .and_then(|l| l.split_whitespace().nth(1))
-                .unwrap_or("/");
-            let (path, query) = target.split_once('?').unwrap_or((target, ""));
-            if path != "/" {
-                let _ = stream
-                    .write_all(
-                        b"HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
-                    )
-                    .await;
-                continue;
-            }
-            let params = query_pairs(query);
-            let get = |k: &str| {
-                params
-                    .iter()
-                    .find(|(key, _)| key == k)
-                    .map(|(_, v)| v.clone())
-            };
-            if get("state").as_deref() != Some(self.state.as_str()) {
-                // Not the browser this sign-in sent; keep waiting for it.
-                let _ = stream
-                    .write_all(
-                        page(
-                            "Not this sign-in",
-                            "This page belongs to an older sign-in. You can close it.",
-                        )
-                        .as_bytes(),
-                    )
-                    .await;
-                continue;
-            }
-            if let Some(error) = get("error") {
-                let _ = stream
-                    .write_all(
-                        page(
-                            "Google wasn't connected",
-                            "You can close this tab and try again from Orchestrate.",
-                        )
-                        .as_bytes(),
-                    )
-                    .await;
-                return Err(format!("Google sign-in was not completed ({error})"));
-            }
-            let Some(code) = get("code") else {
-                continue;
-            };
-            let _ = stream
-                .write_all(
-                    page(
-                        "Google Calendar is connected",
-                        "You can close this tab and go back to Orchestrate.",
-                    )
-                    .as_bytes(),
-                )
-                .await;
-            return Ok(code);
+impl Endpoints {
+    pub fn oauth(&self) -> OAuth {
+        OAuth {
+            name: "Google",
+            auth: self.auth.clone(),
+            token: self.token.clone(),
+            scope: SCOPE.into(),
+            // A refresh token, every time: without `consent` Google only
+            // gives one the first time an account agrees.
+            extra: vec![("access_type", "offline"), ("prompt", "consent")],
+            loopback: "127.0.0.1",
+            scope_on_refresh: false,
         }
     }
 }
@@ -350,82 +63,83 @@ impl SignIn {
 /// One Google account, signed in.
 pub struct Google<'a> {
     http: &'a reqwest::Client,
-    endpoints: &'a Endpoints,
-    client: &'a GoogleClient,
+    api: String,
+    oauth: OAuth,
+    client: Client,
     tokens: &'a mut Tokens,
+}
+
+/// What Google said went wrong, from its reply.
+fn failure(status: StatusCode, body: &Value) -> SyncError {
+    let why = body["error"]["message"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
+    let reason = body["error"]["errors"][0]["reason"]
+        .as_str()
+        .or(body["error"]["status"].as_str())
+        .unwrap_or_default();
+    match status.as_u16() {
+        401 => SyncError::Auth(format!("Google wants you to sign in again ({why})")),
+        403 if matches!(
+            reason,
+            "insufficientPermissions" | "PERMISSION_DENIED" | "ACCESS_TOKEN_SCOPE_INSUFFICIENT"
+        ) && why.to_ascii_lowercase().contains("scope") =>
+        {
+            SyncError::Auth(
+                "sign in to Google again, to let Orchestrate change your calendar".into(),
+            )
+        }
+        404 | 410 if reason == "deleted" || status == StatusCode::NOT_FOUND => {
+            SyncError::Other("it isn't on Google Calendar any more".into())
+        }
+        410 => SyncError::Other("gone".into()),
+        412 => SyncError::Other("it changed on Google Calendar since; sync and try again".into()),
+        _ => SyncError::Other(format!("Google answered {status}: {why}")),
+    }
 }
 
 impl<'a> Google<'a> {
     pub fn new(
         http: &'a reqwest::Client,
-        endpoints: &'a Endpoints,
-        client: &'a GoogleClient,
+        endpoints: &Endpoints,
+        client: Client,
         tokens: &'a mut Tokens,
     ) -> Self {
         Self {
             http,
-            endpoints,
+            api: endpoints.api.clone(),
+            oauth: endpoints.oauth(),
             client,
             tokens,
         }
     }
 
-    /// Trade the refresh token for a new access token.
-    async fn refresh(&mut self) -> Result<(), SyncError> {
-        let reply = token(
-            self.http,
-            self.endpoints,
-            &[
-                ("client_id", &self.client.client_id),
-                ("client_secret", &self.client.client_secret),
-                ("refresh_token", &self.tokens.refresh_token),
-                ("grant_type", "refresh_token"),
-            ],
-        )
-        .await?;
-        self.tokens.access_token = reply.access_token;
-        self.tokens.expires_at = now() + reply.expires_in;
-        if let Some(r) = reply.refresh_token {
-            self.tokens.refresh_token = r;
+    async fn call(
+        &mut self,
+        method: Method,
+        url: &str,
+        body: Option<&Value>,
+    ) -> Result<Value, SyncError> {
+        let reply = Session::new(self.http, &self.oauth, &self.client, self.tokens)
+            .send(method, url, body, &[])
+            .await?;
+        if reply.status.is_success() {
+            Ok(reply.body)
+        } else {
+            Err(failure(reply.status, &reply.body))
         }
-        Ok(())
     }
 
-    /// GET `url` as the account, refreshing the access token when it's about
-    /// to run out, or when Google says it already has.
     async fn get(&mut self, url: &str) -> Result<Value, SyncError> {
-        if self.tokens.expires_at - 60 <= now() {
-            self.refresh().await?;
-        }
-        let mut retried = false;
-        loop {
-            let res = self
-                .http
-                .get(url)
-                .bearer_auth(&self.tokens.access_token)
-                .send()
-                .await
-                .map_err(|e| SyncError::Other(format!("could not reach Google: {e}")))?;
-            let status = res.status();
-            if status == reqwest::StatusCode::UNAUTHORIZED && !retried {
-                retried = true;
-                self.refresh().await?;
-                continue;
-            }
-            let body: Value = res.json().await.unwrap_or_default();
-            if status.is_success() {
-                return Ok(body);
-            }
-            let why = body["error"]["message"]
-                .as_str()
-                .unwrap_or_default()
-                .to_string();
-            return Err(match status.as_u16() {
-                401 => SyncError::Auth(format!("Google wants you to sign in again ({why})")),
-                410 => SyncError::Other("gone".into()),
-                _ => SyncError::Other(format!("Google answered {status}: {why}")),
-            });
-        }
+        self.call(Method::GET, url, None).await
+    }
+
+    /// The account's address: its primary calendar's id.
+    pub async fn address(&mut self) -> Result<String, SyncError> {
+        let url = format!("{}/users/me/calendarList/primary", self.api);
+        let primary = self.get(&url).await?;
+        Ok(primary["id"].as_str().unwrap_or("Google").to_string())
     }
 
     /// Every calendar on the account's list.
@@ -437,13 +151,8 @@ impl<'a> Google<'a> {
             if let Some(p) = &page {
                 q.push(("pageToken", p));
             }
-            let body = self
-                .get(&format!(
-                    "{}/users/me/calendarList?{}",
-                    self.endpoints.api,
-                    encode(&q)
-                ))
-                .await?;
+            let url = format!("{}/users/me/calendarList?{}", self.api, encode(&q));
+            let body = self.get(&url).await?;
             out.extend(body["items"].as_array().cloned().unwrap_or_default());
             match body["nextPageToken"].as_str() {
                 Some(p) => page = Some(p.to_string()),
@@ -468,7 +177,7 @@ impl<'a> Google<'a> {
             }
             let url = format!(
                 "{}/calendars/{}/events?{}",
-                self.endpoints.api,
+                self.api,
                 escape(&cal.id),
                 encode(&q)
             );
@@ -511,6 +220,7 @@ impl<'a> Google<'a> {
                     let resource = Resource {
                         etag: raw["etag"].as_str().map(str::to_string),
                         items: vec![item],
+                        raw: None,
                     };
                     if cal.resources.get(id) != Some(&resource) {
                         cal.resources.insert(id.to_string(), resource);
@@ -523,6 +233,91 @@ impl<'a> Google<'a> {
         cal.sync_token = next_token;
         Ok(changed)
     }
+
+    /// The URL of one Calendar event, or one occurrence's own, with
+    /// `sendUpdates` saying whether to email the people on it.
+    fn event_url(&self, cal: &CachedCalendar, id: &str, notify: bool) -> String {
+        format!(
+            "{}/calendars/{}/events/{}?sendUpdates={}",
+            self.api,
+            escape(&cal.id),
+            escape(id),
+            if notify { "all" } else { "none" }
+        )
+    }
+
+    /// Which event at Google a change for `scope` goes to: the master, or the
+    /// occurrence, whose id is the master's and its original start.
+    fn target(found: &Found, scope: Scope) -> Result<String, SyncError> {
+        if scope == Scope::This && found.repeats() {
+            if let Some((id, _)) = &found.exception {
+                return Ok(id.clone());
+            }
+            let (master, _) = found.master.as_ref().ok_or_else(missing)?;
+            return Ok(format!("{master}_{}", found.occurrence));
+        }
+        found.key(scope).map(str::to_string).ok_or_else(missing)
+    }
+}
+
+fn missing() -> SyncError {
+    SyncError::Other("no such Calendar event".into())
+}
+
+/// Google's name for an answer.
+fn status(response: Option<&str>) -> &'static str {
+    match response {
+        Some("accepted") => "accepted",
+        Some("declined") => "declined",
+        Some("tentative") => "tentative",
+        _ => "needsAction",
+    }
+}
+
+/// A draft as Google's event resource. People already invited keep their
+/// answers; `whole` says whether the repeat rule belongs in it.
+fn body(draft: &Draft, old: &[Attendee], whole: bool) -> Result<Value, SyncError> {
+    let time = |s: &str| {
+        if draft.all_day {
+            json!({ "date": s })
+        } else {
+            let s = if s.len() == 16 {
+                format!("{s}:00")
+            } else {
+                s.to_string()
+            };
+            json!({ "dateTime": s, "timeZone": draft.time_zone })
+        }
+    };
+    let attendees: Vec<Value> = draft
+        .attendees
+        .iter()
+        .map(|g| {
+            let was = old.iter().find(|a| a.email.eq_ignore_ascii_case(&g.email));
+            let mut a = json!({
+                "email": g.email.trim(),
+                "responseStatus": status(was.and_then(|a| a.response.as_deref())),
+            });
+            if let Some(n) = g.name.as_deref().filter(|n| !n.trim().is_empty()) {
+                a["displayName"] = json!(n.trim());
+            }
+            a
+        })
+        .collect();
+    let mut b = json!({
+        "summary": draft.title.trim(),
+        "location": draft.location.as_deref().unwrap_or("").trim(),
+        "description": draft.description.as_deref().unwrap_or("").trim(),
+        "start": time(&draft.start),
+        "end": time(&draft.end),
+        "attendees": attendees,
+        "transparency": if draft.busy { "opaque" } else { "transparent" },
+    });
+    if whole {
+        let rule = draft.rrule().map_err(SyncError::Other)?;
+        b["recurrence"] = json!(rule.map(|r| vec![format!("RRULE:{r}")]).unwrap_or_default());
+    }
+    Ok(b)
 }
 
 impl Provider for Google<'_> {
@@ -551,10 +346,20 @@ impl Provider for Google<'_> {
             let color = entry["backgroundColor"].as_str().map(str::to_string);
             let primary = entry["primary"].as_bool().unwrap_or(false);
             let selected = entry["selected"].as_bool().unwrap_or(primary);
-            if (&cal.name, &cal.color, cal.primary, cal.selected)
-                != (&name, &color, primary, selected)
+            let writable = matches!(
+                entry["accessRole"].as_str(),
+                Some("owner" | "writer") | None
+            );
+            if (
+                &cal.name,
+                &cal.color,
+                cal.primary,
+                cal.selected,
+                cal.writable,
+            ) != (&name, &color, primary, selected, writable)
             {
-                (cal.name, cal.color, cal.primary, cal.selected) = (name, color, primary, selected);
+                (cal.name, cal.color, cal.primary, cal.selected, cal.writable) =
+                    (name, color, primary, selected, writable);
                 changed = true;
             }
             changed |= self.sync_calendar(&mut cal).await?;
@@ -566,6 +371,91 @@ impl Provider for Google<'_> {
         }
         cache.calendars = calendars;
         Ok(changed)
+    }
+
+    async fn create(&mut self, cal: &CachedCalendar, draft: &Draft) -> Result<(), SyncError> {
+        let url = format!(
+            "{}/calendars/{}/events?sendUpdates={}",
+            self.api,
+            escape(&cal.id),
+            if draft.attendees.is_empty() {
+                "none"
+            } else {
+                "all"
+            }
+        );
+        let b = body(draft, &[], true)?;
+        self.call(Method::POST, &url, Some(&b)).await.map(|_| ())
+    }
+
+    async fn update(
+        &mut self,
+        cal: &CachedCalendar,
+        found: &Found,
+        draft: &Draft,
+        scope: Scope,
+    ) -> Result<(), SyncError> {
+        let id = Self::target(found, scope)?;
+        let old = found
+            .item(scope)
+            .map(|i| i.attendees.clone())
+            .unwrap_or_default();
+        let notify = !draft.attendees.is_empty() || !old.is_empty();
+        let whole = !(scope == Scope::This && found.repeats());
+        let b = body(draft, &old, whole)?;
+        let url = self.event_url(cal, &id, notify);
+        self.call(Method::PATCH, &url, Some(&b)).await.map(|_| ())
+    }
+
+    async fn delete(
+        &mut self,
+        cal: &CachedCalendar,
+        found: &Found,
+        scope: Scope,
+    ) -> Result<(), SyncError> {
+        let id = Self::target(found, scope)?;
+        let notify = found.item(scope).is_some_and(|i| !i.attendees.is_empty());
+        let url = self.event_url(cal, &id, notify);
+        self.call(Method::DELETE, &url, None).await.map(|_| ())
+    }
+
+    async fn respond(
+        &mut self,
+        cal: &CachedCalendar,
+        found: &Found,
+        answer: Answer,
+        scope: Scope,
+    ) -> Result<(), SyncError> {
+        let id = Self::target(found, scope)?;
+        let item = found.item(scope).ok_or_else(missing)?;
+        if !item.attendees.iter().any(|a| a.is_self) {
+            return Err(SyncError::Other(
+                "you aren't among the people invited to it".into(),
+            ));
+        }
+        let mine = match answer {
+            Answer::Accepted => "accepted",
+            Answer::Tentative => "tentative",
+            Answer::Declined => "declined",
+        };
+        let attendees: Vec<Value> = item
+            .attendees
+            .iter()
+            .map(|a| {
+                json!({
+                    "email": a.email,
+                    "responseStatus": if a.is_self { mine } else { status(a.response.as_deref()) },
+                })
+            })
+            .collect();
+        let url = self.event_url(cal, &id, true);
+        self.call(
+            Method::PATCH,
+            &url,
+            Some(&json!({ "attendees": attendees })),
+        )
+        .await
+        .map(|_| ())
     }
 }
 

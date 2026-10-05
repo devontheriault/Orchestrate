@@ -9,6 +9,7 @@ use serde_json::Value;
 use time::OffsetDateTime;
 
 use super::{Host, Peer};
+use crate::calendar::Op;
 use crate::domain::{new_id, Agent, AgentOptions, AgentState, Project, QueuedMessage};
 use crate::error::Error;
 use crate::git::{self, Merged};
@@ -270,10 +271,38 @@ pub enum Call {
         client_id: String,
         client_secret: String,
     },
-    /// Start signing in to Google: the URL to open in a browser on the Host's
-    /// own machine, which Google sends back to. The account arrives later,
-    /// with a `calendar-changed` event.
-    CalendarConnectGoogle {},
+    /// Keep the Microsoft app the user registered, to sign in to Microsoft as.
+    CalendarSetMicrosoftClient {
+        client_id: String,
+    },
+    /// Start signing in to `google` or `microsoft`: the URL to open in a
+    /// browser on the Host's own machine, which the provider sends back to.
+    /// The account arrives later, with a `calendar-changed` event.
+    CalendarSignIn {
+        provider: String,
+    },
+    /// Make a Calendar event, inviting the people on it.
+    CalendarCreate {
+        account_id: String,
+        calendar_id: String,
+        draft: crate::calendar::write::Draft,
+    },
+    /// Change a Calendar event, or one occurrence of a repeating one.
+    CalendarUpdate {
+        target: crate::calendar::write::Target,
+        draft: crate::calendar::write::Draft,
+        scope: crate::calendar::write::Scope,
+    },
+    CalendarDelete {
+        target: crate::calendar::write::Target,
+        scope: crate::calendar::write::Scope,
+    },
+    /// Answer an invitation.
+    CalendarRespond {
+        target: crate::calendar::write::Target,
+        answer: crate::calendar::write::Answer,
+        scope: crate::calendar::write::Scope,
+    },
     /// Forget an account here. Nothing on the provider is touched.
     CalendarRemoveAccount {
         id: String,
@@ -333,8 +362,8 @@ pub async fn answer(host: &Host, call: Value, peer: Peer) -> Result<Value, Strin
     }
     // Google sends the browser back to 127.0.0.1, which is only this Host
     // from a browser on its own machine.
-    if matches!(call, Call::CalendarConnectGoogle {}) && peer != Peer::Local {
-        return Err("connect Google from a window on the Host's own machine: Google sends the browser back to it there".into());
+    if matches!(call, Call::CalendarSignIn { .. }) && peer != Peer::Local {
+        return Err("sign in from a window on the Host's own machine: the provider sends the browser back to it there".into());
     }
     handle(host, call).await
 }
@@ -725,7 +754,57 @@ async fn handle(host: &Host, call: Call) -> Result<Value, String> {
             .calendar
             .set_google_client(&client_id, &client_secret)?),
 
-        Call::CalendarConnectGoogle {} => ok(host.calendar.begin_google().await?),
+        Call::CalendarSetMicrosoftClient { client_id } => {
+            ok(host.calendar.set_microsoft_client(&client_id)?)
+        }
+
+        Call::CalendarSignIn { provider } => ok(host.calendar.begin_sign_in(&provider).await?),
+
+        Call::CalendarCreate {
+            account_id,
+            calendar_id,
+            draft,
+        } => ok(host
+            .calendar
+            .write(&account_id, Op::Create { calendar_id, draft })
+            .await?),
+
+        Call::CalendarUpdate {
+            target,
+            draft,
+            scope,
+        } => ok(host
+            .calendar
+            .write(
+                &target.account_id.clone(),
+                Op::Update {
+                    target,
+                    draft,
+                    scope,
+                },
+            )
+            .await?),
+
+        Call::CalendarDelete { target, scope } => ok(host
+            .calendar
+            .write(&target.account_id.clone(), Op::Delete { target, scope })
+            .await?),
+
+        Call::CalendarRespond {
+            target,
+            answer,
+            scope,
+        } => ok(host
+            .calendar
+            .write(
+                &target.account_id.clone(),
+                Op::Respond {
+                    target,
+                    answer,
+                    scope,
+                },
+            )
+            .await?),
 
         Call::CalendarRemoveAccount { id } => ok(host.calendar.remove(&id)?),
 

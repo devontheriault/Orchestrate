@@ -10,7 +10,9 @@ use std::collections::{HashMap, HashSet};
 use reqwest::{Method, StatusCode, Url};
 use serde::{Deserialize, Serialize};
 
-use super::{ical, AccountCache, CachedCalendar, Provider, Resource, SyncError};
+use super::write::{Answer, Draft, Found, Scope};
+use super::{ical, AccountCache, CachedCalendar, Item, Provider, Resource, SyncError};
+use crate::domain::new_id;
 
 const DAV: &str = "DAV:";
 const CALDAV: &str = "urn:ietf:params:xml:ns:caldav";
@@ -29,6 +31,12 @@ pub struct Login {
     pub password: String,
     /// Where their calendars are, once found.
     pub home: Option<String>,
+    /// Their own address to the server, which invitations go out from.
+    #[serde(default)]
+    pub address: Option<String>,
+    /// Whether the server emails invitations and answers itself.
+    #[serde(default)]
+    pub schedules: bool,
 }
 
 /// One `<response>` of a multistatus: what it's about, and its properties
@@ -50,6 +58,8 @@ struct Prop {
     hrefs: Vec<String>,
     /// The `name` attributes of `<comp>`s inside it.
     comps: Vec<String>,
+    /// Every element inside it, however deep.
+    all: Vec<(String, String)>,
 }
 
 impl Response {
@@ -119,6 +129,16 @@ fn multistatus(xml: &str) -> Result<Vec<Response>, SyncError> {
                             .filter(|n| is(n, DAV, "href"))
                             .filter_map(|n| n.text())
                             .map(|t| t.trim().to_string())
+                            .collect(),
+                        all: p
+                            .descendants()
+                            .filter(|n| n.is_element())
+                            .map(|n| {
+                                (
+                                    n.tag_name().namespace().unwrap_or_default().to_string(),
+                                    n.tag_name().name().to_string(),
+                                )
+                            })
                             .collect(),
                         comps: p
                             .descendants()
@@ -195,9 +215,14 @@ impl<'a> CalDav<'a> {
     }
 
     /// Find where the user's calendars are, from whatever URL they gave: a
-    /// server, their principal, the calendar home, or one calendar.
+    /// server, their principal, the calendar home, or one calendar. Also who
+    /// the user is to the server (the address invitations come from), and
+    /// whether the server sends invitations itself.
     pub async fn discover(&mut self) -> Result<(), SyncError> {
-        let asks = propfind("<d:current-user-principal/><d:resourcetype/><c:calendar-home-set/>");
+        let asks = propfind(
+            "<d:current-user-principal/><d:resourcetype/><c:calendar-home-set/>\
+             <c:calendar-user-address-set/>",
+        );
         let given = self.login.url.clone();
         let mut tried = vec![given.clone()];
         if let Ok(u) = Url::parse(&given) {
@@ -216,50 +241,75 @@ impl<'a> CalDav<'a> {
                 }
             };
             let Some(r) = rs.first() else { continue };
+            let mut home = None;
             if r.is(CALDAV, "calendar") {
-                self.login.home = Some(url);
-                return Ok(());
-            }
-            if let Some(home) = r
+                home = Some(url.clone());
+            } else if let Some(h) = r
                 .prop(CALDAV, "calendar-home-set")
                 .and_then(|p| p.hrefs.first())
             {
-                self.login.home = Some(self.url(home, &url)?.to_string());
-                return Ok(());
+                home = Some(self.url(h, &url)?.to_string());
             }
-            let Some(principal) = r
+            let mut address = mailto(r);
+            if let Some(principal) = r
                 .prop(DAV, "current-user-principal")
                 .and_then(|p| p.hrefs.first())
-            else {
-                continue;
-            };
-            let principal = self.url(principal, &url)?.to_string();
-            let text = self
-                .request(
-                    "PROPFIND",
-                    &principal,
-                    "0",
-                    propfind("<c:calendar-home-set/>"),
-                )
-                .await?;
-            if let Some(home) = multistatus(&text)?
-                .first()
-                .and_then(|r| r.prop(CALDAV, "calendar-home-set"))
-                .and_then(|p| p.hrefs.first())
             {
-                self.login.home = Some(self.url(home, &principal)?.to_string());
-                return Ok(());
+                let principal = self.url(principal, &url)?.to_string();
+                let text = self
+                    .request(
+                        "PROPFIND",
+                        &principal,
+                        "0",
+                        propfind("<c:calendar-home-set/><c:calendar-user-address-set/>"),
+                    )
+                    .await?;
+                if let Some(p) = multistatus(&text)?.first() {
+                    if home.is_none() {
+                        if let Some(h) = p
+                            .prop(CALDAV, "calendar-home-set")
+                            .and_then(|p| p.hrefs.first())
+                        {
+                            home = Some(self.url(h, &principal)?.to_string());
+                        }
+                    }
+                    address = address.or_else(|| mailto(p));
+                }
             }
+            let Some(home) = home else { continue };
+            self.login.schedules = self.schedules(&home).await;
+            self.login.home = Some(home);
+            self.login.address = address.or_else(|| {
+                self.login
+                    .username
+                    .contains('@')
+                    .then(|| self.login.username.clone())
+            });
+            return Ok(());
         }
         Err(last)
     }
 
-    /// The calendars that hold Calendar events: their URL, name, colour and
-    /// ctag.
-    async fn calendars(
-        &self,
-        home: &str,
-    ) -> Result<Vec<(String, String, Option<String>, Option<String>)>, SyncError> {
+    /// Whether the server sends invitations and answers itself (RFC 6638),
+    /// as its OPTIONS say.
+    async fn schedules(&self, url: &str) -> bool {
+        let mut req = self.http.request(Method::OPTIONS, url);
+        if !self.login.username.is_empty() {
+            req = req.basic_auth(&self.login.username, Some(&self.login.password));
+        }
+        match req.send().await {
+            Ok(res) => res
+                .headers()
+                .get_all("dav")
+                .iter()
+                .filter_map(|v| v.to_str().ok())
+                .any(|v| v.contains("calendar-auto-schedule")),
+            Err(_) => false,
+        }
+    }
+
+    /// The calendars that hold Calendar events.
+    async fn calendars(&self, home: &str) -> Result<Vec<Listed>, SyncError> {
         let text = self
             .request(
                 "PROPFIND",
@@ -267,7 +317,7 @@ impl<'a> CalDav<'a> {
                 "1",
                 propfind(
                     "<d:resourcetype/><d:displayname/><cs:getctag/><a:calendar-color/>\
-                     <c:supported-calendar-component-set/>",
+                     <c:supported-calendar-component-set/><d:current-user-privilege-set/>",
                 ),
             )
             .await?;
@@ -295,7 +345,19 @@ impl<'a> CalDav<'a> {
             let color = r
                 .text(APPLE, "calendar-color")
                 .map(|c| c.chars().take(7).collect::<String>());
-            out.push((url, name, color, r.text(CS, "getctag")));
+            // A server that doesn't say is taken at its word when writing.
+            let writable = r.prop(DAV, "current-user-privilege-set").is_none_or(|p| {
+                p.all.iter().any(|(ns, n)| {
+                    ns == DAV && matches!(n.as_str(), "write" | "write-content" | "all")
+                })
+            });
+            out.push(Listed {
+                url,
+                name,
+                color,
+                ctag: r.text(CS, "getctag"),
+                writable,
+            });
         }
         Ok(out)
     }
@@ -379,6 +441,7 @@ impl<'a> CalDav<'a> {
                     Resource {
                         etag: etag.or_else(|| etags.get(&href).cloned()),
                         items: ical::parse_events(&data),
+                        raw: Some(data),
                     },
                 );
                 changed = true;
@@ -387,12 +450,109 @@ impl<'a> CalDav<'a> {
         cal.sync_token = ctag;
         Ok(changed)
     }
+
+    /// Write an object, refusing to overwrite one that changed on the server
+    /// since it was read (`etag`), or to make one where one already is.
+    async fn put(&self, url: &str, body: String, etag: Option<&str>) -> Result<(), SyncError> {
+        let mut req = self
+            .http
+            .put(url)
+            .header("content-type", "text/calendar; charset=utf-8")
+            .body(body);
+        req = match etag {
+            Some(e) => req.header("if-match", e),
+            None => req.header("if-none-match", "*"),
+        };
+        if !self.login.username.is_empty() {
+            req = req.basic_auth(&self.login.username, Some(&self.login.password));
+        }
+        self.finish(url, req).await
+    }
+
+    async fn remove(&self, url: &str, etag: Option<&str>) -> Result<(), SyncError> {
+        let mut req = self.http.delete(url);
+        if let Some(e) = etag {
+            req = req.header("if-match", e);
+        }
+        if !self.login.username.is_empty() {
+            req = req.basic_auth(&self.login.username, Some(&self.login.password));
+        }
+        self.finish(url, req).await
+    }
+
+    async fn finish(&self, url: &str, req: reqwest::RequestBuilder) -> Result<(), SyncError> {
+        let res = req
+            .send()
+            .await
+            .map_err(|e| SyncError::Other(format!("could not reach {url}: {e}")))?;
+        match res.status() {
+            s if s.is_success() => Ok(()),
+            StatusCode::UNAUTHORIZED => Err(SyncError::Auth(
+                "the server refused the user name or password".into(),
+            )),
+            StatusCode::FORBIDDEN => Err(SyncError::Other(
+                "the server won't let you change that calendar".into(),
+            )),
+            StatusCode::PRECONDITION_FAILED => Err(SyncError::Other(
+                "it changed on the server since it was last synced; sync and try again".into(),
+            )),
+            StatusCode::NOT_FOUND | StatusCode::GONE => {
+                Err(SyncError::Other("it isn't on the server any more".into()))
+            }
+            s => Err(SyncError::Other(format!("{url} answered {s}"))),
+        }
+    }
+
+    /// The object a change edits, as the server last sent it.
+    fn object(found: &Found) -> Result<(ical::Object, String, Item), SyncError> {
+        let raw = found.raw.as_deref().ok_or_else(|| {
+            SyncError::Other(
+                "this Calendar event hasn't been read in full yet; sync and try again".into(),
+            )
+        })?;
+        let (href, master) = found
+            .master
+            .clone()
+            .or_else(|| found.exception.clone())
+            .ok_or_else(|| SyncError::Other("no such Calendar event".into()))?;
+        Ok((ical::Object::parse(raw), href, master))
+    }
+
+    /// The user's address, which invitations go out from and answers name.
+    fn me(&self) -> Option<&str> {
+        self.login.address.as_deref()
+    }
+}
+
+/// One calendar as the server lists it.
+struct Listed {
+    url: String,
+    name: String,
+    color: Option<String>,
+    ctag: Option<String>,
+    writable: bool,
+}
+
+/// The `mailto:` among a principal's addresses.
+fn mailto(r: &Response) -> Option<String> {
+    r.prop(CALDAV, "calendar-user-address-set")?
+        .hrefs
+        .iter()
+        .find_map(|h| {
+            h.strip_prefix("mailto:")
+                .or_else(|| h.strip_prefix("MAILTO:"))
+                .map(str::to_string)
+        })
 }
 
 fn xml_escape(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
+}
+
+fn invalid(e: String) -> SyncError {
+    SyncError::Other(e)
 }
 
 impl Provider for CalDav<'_> {
@@ -404,28 +564,138 @@ impl Provider for CalDav<'_> {
         let listed = self.calendars(&home).await?;
         let mut changed = false;
         let mut calendars = Vec::with_capacity(listed.len());
-        let kept: HashSet<&String> = listed.iter().map(|(url, ..)| url).collect();
+        let kept: HashSet<&String> = listed.iter().map(|l| &l.url).collect();
         changed |= cache.calendars.iter().any(|c| !kept.contains(&c.id));
-        for (url, name, color, ctag) in listed {
+        for l in listed {
             let mut cal = cache
                 .calendars
                 .iter()
-                .find(|c| c.id == url)
+                .find(|c| c.id == l.url)
                 .cloned()
                 .unwrap_or_else(|| CachedCalendar {
-                    id: url.clone(),
+                    id: l.url.clone(),
                     selected: true,
                     ..Default::default()
                 });
-            if (&cal.name, &cal.color) != (&name, &color) {
-                (cal.name, cal.color) = (name, color);
+            if (&cal.name, &cal.color, cal.writable) != (&l.name, &l.color, l.writable) {
+                (cal.name, cal.color, cal.writable) = (l.name, l.color, l.writable);
                 changed = true;
             }
-            changed |= self.sync_calendar(&mut cal, ctag).await?;
+            // A cache from before the raw objects were kept: read them again.
+            if cal.resources.values().any(|r| r.raw.is_none()) {
+                cal.resources.clear();
+                cal.sync_token = None;
+            }
+            changed |= self.sync_calendar(&mut cal, l.ctag).await?;
             calendars.push(cal);
         }
         calendars.sort_by(|a, b| a.name.cmp(&b.name));
         cache.calendars = calendars;
         Ok(changed)
+    }
+
+    async fn create(&mut self, cal: &CachedCalendar, draft: &Draft) -> Result<(), SyncError> {
+        let uid = format!(
+            "{}-{}{}@orchestrate",
+            chrono::Utc::now().timestamp_millis(),
+            new_id(),
+            new_id()
+        );
+        let rule = draft.rrule().map_err(invalid)?;
+        let body = ical::new_object(&uid, draft, rule.as_deref(), self.me()).map_err(invalid)?;
+        let base = if cal.id.ends_with('/') {
+            cal.id.clone()
+        } else {
+            format!("{}/", cal.id)
+        };
+        let url = format!("{base}{}.ics", uid.replace('@', "-"));
+        self.put(&url, body, None).await
+    }
+
+    async fn update(
+        &mut self,
+        _cal: &CachedCalendar,
+        found: &Found,
+        draft: &Draft,
+        scope: Scope,
+    ) -> Result<(), SyncError> {
+        let (mut obj, href, master) = Self::object(found)?;
+        let home = crate::calendar::home_zone();
+        let me = self.me().map(str::to_string);
+        if scope == Scope::This && found.repeats() {
+            let span = match obj.exception(&found.occurrence, &master, home) {
+                Some(s) => s,
+                None => obj
+                    .split_off(&found.occurrence, &master, home)
+                    .ok_or_else(|| SyncError::Other("no such occurrence".into()))?,
+            };
+            obj.apply(span, draft, None, me.as_deref(), true)
+                .map_err(invalid)?;
+        } else {
+            let span = obj
+                .master()
+                .or_else(|| obj.all().first().copied())
+                .ok_or_else(|| SyncError::Other("no such Calendar event".into()))?;
+            let rule = draft.rrule().map_err(invalid)?;
+            obj.apply(span, draft, rule.as_deref(), me.as_deref(), false)
+                .map_err(invalid)?;
+        }
+        self.put(&href, obj.render(), found.etag.as_deref()).await
+    }
+
+    async fn delete(
+        &mut self,
+        _cal: &CachedCalendar,
+        found: &Found,
+        scope: Scope,
+    ) -> Result<(), SyncError> {
+        let (mut obj, href, master) = Self::object(found)?;
+        if scope == Scope::This && found.repeats() {
+            obj.exclude(&found.occurrence, &master, crate::calendar::home_zone())
+                .map_err(invalid)?;
+            return self.put(&href, obj.render(), found.etag.as_deref()).await;
+        }
+        self.remove(&href, found.etag.as_deref()).await
+    }
+
+    async fn respond(
+        &mut self,
+        _cal: &CachedCalendar,
+        found: &Found,
+        answer: Answer,
+        scope: Scope,
+    ) -> Result<(), SyncError> {
+        let me = self
+            .me()
+            .ok_or_else(|| {
+                SyncError::Other(
+                    "the server didn't say which address is yours, so you can't answer here".into(),
+                )
+            })?
+            .to_string();
+        let (mut obj, href, master) = Self::object(found)?;
+        let home = crate::calendar::home_zone();
+        if scope == Scope::This && found.repeats() {
+            let span = match obj.exception(&found.occurrence, &master, home) {
+                Some(s) => s,
+                None => obj
+                    .split_off(&found.occurrence, &master, home)
+                    .ok_or_else(|| SyncError::Other("no such occurrence".into()))?,
+            };
+            obj.answer(span, &me, answer.partstat()).map_err(invalid)?;
+        } else {
+            let mut answered = false;
+            // Spans move as lines change length only within one; re-read each.
+            for i in 0..obj.all().len() {
+                let span = obj.all()[i];
+                answered |= obj.answer(span, &me, answer.partstat()).is_ok();
+            }
+            if !answered {
+                return Err(SyncError::Other(
+                    "you aren't among the people invited to it".into(),
+                ));
+            }
+        }
+        self.put(&href, obj.render(), found.etag.as_deref()).await
     }
 }
