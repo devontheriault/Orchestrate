@@ -461,6 +461,118 @@ export type AgentEventPayload = {
   event: AgentEvent;
 };
 
+/**
+ * The Mail Space (ADR 0017). Mirrors `src-tauri/src/mail/mod.rs`. The server
+ * is the source of truth; the Host only caches. A message's HTML arrives
+ * already sanitized, and is shown only in a sandboxed frame (`mail/frame.ts`).
+ */
+export type MailRole =
+  | "inbox"
+  | "important"
+  | "flagged"
+  | "drafts"
+  | "sent"
+  | "archive"
+  | "all"
+  | "junk"
+  | "trash";
+
+/** A folder, or on Gmail a label. `path` is what every call names it by. */
+export type MailFolder = {
+  path: string;
+  name: string;
+  role: MailRole | null;
+  depth: number;
+  unread: number;
+  total: number;
+};
+
+export type MailAddress = { name: string | null; email: string };
+
+/** A message as the list knows it, before it is opened. */
+export type MailSummary = {
+  uid: number;
+  folder: string;
+  message_id: string | null;
+  references: string[];
+  gm_thread: number | null;
+  subject: string;
+  from: MailAddress | null;
+  to: MailAddress[];
+  /** Unix seconds. */
+  date: number;
+  snippet: string;
+  unread: boolean;
+  flagged: boolean;
+  attachments: boolean;
+  /** Gmail's labels, other than the folder it is listed in. */
+  labels: string[];
+};
+
+/** A conversation: messages that answer each other, oldest first. */
+export type MailThread = {
+  id: string;
+  subject: string;
+  messages: MailSummary[];
+  unread: number;
+  date: number;
+};
+
+export type MailAttachment = { index: number; name: string; mime: string; size: number };
+
+/** An opened message. `html` is sanitized; null for a plain-text message. */
+export type MailMessage = {
+  uid: number;
+  folder: string;
+  subject: string;
+  from: MailAddress | null;
+  to: MailAddress[];
+  cc: MailAddress[];
+  date: number;
+  html: string | null;
+  text: string;
+  /** Remote images left out of `html`, which the user can load. */
+  remote_images: number;
+  attachments: MailAttachment[];
+};
+
+export type MailStatus = {
+  account: { email: string; auth: "google" | "microsoft" | "password"; server: string } | null;
+  state: "none" | "signing_in" | "connecting" | "connected" | "error";
+  error: string | null;
+};
+
+/** How the user connects an account. */
+export type MailSetup =
+  | {
+      auth: "password";
+      email: string;
+      server: string;
+      port: number;
+      security: "tls" | "plain";
+      username?: string;
+      password: string;
+    }
+  /**
+   * Signing in in the browser, with the user's own OAuth client: Google's
+   * has a secret, Microsoft's desktop client none. `tenant` is Microsoft's
+   * directory, `common` when unset.
+   */
+  | {
+      auth: "google" | "microsoft";
+      email: string;
+      clientId: string;
+      clientSecret?: string;
+      tenant?: string;
+    };
+
+export type MailSetUpOutcome =
+  | ({ next: "connected" } & MailStatus)
+  | { next: "browser"; url: string };
+
+/** An attachment's bytes, base64. */
+export type MailDownload = { name: string; mime: string; data: string };
+
 /** The id of this machine's Host. */
 export const LOCAL = "local";
 
@@ -719,6 +831,37 @@ export const api = {
   startupOrphans: async (hostId: string) =>
     stamp(hostId, await host<Omit<Agent, "host">[]>(hostId, "startup_orphans")),
   dismissOrphans: (hostId: string) => host<void>(hostId, "dismiss_orphans"),
+
+  /** The Mail Space, on the Host that holds the account. */
+  mailStatus: (hostId: string) => host<MailStatus>(hostId, "mail_status"),
+  mailSetUp: (hostId: string, setup: MailSetup) =>
+    host<MailSetUpOutcome>(hostId, "mail_set_up", { setup }),
+  mailSignOut: (hostId: string) => host<void>(hostId, "mail_sign_out"),
+  mailFolders: (hostId: string) => host<MailFolder[]>(hostId, "mail_folders"),
+  mailThreads: (hostId: string, folder: string) =>
+    host<MailThread[]>(hostId, "mail_threads", { folder }),
+  /** The server's search, in `folder`, or with null everywhere. */
+  mailSearch: (hostId: string, query: string, folder: string | null) =>
+    host<MailThread[]>(hostId, "mail_search", { query, folder }),
+  /** Open a message, which marks it read. Remote images only if `images`. */
+  mailMessage: (hostId: string, folder: string, uid: number, images: boolean) =>
+    host<MailMessage>(hostId, "mail_message", { folder, uid, images }),
+  mailSetSeen: (hostId: string, folder: string, uids: number[], seen: boolean) =>
+    host<void>(hostId, "mail_set_seen", { folder, uids, seen }),
+  mailArchive: (hostId: string, folder: string, uids: number[]) =>
+    host<void>(hostId, "mail_archive", { folder, uids }),
+  mailTrash: (hostId: string, folder: string, uids: number[]) =>
+    host<void>(hostId, "mail_trash", { folder, uids }),
+  mailAttachment: (hostId: string, folder: string, uid: number, index: number) =>
+    host<MailDownload>(hostId, "mail_attachment", { folder, uid, index }),
+  /** A conversation as quoted plain text, for an agent's task. */
+  mailThreadText: (hostId: string, folder: string, uids: number[]) =>
+    host<string>(hostId, "mail_thread_text", { folder, uids }),
+  /** Write a file the user picked a place for, on this machine. */
+  saveFile: (path: string, bytes: Uint8Array) =>
+    invoke<void>("save_file", bytes, {
+      headers: { "x-path": encodeURIComponent(path) },
+    }),
 };
 
 export type HostEvent<T> = T & { host: string };
@@ -737,4 +880,8 @@ export const events = {
 
   onHostStatus: (fn: (status: HostEvent<HostStatus>) => void): Promise<UnlistenFn> =>
     listen<HostEvent<HostStatus>>("host-status", (msg) => fn(msg.payload)),
+
+  /** Mail changed on a Host: in `folder`, or with null the account itself. */
+  onMailChanged: (fn: (change: HostEvent<{ folder: string | null }>) => void): Promise<UnlistenFn> =>
+    listen<HostEvent<{ folder: string | null }>>("mail-changed", (msg) => fn(msg.payload)),
 };

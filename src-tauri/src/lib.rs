@@ -5,6 +5,7 @@ pub mod error;
 pub mod git;
 pub mod handoff;
 pub mod host;
+pub mod mail;
 pub mod mcp;
 pub mod merging;
 pub mod models;
@@ -79,6 +80,16 @@ fn build_main_window(app: &tauri::AppHandle) -> tauri::Result<()> {
     } else {
         win.min_inner_size(560.0, 420.0)
     };
+
+    // A page asking for a new window is a link in a mail message, from its
+    // sandboxed frame (`mail/frame.ts`): it opens in the user's browser, and
+    // never in an app window. Nothing else in the app opens windows.
+    let win = win.on_new_window(|url, _| {
+        if matches!(url.scheme(), "http" | "https" | "mailto") {
+            let _ = tauri_plugin_opener::open_url(url.as_str(), None::<&str>);
+        }
+        tauri::webview::NewWindowResponse::Deny
+    });
 
     win.build()?;
     Ok(())
@@ -252,6 +263,7 @@ pub fn run() {
             commands::remove_host,
             commands::send_attachments,
             commands::save_attachment,
+            commands::save_file,
             commands::save_clipboard_image,
             commands::attachment_preview,
             commands::notification_icon,

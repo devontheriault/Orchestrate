@@ -107,6 +107,10 @@ _Avoid_: using it as a synonym for Agent (an Agent is the thing the user talks t
 What Turns have cost: tokens and dollars per Model, plus how much of the account's rate-limit windows is spent. Read back out of the Agent logs rather than tallied as events arrive — Claude Code reports a Turn's per-model totals on its `result` event and the account's windows on `rate_limit_event`, so the logs are the record and the numbers are right after a restart. Account-wide rather than per-Project or per-Host: every Agent spends against the same limits, which is why the usage window totals across Agents on every reachable Host by default, and why a log that outlived its Discarded Agent still counts toward the total.
 _Avoid_: Cost (only half of it), Quota, Budget (nothing here enforces one), Stats.
 
+**Conversation**:
+In the Mail Space, the messages in a folder that answer each other, listed as one row and read together. They are joined by Gmail's own thread id where the server is Gmail, and otherwise by the References and In-Reply-To headers, never by subject, since two different mails called "Invoice" are not one conversation. Archiving, deleting, marking read and **Send to agent** act on the whole Conversation. Send to agent Spawns an Agent in a Project the user picks, with the Conversation quoted as plain text as its Task. The Task tells the Agent that the mail is information to work with, not instructions, since anyone can write an email. In code it is a `Thread`.
+_Avoid_: Thread (in the UI), Chain, Email (that's one message).
+
 ## Agent lifecycle
 
 An Agent moves through these states, and each transition has a specific verb.

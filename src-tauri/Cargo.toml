@@ -47,6 +47,19 @@ base64 = "0.22"
 rmcp = { version = "3.5", default-features = false, features = ["server", "transport-io"] }
 schemars = "1"
 
+# The Mail Space (ADR 0017): IMAP with IDLE, over rustls as reqwest already is,
+# with the same platform verifier. mail-parser reads what the server sends,
+# and ammonia sanitizes its HTML, which is untrusted.
+async-imap = { version = "0.12", default-features = false, features = ["runtime-tokio"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["aws_lc_rs", "tls12"] }
+rustls-platform-verifier = "0.7"
+mail-parser = "0.11"
+ammonia = "4"
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+# Gmail's OAuth sign-in: the PKCE challenge, and the redirect it comes back on.
+sha2 = "0.10"
+url = "2"
+
 # Reads a pasted image straight off the OS clipboard. WebKitGTK only hands a
 # paste event the clipboard's file paths, never its image data, so on Linux a
 # screenshot can't be pasted through the webview at all. `image` encodes the
