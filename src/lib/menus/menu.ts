@@ -115,12 +115,15 @@ export function menuStyle(p: Placement): string {
  * composer's `/` menu sits on the input box, while the transcript above it
  * scrolls on its own every time a working agent says something.
  *
+ * `resize: false` is for one a phone's on-screen keyboard can resize the
+ * window under: the Calendar event editor, a sheet that rides above it.
+ *
  * Returns the cleanup, for the `$effect` that calls it to hand back.
  */
 export function dismissOnMove(
   inside: () => (Element | undefined)[],
   close: () => void,
-  { scroll = true }: { scroll?: boolean } = {},
+  { scroll = true, resize = true }: { scroll?: boolean; resize?: boolean } = {},
 ): () => void {
   const ours = (t: Node | null) => !!t && inside().some((el) => !!el?.contains(t));
   const onDown = (e: PointerEvent) => {
@@ -132,7 +135,9 @@ export function dismissOnMove(
     if (!scroll || ours(e.target as Node)) return;
     close();
   };
-  const onResize = () => close();
+  const onResize = () => {
+    if (resize) close();
+  };
   window.addEventListener("pointerdown", onDown, true);
   window.addEventListener("resize", onResize);
   // Capture: the transcript, the diff and the project list scroll, not the window.

@@ -1314,7 +1314,7 @@ async fn google_writes_and_invites() {
     );
     assert_eq!(
         created["start"],
-        json!({"dateTime": "2026-10-06T09:00:00", "timeZone": "America/Halifax"})
+        json!({"date": null, "dateTime": "2026-10-06T09:00:00", "timeZone": "America/Halifax"})
     );
     assert_eq!(
         created["recurrence"],
@@ -1342,6 +1342,54 @@ async fn google_writes_and_invites() {
         .unwrap()
         .clone();
     assert_eq!(mine["responseStatus"], "declined");
+}
+
+/// Google merges a PATCH's `start` into the one it has, so a Calendar event
+/// made all-day, or given a time again, would keep its old `date` or
+/// `dateTime` beside the new one, and Google refuses that as an invalid
+/// start time. Each says the other is gone.
+#[tokio::test]
+async fn google_clears_the_old_kind_of_time_when_all_day_changes() {
+    let server = MockServer::start().await;
+    let (_dir, cals) = google_host(&server).await;
+    let api = "/calendar/v3/calendars/me%40example.com/events";
+    Mock::given(method("PATCH"))
+        .and(path(format!("{api}/abc")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+        .expect(2)
+        .mount(&server)
+        .await;
+
+    for d in [
+        draft("2026-10-05", "2026-10-06"),
+        draft("2026-10-05T14:00", "2026-10-05T15:00"),
+    ] {
+        cals.write(
+            "acct",
+            Op::Update {
+                target: target("abc", ""),
+                draft: d,
+                scope: write::Scope::All,
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    let reqs = server.received_requests().await.unwrap();
+    let patches: Vec<Value> = reqs
+        .iter()
+        .filter(|r| r.method.as_str() == "PATCH")
+        .map(sent)
+        .collect();
+    assert_eq!(
+        patches[0]["start"],
+        json!({"date": "2026-10-05", "dateTime": null, "timeZone": null})
+    );
+    assert_eq!(
+        patches[1]["end"],
+        json!({"date": null, "dateTime": "2026-10-05T15:00:00", "timeZone": "America/Halifax"})
+    );
 }
 
 #[tokio::test]

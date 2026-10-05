@@ -160,8 +160,24 @@
   });
 
   let titleEl: HTMLInputElement | undefined = $state();
+  // On a phone, focus brings up the keyboard, which a change to one that
+  // already has a title would only have to put away again.
   $effect(() => {
-    titleEl?.focus();
+    if (!viewport.phone || !(existing || editing.draftId)) titleEl?.focus();
+  });
+
+  // On a phone the sheet ends where the keyboard begins (`--visible-h`), so
+  // once the keyboard is up, bring the field being typed in back into view.
+  $effect(() => {
+    const visual = viewport.phone ? window.visualViewport : null;
+    if (!visual || !el) return;
+    const target = el;
+    const reveal = () => {
+      const focused = document.activeElement;
+      if (focused instanceof HTMLElement && target.contains(focused)) focused.scrollIntoView({ block: "nearest" });
+    };
+    visual.addEventListener("resize", reveal);
+    return () => visual.removeEventListener("resize", reveal);
   });
 
   // A press outside closes a new, untouched one; anything typed is kept
@@ -172,7 +188,7 @@
       () => {
         if (!existing && !draft.title.trim() && !editing.draftId) close();
       },
-      { scroll: false },
+      { scroll: false, resize: !viewport.phone },
     ),
   );
 
@@ -396,12 +412,16 @@
     font-size: var(--text-sm);
   }
 
+  /* Its bottom sits on what the on-screen keyboard leaves (see
+     viewport.svelte.ts): iOS lays the keyboard over the page, so a sheet
+     pinned to the screen's bottom would be under it. */
   .editor.sheet {
     left: 0;
     right: 0;
-    bottom: 0;
+    top: var(--visible-h, 100dvh);
+    transform: translateY(-100%);
     width: auto;
-    max-height: 85vh;
+    max-height: min(85vh, calc(var(--visible-h, 100dvh) - var(--safe-top) - var(--space-4)));
     border-radius: var(--radius-xl) var(--radius-xl) 0 0;
     padding-bottom: calc(var(--space-6) + var(--safe-bottom));
   }

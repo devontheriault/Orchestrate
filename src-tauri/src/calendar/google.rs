@@ -277,16 +277,19 @@ fn status(response: Option<&str>) -> &'static str {
 /// A draft as Google's event resource. People already invited keep their
 /// answers; `whole` says whether the repeat rule belongs in it.
 fn body(draft: &Draft, old: &[Attendee], whole: bool) -> Result<Value, SyncError> {
+    // A PATCH's `start` is merged into the one Google has, so each kind of
+    // time clears the other: an event made all-day, or given a time again,
+    // would otherwise keep both, which Google refuses as an invalid time.
     let time = |s: &str| {
         if draft.all_day {
-            json!({ "date": s })
+            json!({ "date": s, "dateTime": null, "timeZone": null })
         } else {
             let s = if s.len() == 16 {
                 format!("{s}:00")
             } else {
                 s.to_string()
             };
-            json!({ "dateTime": s, "timeZone": draft.time_zone })
+            json!({ "date": null, "dateTime": s, "timeZone": draft.time_zone })
         }
     };
     let attendees: Vec<Value> = draft
