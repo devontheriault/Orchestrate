@@ -729,11 +729,13 @@ async fn signing_in_to_google_uses_pkce_and_the_loopback_redirect() {
             .clone(),
     )
     .unwrap();
-    let sent: std::collections::HashMap<_, _> = oauth::query_pairs(&form).into_iter().collect();
+    let sent: std::collections::HashMap<_, _> = url::form_urlencoded::parse(form.as_bytes())
+        .into_owned()
+        .collect();
     assert_eq!(sent["code"], "the-code");
     assert_eq!(sent["redirect_uri"], redirect);
     assert_eq!(
-        oauth::challenge(&sent["code_verifier"]),
+        crate::oauth::challenge(&sent["code_verifier"]),
         q["code_challenge"]
     );
 }
@@ -1621,7 +1623,9 @@ async fn signing_in_to_microsoft_goes_back_to_localhost_with_no_secret() {
     assert_eq!(tokens.refresh_token, "r");
     let form =
         String::from_utf8(server.received_requests().await.unwrap()[0].body.clone()).unwrap();
-    let form: std::collections::HashMap<_, _> = oauth::query_pairs(&form).into_iter().collect();
+    let form: std::collections::HashMap<_, _> = url::form_urlencoded::parse(form.as_bytes())
+        .into_owned()
+        .collect();
     assert!(!form.contains_key("client_secret"));
     assert!(form["scope"].contains("Calendars.ReadWrite"));
 }

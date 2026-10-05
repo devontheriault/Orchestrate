@@ -1,7 +1,8 @@
 //! Signing in with Google or Microsoft, for IMAP's XOAUTH2. The flow is the
 //! one both give installed apps: the user signs in in their own browser, which
 //! comes back to a one-off listener on this machine's loopback address with a
-//! code, and the code (with its PKCE proof) buys a refresh token.
+//! code (`crate::oauth`), and the code (with its PKCE proof) buys a refresh
+//! token.
 //!
 //! Gmail takes an app password too, but Microsoft no longer lets other apps
 //! sign in to Outlook.com or Microsoft 365 with a password at all, so for
@@ -19,14 +20,11 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use base64::Engine;
-use rand::distr::{Alphanumeric, SampleString};
 use serde::Deserialize;
-use sha2::{Digest, Sha256};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
 
 use super::account::{self, OAuthProvider, OAuthSetup, Saved, Secret};
 use super::Result;
+use crate::oauth::{Loopback, Pkce};
 
 /// How long the user has to finish signing in.
 const SIGN_IN_WINDOW: Duration = Duration::from_secs(10 * 60);
@@ -180,127 +178,29 @@ where
         return Err("Google sign-in needs your OAuth client's secret too".into());
     }
     let ends = endpoints(provider, setup.tenant.as_deref())?;
-    let v4 = TcpListener::bind("127.0.0.1:0")
-        .await
-        .map_err(|e| format!("could not listen for {who}'s answer: {e}"))?;
-    let port = v4.local_addr().map_err(|e| e.to_string())?.port();
-    // `localhost` may reach us over IPv6 first.
-    let v6 = if ends.loopback == "localhost" {
-        TcpListener::bind(("::1", port)).await.ok()
-    } else {
-        None
-    };
-    let redirect = format!("http://{}:{port}", ends.loopback);
-
-    let verifier = Alphanumeric.sample_string(&mut rand::rng(), 64);
-    let challenge = base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .encode(Sha256::digest(verifier.as_bytes()));
-    let state = Alphanumeric.sample_string(&mut rand::rng(), 32);
-    let url = auth_url(provider, &setup, &redirect, &challenge, &state)?;
+    let loopback = Loopback::bind(ends.loopback, who).await?;
+    let pkce = Pkce::new();
+    let state = crate::oauth::new_state();
+    let url = auth_url(
+        provider,
+        &setup,
+        &loopback.redirect,
+        &pkce.challenge,
+        &state,
+    )?;
 
     tokio::spawn(async move {
-        let answered = answer(provider, &v4, v6.as_ref(), &state);
+        let answered = loopback.code(who, &state, "Signed in");
         let outcome = match tokio::time::timeout(SIGN_IN_WINDOW, answered).await {
-            Ok(Ok(code)) => exchange(provider, &setup, &code, &verifier, &redirect).await,
+            Ok(Ok(code)) => {
+                exchange(provider, &setup, &code, &pkce.verifier, &loopback.redirect).await
+            }
             Ok(Err(e)) => Err(e),
             Err(_) => Err(format!("the {who} sign-in wasn't finished in time")),
         };
         done(outcome).await;
     });
     Ok(url)
-}
-
-async fn accept(v4: &TcpListener, v6: Option<&TcpListener>) -> std::io::Result<TcpStream> {
-    match v6 {
-        Some(v6) => tokio::select! {
-            r = v4.accept() => r.map(|(s, _)| s),
-            r = v6.accept() => r.map(|(s, _)| s),
-        },
-        None => v4.accept().await.map(|(s, _)| s),
-    }
-}
-
-/// Wait for the browser to come back with a code for this sign-in.
-async fn answer(
-    provider: OAuthProvider,
-    v4: &TcpListener,
-    v6: Option<&TcpListener>,
-    state: &str,
-) -> Result<String> {
-    let who = provider.name();
-    loop {
-        let mut stream = accept(v4, v6)
-            .await
-            .map_err(|e| format!("lost the {who} sign-in: {e}"))?;
-        let mut buf = vec![0u8; 8192];
-        let n = stream.read(&mut buf).await.unwrap_or(0);
-        let request = String::from_utf8_lossy(&buf[..n]);
-        let Some(query) = redirect_query(&request) else {
-            // A browser asking for the favicon, say.
-            let _ = stream
-                .write_all(
-                    b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
-                )
-                .await;
-            continue;
-        };
-        let got = |k: &str| {
-            url::form_urlencoded::parse(query.as_bytes())
-                .find(|(key, _)| key == k)
-                .map(|(_, v)| v.into_owned())
-        };
-        let outcome = if got("state").as_deref() != Some(state) {
-            Err(format!("the answer from {who} didn't match this sign-in"))
-        } else if let Some(code) = got("code") {
-            Ok(code)
-        } else {
-            Err(match (got("error").as_deref(), got("error_description")) {
-                (Some("access_denied"), _) => format!("the {who} sign-in was cancelled"),
-                (Some(e), Some(why)) => format!("{who} refused the sign-in: {e}: {why}"),
-                (Some(e), None) => format!("{who} refused the sign-in: {e}"),
-                (None, _) => format!("{who}'s answer had no sign-in code"),
-            })
-        };
-        let page = page(outcome.as_ref().err().map(String::as_str));
-        let _ = stream
-            .write_all(
-                format!(
-                    "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n\
-                     Content-Length: {}\r\nConnection: close\r\n\r\n{page}",
-                    page.len()
-                )
-                .as_bytes(),
-            )
-            .await;
-        return outcome;
-    }
-}
-
-/// The query of a request for the redirect's own path, `/`.
-pub fn redirect_query(request: &str) -> Option<&str> {
-    let target = request
-        .lines()
-        .next()?
-        .strip_prefix("GET ")?
-        .split(' ')
-        .next()?;
-    target.strip_prefix("/?")
-}
-
-/// What the browser shows once the provider has sent it back.
-fn page(error: Option<&str>) -> String {
-    let (title, line) = match error {
-        None => (
-            "Signed in",
-            "You can close this tab and go back to Orchestrate.",
-        ),
-        Some(_) => ("Not signed in", "Go back to Orchestrate to try again."),
-    };
-    format!(
-        "<!doctype html><meta charset=utf-8><title>{title}</title>\
-         <body style=\"font:16px system-ui;display:grid;place-items:center;height:90vh;\
-         color:#333\"><div><h2>{title}</h2><p>{line}</p></div>"
-    )
 }
 
 #[derive(Deserialize)]

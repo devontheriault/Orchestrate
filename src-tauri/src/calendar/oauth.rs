@@ -1,24 +1,20 @@
 //! Signing in to a calendar provider with OAuth 2.0 for installed apps, and
 //! staying signed in: Google and Microsoft both work this way.
 //!
-//! The user's browser goes to the provider with a PKCE challenge, and the
-//! provider sends it back to a port the Host listens on at 127.0.0.1, so the
-//! browser has to be on the Host's machine. The Host then trades the code for
+//! The browser's part is `crate::oauth`'s. The Host then trades the code for
 //! tokens, keeps the refresh token, and uses it for a fresh access token
 //! whenever the last is about to run out or the provider says it already has.
 
+use std::fmt::Write;
 use std::time::Duration;
 
-use base64::Engine;
 use chrono::Utc;
 use reqwest::{Method, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sha2::{Digest, Sha256};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
 
 use super::SyncError;
+use crate::oauth::{Loopback, Pkce};
 
 /// How long a sign-in waits for the browser to come back.
 const SIGN_IN_WAIT: Duration = Duration::from_secs(10 * 60);
@@ -60,14 +56,18 @@ pub struct Tokens {
 
 /// `s` percent-encoded, for a query value or a path segment.
 pub fn escape(s: &str) -> String {
-    s.bytes()
-        .map(|b| match b {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        match b {
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                (b as char).to_string()
+                out.push(b.into())
             }
-            _ => format!("%{b:02X}"),
-        })
-        .collect()
+            _ => {
+                let _ = write!(out, "%{b:02X}");
+            }
+        }
+    }
+    out
 }
 
 /// `application/x-www-form-urlencoded`, for a query or a form body.
@@ -77,44 +77,6 @@ pub fn encode(pairs: &[(&str, &str)]) -> String {
         .map(|(k, v)| format!("{}={}", escape(k), escape(v)))
         .collect::<Vec<_>>()
         .join("&")
-}
-
-fn decode(s: &str) -> String {
-    let bytes = s.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        match bytes[i] {
-            b'+' => out.push(b' '),
-            b'%' if i + 2 < bytes.len() => {
-                match std::str::from_utf8(&bytes[i + 1..i + 3])
-                    .ok()
-                    .and_then(|h| u8::from_str_radix(h, 16).ok())
-                {
-                    Some(b) => {
-                        out.push(b);
-                        i += 2;
-                    }
-                    None => out.push(b'%'),
-                }
-            }
-            b => out.push(b),
-        }
-        i += 1;
-    }
-    String::from_utf8_lossy(&out).into_owned()
-}
-
-/// The `key=value` pairs of a query string, decoded.
-pub fn query_pairs(query: &str) -> Vec<(String, String)> {
-    query
-        .split('&')
-        .filter(|p| !p.is_empty())
-        .map(|p| match p.split_once('=') {
-            Some((k, v)) => (decode(k), decode(v)),
-            None => (decode(p), String::new()),
-        })
-        .collect()
 }
 
 fn now() -> i64 {
@@ -166,40 +128,12 @@ async fn token(
     }
 }
 
-fn random(len: usize) -> String {
-    const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
-    (0..len)
-        .map(|_| CHARS[rand::random_range(0..CHARS.len())] as char)
-        .collect()
-}
-
-/// The PKCE challenge for `verifier`: its SHA-256, base64url without padding.
-pub fn challenge(verifier: &str) -> String {
-    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()))
-}
-
-/// The page the browser lands on when it comes back.
-fn page(title: &str, body: &str) -> String {
-    let html = format!(
-        "<!doctype html><meta charset=utf-8><title>{title}</title>\
-         <body style=\"font:16px system-ui;margin:4rem auto;max-width:32rem;color:#333\">\
-         <h1 style=\"font-size:1.3rem\">{title}</h1><p>{body}</p></body>"
-    );
-    format!(
-        "HTTP/1.1 200 OK\r\ncontent-type: text/html; charset=utf-8\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{html}",
-        html.len()
-    )
-}
-
 /// A sign-in waiting for the browser to come back.
 pub struct SignIn {
     /// Where to send the user's browser.
     pub url: String,
-    listener: TcpListener,
-    /// The same port on IPv6, for a browser that reads `localhost` as `::1`.
-    listener6: Option<TcpListener>,
-    redirect: String,
-    verifier: String,
+    loopback: Loopback,
+    pkce: Pkce,
     state: String,
     oauth: OAuth,
 }
@@ -207,25 +141,15 @@ pub struct SignIn {
 impl SignIn {
     /// Listen for the provider's redirect, and say where to send the browser.
     pub async fn start(oauth: &OAuth, client: &Client) -> Result<Self, String> {
-        let listener = TcpListener::bind("127.0.0.1:0")
-            .await
-            .map_err(|e| format!("could not listen for {}'s answer: {e}", oauth.name))?;
-        let port = listener.local_addr().map_err(|e| e.to_string())?.port();
-        let listener6 = if oauth.loopback == "localhost" {
-            TcpListener::bind(("::1", port)).await.ok()
-        } else {
-            None
-        };
-        let redirect = format!("http://{}:{port}", oauth.loopback);
-        let verifier = random(64);
-        let state = random(24);
-        let challenge = challenge(&verifier);
+        let loopback = Loopback::bind(oauth.loopback, oauth.name).await?;
+        let pkce = Pkce::new();
+        let state = crate::oauth::new_state();
         let mut params = vec![
             ("client_id", client.id.as_str()),
-            ("redirect_uri", redirect.as_str()),
+            ("redirect_uri", loopback.redirect.as_str()),
             ("response_type", "code"),
             ("scope", oauth.scope.as_str()),
-            ("code_challenge", challenge.as_str()),
+            ("code_challenge", pkce.challenge.as_str()),
             ("code_challenge_method", "S256"),
             ("state", state.as_str()),
         ];
@@ -233,10 +157,8 @@ impl SignIn {
         let url = format!("{}?{}", oauth.auth, encode(&params));
         Ok(Self {
             url,
-            listener,
-            listener6,
-            redirect,
-            verifier,
+            loopback,
+            pkce,
             state,
             oauth: oauth.clone(),
         })
@@ -245,14 +167,15 @@ impl SignIn {
     /// Wait for the browser, and trade its code for tokens.
     pub async fn finish(self, http: &reqwest::Client, client: &Client) -> Result<Tokens, String> {
         let name = self.oauth.name;
-        let code = tokio::time::timeout(SIGN_IN_WAIT, self.wait_for_code())
+        let done = format!("{name} Calendar is connected");
+        let code = tokio::time::timeout(SIGN_IN_WAIT, self.loopback.code(name, &self.state, &done))
             .await
             .map_err(|_| "the sign-in wasn't finished in the browser in time".to_string())??;
         let mut form = vec![
             ("client_id", client.id.as_str()),
             ("code", code.as_str()),
-            ("code_verifier", self.verifier.as_str()),
-            ("redirect_uri", self.redirect.as_str()),
+            ("code_verifier", self.pkce.verifier.as_str()),
+            ("redirect_uri", self.loopback.redirect.as_str()),
             ("grant_type", "authorization_code"),
         ];
         if let Some(secret) = &client.secret {
@@ -271,86 +194,6 @@ impl SignIn {
             })?,
             expires_at: now() + reply.expires_in,
         })
-    }
-
-    async fn accept(&self) -> std::io::Result<TcpStream> {
-        match &self.listener6 {
-            Some(six) => tokio::select! {
-                r = self.listener.accept() => r.map(|(s, _)| s),
-                r = six.accept() => r.map(|(s, _)| s),
-            },
-            None => self.listener.accept().await.map(|(s, _)| s),
-        }
-    }
-
-    async fn wait_for_code(&self) -> Result<String, String> {
-        let name = self.oauth.name;
-        loop {
-            let mut stream = self.accept().await.map_err(|e| e.to_string())?;
-            let mut buf = vec![0u8; 16 * 1024];
-            let n = stream.read(&mut buf).await.unwrap_or(0);
-            let request = String::from_utf8_lossy(&buf[..n]);
-            let target = request
-                .lines()
-                .next()
-                .and_then(|l| l.split_whitespace().nth(1))
-                .unwrap_or("/");
-            let (path, query) = target.split_once('?').unwrap_or((target, ""));
-            if path != "/" {
-                let _ = stream
-                    .write_all(
-                        b"HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
-                    )
-                    .await;
-                continue;
-            }
-            let params = query_pairs(query);
-            let get = |k: &str| {
-                params
-                    .iter()
-                    .find(|(key, _)| key == k)
-                    .map(|(_, v)| v.clone())
-            };
-            if get("state").as_deref() != Some(self.state.as_str()) {
-                // Not the browser this sign-in sent; keep waiting for it.
-                let _ = stream
-                    .write_all(
-                        page(
-                            "Not this sign-in",
-                            "This page belongs to an older sign-in. You can close it.",
-                        )
-                        .as_bytes(),
-                    )
-                    .await;
-                continue;
-            }
-            if let Some(error) = get("error") {
-                let _ = stream
-                    .write_all(
-                        page(
-                            &format!("{name} wasn't connected"),
-                            "You can close this tab and try again from Orchestrate.",
-                        )
-                        .as_bytes(),
-                    )
-                    .await;
-                let why = get("error_description").unwrap_or(error);
-                return Err(format!("{name} sign-in was not completed ({why})"));
-            }
-            let Some(code) = get("code") else {
-                continue;
-            };
-            let _ = stream
-                .write_all(
-                    page(
-                        &format!("{name} Calendar is connected"),
-                        "You can close this tab and go back to Orchestrate.",
-                    )
-                    .as_bytes(),
-                )
-                .await;
-            return Ok(code);
-        }
     }
 }
 

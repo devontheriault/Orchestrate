@@ -33,12 +33,11 @@
   import { usage as usageWindow } from "$lib/usage/usage.svelte";
   import { plugins } from "$lib/plugins/plugins.svelte";
   import { progress } from "$lib/plugins/catalog";
-  import { advisorLabel, DEFAULT_EFFORT, DEFAULT_MODE, DEFAULT_MODEL } from "$lib/picks";
+  import { advisorLabel, DEFAULT_EFFORT, DEFAULT_MODE, DEFAULT_MODEL, modeChoices } from "$lib/picks";
   import { stepActive } from "$lib/menus/menu";
   import Attachments from "./Attachments.svelte";
   import ModelPicker from "$lib/menus/ModelPicker.svelte";
-  import ModePicker from "$lib/menus/ModePicker.svelte";
-  import HostPicker from "$lib/menus/HostPicker.svelte";
+  import Picker from "$lib/menus/Picker.svelte";
   import { handoffChoices, hostChoices } from "$lib/menus/hostChoices";
   import { hosts } from "$lib/state/hosts.svelte";
   import AgentQueue from "./AgentQueue.svelte";
@@ -720,7 +719,7 @@
         <div class="picks">
           {#if hostOptions}
             <!-- First: where the agent runs comes before what runs it. -->
-            <HostPicker
+            <Picker
               value={store.draftHost}
               options={hostOptions}
               onpick={(h) => (store.pickedHost = h)}
@@ -729,7 +728,7 @@
               label="Host for the new agent"
             />
           {:else if handoffOptions && agent}
-            <HostPicker
+            <Picker
               value={handOffTo ?? agent.host}
               options={handoffOptions}
               onpick={(h) => (handOffTo = h === agent.host ? null : h)}
@@ -747,8 +746,10 @@
           />
           <!-- Right of the model: the same decision, one step further out —
                which model runs the turn, and what it's allowed to do. -->
-          <ModePicker
-            bind:value={mode}
+          <Picker
+            value={mode}
+            options={modeChoices(mode)}
+            onpick={(m) => (mode = m)}
             disabled={inFlight || mailLocked}
             compact
             label={mailLocked

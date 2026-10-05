@@ -228,33 +228,10 @@ fn stem(path: &Path) -> String {
         .unwrap_or_default()
 }
 
-/// Write `bytes` to `path` all at once: into a hidden file beside it, flushed
-/// to disk, then renamed over it. A reader sees the old note or the new one,
-/// never half of either. The note keeps its permissions.
+/// Write a note all at once, keeping its permissions: a reader sees the old
+/// note or the new one, never half of either.
 fn write_atomically(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    let dir = path.parent().ok_or_else(|| io::Error::other("no folder"))?;
-    fs::create_dir_all(dir)?;
-    let name = path
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let tmp = dir.join(format!(".{name}.{:08x}.tmp", rand::random::<u32>()));
-    let written = (|| {
-        let mut f = fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&tmp)?;
-        f.write_all(bytes)?;
-        f.sync_all()?;
-        if let Ok(meta) = fs::metadata(path) {
-            fs::set_permissions(&tmp, meta.permissions())?;
-        }
-        fs::rename(&tmp, path)
-    })();
-    if written.is_err() {
-        let _ = fs::remove_file(&tmp);
-    }
-    written
+    crate::storage::write_whole(path, bytes, false)
 }
 
 /// Tell every window which notes changed, by path relative to the folder.

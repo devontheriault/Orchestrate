@@ -4,7 +4,8 @@
    * `menus/menu.ts`): a trigger, a list under it, the arrows to walk it.
    * It lives in the editor, itself a popover, so its list floats above it.
    */
-  import { dismissOnMove, menuStyle, opensMenu, placeMenu, stepActive, type Placement } from "$lib/menus/menu";
+  import { menuStyle, placeMenu } from "$lib/menus/menu";
+  import { Listbox } from "$lib/menus/listbox.svelte";
 
   type Option = { value: T; label: string; color?: string | null; note?: string };
 
@@ -15,75 +16,31 @@
   }: { value: T; options: Option[]; label: string } = $props();
 
   const uid = $props.id();
-  let open = $state(false);
-  let active = $state(0);
-  let triggerEl: HTMLButtonElement | undefined = $state();
-  let listEl: HTMLElement | undefined = $state();
-  let placement = $state<Placement | null>(null);
 
   const current = $derived(options.find((o) => o.value === value));
+  const at = () => options.findIndex((o) => o.value === value);
 
-  function openMenu() {
-    if (!triggerEl || !options.length) return;
-    active = Math.max(0, options.findIndex((o) => o.value === value));
-    placement = placeMenu(triggerEl, { minWidth: 220, maxHeight: 300, align: "left" });
-    open = true;
-  }
-
-  function close(refocus = true) {
-    if (!open) return;
-    open = false;
-    if (refocus) triggerEl?.focus();
-  }
+  const box = new Listbox({
+    count: () => options.length,
+    place: (trigger) => placeMenu(trigger, { minWidth: 220, maxHeight: 300, align: "left" }),
+    pick: (i) => pick(options[i].value),
+  });
 
   function pick(v: T) {
     value = v;
-    close();
-  }
-
-  $effect(() => {
-    if (!open) return;
-    return dismissOnMove(() => [listEl, triggerEl], () => close(false));
-  });
-
-  $effect(() => {
-    if (open) listEl?.focus();
-  });
-
-  function onListKeydown(e: KeyboardEvent) {
-    const next = stepActive(e.key, active, options.length);
-    if (next !== null) {
-      e.preventDefault();
-      active = next;
-      return;
-    }
-    if (e.key === "Escape") {
-      e.preventDefault();
-      e.stopPropagation();
-      close();
-    } else if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      pick(options[active].value);
-    } else if (e.key === "Tab") {
-      close(false);
-    }
+    box.close();
   }
 </script>
 
 <button
-  bind:this={triggerEl}
+  bind:this={box.trigger}
   type="button"
   class="btn btn-select trigger"
   aria-haspopup="listbox"
-  aria-expanded={open}
+  aria-expanded={box.open}
   aria-label={label}
-  onclick={() => (open ? close() : openMenu())}
-  onkeydown={(e) => {
-    if (opensMenu(e.key)) {
-      e.preventDefault();
-      openMenu();
-    }
-  }}
+  onclick={() => box.toggle(at())}
+  onkeydown={(e) => box.triggerKey(e, at())}
 >
   {#if current?.color !== undefined}<span class="dot" style:--c={current?.color}></span>{/if}
   <span class="btn-select-label">{current?.label ?? label}</span>
@@ -92,16 +49,16 @@
   </svg>
 </button>
 
-{#if open && placement}
+{#if box.open && box.placement}
   <ul
-    bind:this={listEl}
+    bind:this={box.list}
     class="popover popover-above menu"
     role="listbox"
     aria-label={label}
-    aria-activedescendant={`${uid}-opt-${active}`}
+    aria-activedescendant={`${uid}-opt-${box.active}`}
     tabindex="-1"
-    onkeydown={onListKeydown}
-    style={menuStyle(placement)}
+    onkeydown={(e) => box.listKey(e)}
+    style={menuStyle(box.placement)}
   >
     {#each options as o, i (o.value)}
       <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -109,11 +66,11 @@
         id={`${uid}-opt-${i}`}
         role="option"
         aria-selected={o.value === value}
-        data-active={i === active}
+        data-active={i === box.active}
         class="menu-item"
         class:on={o.value === value}
         onclick={() => pick(o.value)}
-        onpointermove={() => (active = i)}
+        onpointermove={() => box.hover(i)}
       >
         {#if o.color !== undefined}
           <span class="dot" style:--c={o.color}></span>

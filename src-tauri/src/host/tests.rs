@@ -497,7 +497,7 @@ async fn a_window_the_vet_refuses_is_told_why_and_served_nothing() {
 async fn a_host_that_can_only_listen_on_the_tailnet_later_serves_it_from_then() {
     let _env = StateEnv::new();
     let socket = paths::host_socket().unwrap();
-    let (rt, rx) = AgentRuntime::with_bin(&fake_claude_ok());
+    let (rt, rx) = AgentRuntime::with_bin(fake_claude_ok());
     let host = Host::new(rt, rx, vec![]);
     let local = super::local::Listener::bind(&socket).unwrap();
     // As when Tailscale comes up after the Host has started.

@@ -697,7 +697,7 @@ impl Calendars {
                 }
             }
         }
-        out.sort_by_key(sort_key);
+        out.sort_by(by_start);
         Ok(out)
     }
 
@@ -706,7 +706,7 @@ impl Calendars {
     pub fn events_and_drafts(&self, from: &str, to: &str) -> Result<Vec<CalendarEvent>, String> {
         let mut out = self.events(from, to)?;
         out.extend(self.draft_events(parse_time(from)?, parse_time(to)?));
-        out.sort_by_key(sort_key);
+        out.sort_by(by_start);
         Ok(out)
     }
 
@@ -738,13 +738,13 @@ impl Calendars {
         let limit = limit.unwrap_or(50);
         if found.len() > limit {
             let home = self.home;
-            found.sort_by_key(|e| {
+            found.sort_by_cached_key(|e| {
                 (event_instant(&e.start, home) - now.to_utc())
                     .num_seconds()
                     .abs()
             });
             found.truncate(limit);
-            found.sort_by_key(sort_key);
+            found.sort_by(by_start);
         }
         Ok(found)
     }
@@ -1379,13 +1379,15 @@ fn self_email(account: &Account) -> Option<String> {
         .then(|| account.name.to_lowercase())
 }
 
-/// Sorts all-day Calendar events before timed ones on the same day.
-fn sort_key(e: &CalendarEvent) -> (String, bool, String) {
-    (
-        e.start.chars().take(10).collect(),
-        !e.all_day,
-        e.start.clone(),
-    )
+/// Soonest first, and all-day Calendar events before timed ones on the same day.
+fn by_start(a: &CalendarEvent, b: &CalendarEvent) -> std::cmp::Ordering {
+    fn day(e: &CalendarEvent) -> &str {
+        e.start.get(..10).unwrap_or(&e.start)
+    }
+    day(a)
+        .cmp(day(b))
+        .then((!a.all_day).cmp(&!b.all_day))
+        .then_with(|| a.start.cmp(&b.start))
 }
 
 fn event_instant(s: &str, home: Tz) -> DateTime<Utc> {

@@ -341,7 +341,7 @@ fn account_rereads_a_transcript_that_grew() {
         1,
         1,
     );
-    write_transcript(root.path(), "p/s.jsonl", &[first.clone()]);
+    write_transcript(root.path(), "p/s.jsonl", std::slice::from_ref(&first));
     assert_eq!(account::summary(root.path()).turns, 1);
 
     let second = reply(

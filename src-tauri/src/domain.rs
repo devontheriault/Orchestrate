@@ -26,10 +26,20 @@ pub const DEFAULT_PERMISSION_MODE: &str = "bypassPermissions";
 /// one a Mail-locked Agent's Turns run in (ADR 0018).
 pub const PLAN_PERMISSION_MODE: &str = "plan";
 
+/// `bytes` as lower-case hex, two digits each.
+pub fn hex(bytes: &[u8]) -> String {
+    const DIGITS: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        out.push(DIGITS[usize::from(b >> 4)].into());
+        out.push(DIGITS[usize::from(b & 0x0f)].into());
+    }
+    out
+}
+
 /// Generate a new 8-hex-char ID from 4 random bytes.
 pub fn new_id() -> Id {
-    let bytes: [u8; 4] = rand::random();
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
+    hex(&rand::random::<[u8; 4]>())
 }
 
 /// Generate a random v4 UUID string, the form `claude --session-id` accepts.
@@ -39,7 +49,7 @@ pub fn new_session_id() -> String {
     let mut b: [u8; 16] = rand::random();
     b[6] = (b[6] & 0x0f) | 0x40; // version 4
     b[8] = (b[8] & 0x3f) | 0x80; // RFC 4122 variant
-    let hex: String = b.iter().map(|x| format!("{x:02x}")).collect();
+    let hex = hex(&b);
     format!(
         "{}-{}-{}-{}-{}",
         &hex[0..8],
