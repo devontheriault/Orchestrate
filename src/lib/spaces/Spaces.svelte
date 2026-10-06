@@ -9,7 +9,13 @@
    * to the same place, with the same draft in its composer. Hidden with
    * `visibility` rather than `display`, so they keep their layout, and their
    * scroll positions with it.
+   *
+   * On a phone, a swipe sideways over a Space's top screen pulls the next one
+   * in beside it, the way the tabs below are laid out.
    */
+  import { Tween } from "svelte/motion";
+  import { cubicOut } from "svelte/easing";
+  import { goesThrough, reducedMotion, resist, settleMs, swipe, type Dir } from "$lib/layout/swipe";
   import { store } from "$lib/state/store.svelte";
   import { viewport } from "$lib/layout/viewport.svelte";
   import { SPACES, currentSpaceCss, spaceForKey } from "./spaces";
@@ -55,6 +61,58 @@
   const tabs = $derived(
     viewport.phone && !(space.current === "agents" && (store.selectedAgent || store.drafting)),
   );
+
+  /** A swipe between Spaces under way: the Space coming in, if there's one that way. */
+  let pull = $state<{ to: SpaceId | null; dir: Dir } | null>(null);
+  /** How far the Space showing has moved across. */
+  const across = new Tween(0, { easing: cubicOut });
+  /** Letting go: finishing the swipe or putting it back, which a new one waits for. */
+  let settling = false;
+  let width = $state(390);
+
+  /** The Space beside the one showing: swiping left brings in the next tab. */
+  function beside(dir: Dir): SpaceId | null {
+    const i = SPACES.findIndex((s) => s.id === space.current);
+    return SPACES[i - dir]?.id ?? null;
+  }
+
+  const pager = swipe({
+    can: () => tabs && !settling,
+    move: (dx) => {
+      const dir: Dir = dx < 0 ? -1 : 1;
+      const to = beside(dir);
+      if (to) space.opened.add(to);
+      pull = { to, dir };
+      void across.set(to ? dx : resist(dx), { duration: 0 });
+    },
+    end: (dx, velocity) => {
+      const to = pull?.to;
+      const motion = (n: number) => (reducedMotion() ? 0 : n);
+      settling = true;
+      if (to && pull && goesThrough(dx, width, velocity)) {
+        const goal = pull.dir * width;
+        void across.set(goal, { duration: motion(settleMs(goal - dx, velocity)) }).then(() => {
+          space.show(to);
+          pull = null;
+          void across.set(0, { duration: 0 });
+          settling = false;
+        });
+      } else {
+        void across.set(0, { duration: motion(settleMs(across.current, 0)) }).then(() => {
+          pull = null;
+          settling = false;
+        });
+      }
+    },
+  });
+
+  /** Where a Space's box is drawn during a swipe: the one showing, and the one coming in beside it. */
+  function shift(id: SpaceId): string | undefined {
+    if (!pull) return undefined;
+    if (id === space.current) return `translateX(${across.current}px)`;
+    if (id === pull.to) return `translateX(${across.current - pull.dir * width}px)`;
+    return undefined;
+  }
 </script>
 
 <svelte:head>
@@ -65,11 +123,13 @@
   {#if !viewport.phone}<SpaceRail />{/if}
 
   <!-- Above the tab bar, the home indicator is the bar's to keep clear of. -->
-  <div class="stack" class:over-tabs={tabs}>
+  <div class="stack" class:over-tabs={tabs} bind:clientWidth={width} {@attach pager}>
     {#each SPACES as s (s.id)}
       <div
         class="box"
         data-space-box={s.id}
+        style:transform={shift(s.id)}
+        style:visibility={pull?.to === s.id ? "visible" : undefined}
         inert={space.current !== s.id}
         bind:this={boxes[s.id]}
         onfocusin={(e) => noteFocus(s.id, e)}

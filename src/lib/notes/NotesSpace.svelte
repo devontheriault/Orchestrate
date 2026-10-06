@@ -12,6 +12,7 @@
   import { viewport } from "$lib/layout/viewport.svelte";
   import { panes, MIN_DETAIL, MIN_SIDE } from "$lib/layout/panes.svelte";
   import PaneDivider from "$lib/layout/PaneDivider.svelte";
+  import PhoneStack from "$lib/layout/PhoneStack.svelte";
   import { space } from "$lib/spaces/space.svelte";
   import NoteEditor from "./NoteEditor.svelte";
   import NoteSidebar from "./NoteSidebar.svelte";
@@ -106,11 +107,14 @@
         onresize={(w) => panes.setSide("notes", w)}
         onreset={() => panes.setSide("notes", null)}
       />
-    {:else if !notes.open}
-      <NoteSidebar bind:this={sidebar} phone {mod} oncreate={create} />
-    {/if}
-    {#if !viewport.phone || notes.open}
-      <NoteEditor bind:this={editor} bind:reading phone={viewport.phone} {mod} oncreate={create} />
+      <NoteEditor bind:this={editor} bind:reading {mod} oncreate={create} />
+    {:else}
+      <PhoneStack space="notes" open={!!notes.open} onclose={() => notes.close()}>
+        {#snippet list()}<NoteSidebar bind:this={sidebar} phone {mod} oncreate={create} />{/snippet}
+        {#snippet detail()}
+          <NoteEditor bind:this={editor} bind:reading phone {mod} oncreate={create} />
+        {/snippet}
+      </PhoneStack>
     {/if}
   </div>
 </div>

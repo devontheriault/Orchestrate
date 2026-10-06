@@ -20,6 +20,7 @@ import {
   type CalendarTarget,
 } from "$lib/api";
 import { hosts } from "$lib/state/hosts.svelte";
+import { viewport } from "$lib/layout/viewport.svelte";
 import { draftFrom, movedDraft, newDraft } from "./edit";
 import {
   calendarKey,
@@ -140,6 +141,8 @@ class CalendarSpace {
     this.now = new Date();
     this.cursor = startOfDay(this.now);
     this.readLocale();
+    // Measured now, not when the page starts it: a Space opened at launch starts first.
+    viewport.start();
     this.readPrefs();
 
     const tick = setInterval(() => (this.now = new Date()), TICK_MS);
@@ -204,6 +207,9 @@ class CalendarSpace {
       const prefs = JSON.parse(localStorage.getItem(PREFS) ?? "{}") as Prefs;
       if (prefs.view === "day" || prefs.view === "week" || prefs.view === "month") {
         this.view = prefs.view;
+      } else if (viewport.phone) {
+        // Seven columns across a phone are too thin to read; one day fits.
+        this.view = "day";
       }
       this.shown = prefs.shown ?? {};
       this.lastCalendar = prefs.calendar ?? null;

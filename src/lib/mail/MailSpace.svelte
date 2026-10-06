@@ -7,6 +7,7 @@
   import { hosts } from "$lib/state/hosts.svelte";
   import { panes, MIN_DETAIL, MIN_SIDE } from "$lib/layout/panes.svelte";
   import PaneDivider from "$lib/layout/PaneDivider.svelte";
+  import PhoneStack, { goBack } from "$lib/layout/PhoneStack.svelte";
   import { space } from "$lib/spaces/space.svelte";
   import { mail } from "./mail.svelte";
   import MailSetup from "./MailSetup.svelte";
@@ -92,6 +93,15 @@
   });
 </script>
 
+{#snippet threads()}
+  <ThreadList
+    compact={columns < 3}
+    bind:search
+    onfolders={() => (drawer = true)}
+    onopen={() => (reading = columns === 1)}
+  />
+{/snippet}
+
 <div class="mail-space" bind:clientWidth={width}>
   {#if mail.status === null}
     <!-- Nothing until the Host has answered, as the rest of the app does. -->
@@ -132,21 +142,23 @@
           onreset={() => panes.setSide("folders", null)}
         />
       {/if}
-      {#if columns > 1 || !reading}
+      {#if columns === 1}
+        <PhoneStack space="mail" open={reading} onclose={() => (reading = false)}>
+          {#snippet list()}<div class="col list-col">{@render threads()}</div>{/snippet}
+          {#snippet detail()}
+            <div class="col reader-col">
+              <Reader bind:sending onback={() => goBack("mail") || (reading = false)} />
+            </div>
+          {/snippet}
+        </PhoneStack>
+      {:else}
         <div
           class="col list-col"
-          style:flex-basis={columns > 1 ? panes.basis("threads") : undefined}
-          style:min-width={columns > 1 ? `${MIN_SIDE.threads}px` : undefined}
+          style:flex-basis={panes.basis("threads")}
+          style:min-width="{MIN_SIDE.threads}px"
         >
-          <ThreadList
-            compact={columns < 3}
-            bind:search
-            onfolders={() => (drawer = true)}
-            onopen={() => (reading = columns === 1)}
-          />
+          {@render threads()}
         </div>
-      {/if}
-      {#if columns > 1}
         <PaneDivider
           label="Resize conversations"
           ruled
@@ -155,10 +167,8 @@
           onresize={(w) => panes.setSide("threads", w)}
           onreset={() => panes.setSide("threads", null)}
         />
-      {/if}
-      {#if columns > 1 || reading}
-        <div class="col reader-col" style:min-width={columns > 1 ? `${MIN_DETAIL}px` : undefined}>
-          <Reader bind:sending onback={columns === 1 ? () => (reading = false) : undefined} />
+        <div class="col reader-col" style:min-width="{MIN_DETAIL}px">
+          <Reader bind:sending />
         </div>
       {/if}
     </div>

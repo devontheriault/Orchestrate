@@ -12,6 +12,7 @@
   import { SPACES } from "./spaces";
   import { space } from "./space.svelte";
   import SpaceIcon from "./SpaceIcon.svelte";
+  import { goBack } from "$lib/layout/PhoneStack.svelte";
 
   let { phone = false }: { phone?: boolean } = $props();
 </script>
@@ -26,7 +27,11 @@
           aria-current={space.current === s.id ? "page" : undefined}
           aria-label={s.label}
           aria-keyshortcuts={`Control+${s.shortcut} Meta+${s.shortcut}`}
-          onclick={() => space.show(s.id)}
+          onclick={() => {
+            // Tapped again, a tab goes back to its Space's top, as iOS's do.
+            if (phone && space.current === s.id) goBack(s.id);
+            else space.show(s.id);
+          }}
         >
           <span class="glyph"><SpaceIcon icon={s.icon} /></span>
           {#if phone}

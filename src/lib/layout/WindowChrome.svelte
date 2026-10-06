@@ -4,6 +4,7 @@
   import { panes, MIN_PROJECTS } from "./panes.svelte";
   import { viewport } from "./viewport.svelte";
   import Logo from "./Logo.svelte";
+  import { goBack } from "./PhoneStack.svelte";
   import { store } from "$lib/state/store.svelte";
   import { space } from "$lib/spaces/space.svelte";
 
@@ -57,7 +58,7 @@
          the list the bar is the app's name, over an agent it's the way back
          and what's open. -->
     {#if agent || drafting}
-      <button class="back" onclick={() => store.closeDetail()} aria-label="Back to projects">
+      <button class="back" onclick={() => goBack("agents") || store.closeDetail()} aria-label="Back to projects">
         <svg viewBox="0 0 10 16" aria-hidden="true"><path d="M8.5 1.5 2 8l6.5 6.5" /></svg>
       </button>
       <div class="stacked">
