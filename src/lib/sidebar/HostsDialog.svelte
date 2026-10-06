@@ -11,7 +11,7 @@
    */
   import { hosts } from "$lib/state/hosts.svelte";
   import { store } from "$lib/state/store.svelte";
-  import { api, type HostStatus, type Machine } from "$lib/api";
+  import { api, type Machine } from "$lib/api";
   import { dismissOnMove, menuStyle, placeMenu, stepActive, type Placement } from "$lib/menus/menu";
   import { machineChoices, machineNote } from "./machines";
 
@@ -120,19 +120,6 @@
     if (!error) store.refresh();
   }
 
-  function dot(s: HostStatus): string {
-    switch (s.state) {
-      case "connected":
-        return "completed";
-      case "connecting":
-        return "stopped";
-      case "updating":
-        return "orphaned";
-      default:
-        return "failed";
-    }
-  }
-
   $effect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onclose();
@@ -198,7 +185,7 @@
     <ul class="list">
       {#each hosts.list as h (h.id)}
         <li>
-          <span class={`status-dot status-${dot(h.status)}`}></span>
+          <span class={`status-dot status-${hosts.dot(h.id)}`}></span>
           <span class="who">
             <span class="name">{hosts.label(h.id)}</span>
             <span class="state">

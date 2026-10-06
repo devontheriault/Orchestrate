@@ -1,14 +1,13 @@
 <script lang="ts">
   /**
-   * The Notes Space's left pane: search, the folders, and the notes, newest
-   * first. The list draws only the rows on screen, so a folder of thousands
-   * of notes scrolls as lightly as one of ten.
+   * The Notes Space's left pane: where the notes are, search, the folders,
+   * and the notes, newest first. The list draws only the rows on screen, so a
+   * folder of thousands of notes scrolls as lightly as one of ten.
    */
-  import Picker from "$lib/menus/Picker.svelte";
   import { hosts } from "$lib/state/hosts.svelte";
   import { notes } from "./notes.svelte";
-  import { folderOf, folderRows, mark, notesHostChoices, onScreen, when } from "./notes";
-  import NotesMenu from "./NotesMenu.svelte";
+  import { folderOf, folderRows, mark, onScreen, when } from "./notes";
+  import NotesPlace from "./NotesPlace.svelte";
 
   let {
     phone = false,
@@ -110,31 +109,12 @@
   }
 
   const total = $derived(notes.notes.length);
-
-  const hostOptions = $derived(
-    notesHostChoices(
-      hosts.list.map((h) => h.id),
-      notes.host,
-      (id) => hosts.label(id),
-      (id) => hosts.problem(id),
-    ),
-  );
 </script>
 
 <aside class:phone>
   <header>
     <span class="title">Notes</span>
     <div class="actions">
-      {#if hostOptions}
-        <Picker
-          value={notes.host}
-          options={hostOptions}
-          onpick={(h) => notes.useHost(h)}
-          compact
-          label="Host the notes are on"
-        />
-      {/if}
-      <NotesMenu />
       <button
         class="btn btn-icon add"
         onclick={oncreate}
@@ -143,6 +123,8 @@
       >
     </div>
   </header>
+
+  <NotesPlace {phone} />
 
   <div class="search">
     <svg class="glass" viewBox="0 0 16 16" aria-hidden="true">
@@ -212,7 +194,8 @@
   {:else if notes.problem}
     <div class="empty" role="status">
       {#if !hosts.reachable(notes.host)}
-        Your notes live on {hosts.label(notes.host)}, which can't be reached right now.
+        Your notes live on {hosts.label(notes.host)}, which can't be reached right now. Pick
+        another machine above to keep notes there instead.
       {:else}
         Couldn't read your notes: {notes.problem}
       {/if}
