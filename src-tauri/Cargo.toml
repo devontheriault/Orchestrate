@@ -1,6 +1,6 @@
 [package]
 name = "orchestrate"
-version = "0.4.2"
+version = "0.4.3"
 description = "Lightweight control layer for Claude Code — spawn, monitor, and control agents in isolated Git worktrees."
 authors = ["Devon Theriault <dev.theriault@gmail.com>"]
 edition = "2021"
