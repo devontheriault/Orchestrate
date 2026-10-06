@@ -11,8 +11,12 @@
    * Calendar event, Esc closes.
    */
   import { onDestroy, onMount } from "svelte";
+  import { Tween } from "svelte/motion";
+  import { cubicOut } from "svelte/easing";
   import { space } from "$lib/spaces/space.svelte";
   import { viewport } from "$lib/layout/viewport.svelte";
+  import { mobile } from "$lib/layout/platform";
+  import { goesThrough, reducedMotion, settleMs, swipe } from "$lib/layout/swipe";
   import { panes, MIN_SIDE } from "$lib/layout/panes.svelte";
   import PaneDivider from "$lib/layout/PaneDivider.svelte";
   import { calendar } from "./calendar.svelte";
@@ -70,6 +74,34 @@
   const syncingNow = $derived(
     calendar.syncing || accounts.some((a) => a.status.state === "syncing"),
   );
+
+  /**
+   * On a touch screen the view turns like pages: a swipe sideways drags it,
+   * and letting go far enough brings in the next day, week or month.
+   */
+  const page = new Tween(0, { easing: cubicOut });
+  let pageWidth = $state(390);
+  let turning = false;
+  const turned = $derived(Math.round(page.current));
+
+  const pager = swipe({
+    can: () => mobile && !turning && !calendar.editing,
+    move: (dx) => void page.set(dx, { duration: 0 }),
+    end: async (dx, velocity) => {
+      const motion = (n: number) => (reducedMotion() ? 0 : n);
+      turning = true;
+      if (goesThrough(dx, pageWidth, velocity)) {
+        const dir = dx < 0 ? 1 : -1;
+        await page.set(-dir * pageWidth, { duration: motion(settleMs(pageWidth - Math.abs(dx), velocity)) });
+        calendar.step(dir);
+        await page.set(dir * pageWidth, { duration: 0 });
+        await page.set(0, { duration: motion(240) });
+      } else {
+        await page.set(0, { duration: motion(settleMs(dx, 0)) });
+      }
+      turning = false;
+    },
+  });
 
   const viewNames = { day: "Day", week: "Week", month: "Month" } as const;
 
@@ -296,13 +328,15 @@
           </div>
         </div>
       {:else if calendar.started}
-        {#if calendar.view === "month"}
-          {#if phone}<MonthCompact />{:else}<MonthGrid />{/if}
-        {:else if calendar.view === "week" && phone}
-          <Agenda {days} scrollToday />
-        {:else}
-          <TimeGrid {days} />
-        {/if}
+        <div class="pages" style:transform={turned ? `translateX(${turned}px)` : undefined} bind:clientWidth={pageWidth} {@attach pager}>
+          {#if calendar.view === "month"}
+            {#if phone}<MonthCompact />{:else}<MonthGrid />{/if}
+          {:else if calendar.view === "week" && phone}
+            <Agenda {days} scrollToday />
+          {:else}
+            <TimeGrid {days} />
+          {/if}
+        </div>
       {/if}
     </section>
   </div>
@@ -377,6 +411,14 @@
   .main {
     flex: 1;
     min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .pages {
+    flex: 1;
     min-height: 0;
     display: flex;
     flex-direction: column;
