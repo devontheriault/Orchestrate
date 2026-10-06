@@ -67,6 +67,20 @@ class Hosts {
     return id === LOCAL ? "This machine" : id;
   }
 
+  /** Which `status-*` colour a Host's dot takes. */
+  dot(id: string): string {
+    switch (this.status(id)?.state) {
+      case "connected":
+        return "completed";
+      case "connecting":
+        return "stopped";
+      case "updating":
+        return "orphaned";
+      default:
+        return "failed";
+    }
+  }
+
   /** Why a Host can't be reached right now, in a few words; null if it can. */
   problem(id: string): string | null {
     const s = this.status(id);
