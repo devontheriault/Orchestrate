@@ -3,7 +3,9 @@
    * The Calendar Space (ADR 0017): the user's calendars, read from Google or
    * any CalDAV server by the Host, in a day, week or month. It fills whatever
    * box it's given: a side panel with a small month and the calendars, and
-   * the view beside it. The side panel goes when the box is narrow.
+   * the view beside it. The side panel goes when the box is narrow. A phone
+   * reads its week as a list and its month as dots over the day picked, with
+   * the calendars in the accounts dialog.
    *
    * Keys: T today, D/W/M the view, ←/→ (or J/K) through time, C a new
    * Calendar event, Esc closes.
@@ -12,14 +14,18 @@
   import { Tween } from "svelte/motion";
   import { cubicOut } from "svelte/easing";
   import { space } from "$lib/spaces/space.svelte";
+  import { viewport } from "$lib/layout/viewport.svelte";
   import { mobile } from "$lib/layout/platform";
   import { goesThrough, reducedMotion, settleMs, swipe } from "$lib/layout/swipe";
   import { panes, MIN_SIDE } from "$lib/layout/panes.svelte";
   import PaneDivider from "$lib/layout/PaneDivider.svelte";
   import { calendar } from "./calendar.svelte";
-  import { keyAction, viewDays, viewTitle, VIEWS, calendarKey, ago } from "./layout";
+  import { keyAction, viewDays, viewTitle, shortViewTitle, VIEWS, ago } from "./layout";
   import TimeGrid from "./TimeGrid.svelte";
   import MonthGrid from "./MonthGrid.svelte";
+  import MonthCompact from "./MonthCompact.svelte";
+  import Agenda from "./Agenda.svelte";
+  import CalendarList from "./CalendarList.svelte";
   import MiniMonth from "./MiniMonth.svelte";
   import EventPopover from "./EventPopover.svelte";
   import CalendarAccounts from "./CalendarAccounts.svelte";
@@ -46,8 +52,13 @@
   const days = $derived(
     calendar.started ? viewDays(calendar.view, calendar.cursor, calendar.weekStart) : [],
   );
+  const phone = $derived(viewport.phone);
   const title = $derived(
-    calendar.started ? viewTitle(calendar.view, calendar.cursor, calendar.weekStart) : "",
+    !calendar.started
+      ? ""
+      : phone
+        ? shortViewTitle(calendar.view, calendar.cursor, calendar.weekStart, calendar.now)
+        : viewTitle(calendar.view, calendar.cursor, calendar.weekStart),
   );
   const accounts = $derived(calendar.overview?.accounts ?? []);
   const loaded = $derived(calendar.overview !== null);
@@ -96,11 +107,12 @@
 
   /**
    * A new Calendar event from the toolbar or C: the next half hour today,
-   * or 9:00 on the day in view.
+   * or 9:00 on the day in view, or picked under a phone's month.
    */
   function newEvent(anchor: DOMRect | null) {
     const now = new Date();
-    const base = sameDay(calendar.cursor, now) || calendar.view !== "day" ? now : calendar.cursor;
+    const onDay = calendar.view === "day" || (phone && calendar.view === "month");
+    const base = sameDay(calendar.cursor, now) || !onDay ? now : calendar.cursor;
     const start = sameDay(base, now)
       ? new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours(), now.getMinutes() < 30 ? 30 : 60)
       : new Date(base.getFullYear(), base.getMonth(), base.getDate(), 9);
@@ -140,6 +152,73 @@
   });
 </script>
 
+{#snippet stepButton(dir: -1 | 1)}
+  <button
+    class="btn btn-ghost btn-icon"
+    aria-label={dir < 0 ? "Previous" : "Next"}
+    title={dir < 0 ? "Previous (←)" : "Next (→)"}
+    onclick={() => calendar.step(dir)}
+  >
+    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d={dir < 0 ? "M10 3 5 8l5 5" : "m6 3 5 5-5 5"} fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" /></svg>
+  </button>
+{/snippet}
+
+{#snippet accountsButton()}
+  <button
+    class="btn btn-ghost btn-icon"
+    aria-label={phone ? "Calendars and accounts" : "Calendar accounts"}
+    onclick={() => (calendar.accounts = "list")}
+  >
+    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><circle cx="8" cy="5.5" r="2.6" fill="none" stroke="currentColor" stroke-width="1.5" /><path d="M2.8 13.5c.7-2.4 2.7-3.8 5.2-3.8s4.5 1.4 5.2 3.8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" /></svg>
+  </button>
+{/snippet}
+
+{#snippet newButton()}
+  {#if calendar.writable.length}
+    <button
+      class="btn btn-primary new"
+      class:btn-icon={phone}
+      aria-label="New Calendar event"
+      title="New Calendar event (C)"
+      onclick={(e) => newEvent(e.currentTarget.getBoundingClientRect())}
+    >
+      <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" /></svg>
+      {narrow ? "" : "New"}
+    </button>
+  {/if}
+{/snippet}
+
+{#snippet syncButton()}
+  {#if accounts.length}
+    <button
+      class="btn btn-ghost btn-icon"
+      class:spinning={syncingNow}
+      aria-label="Sync now"
+      title="Sync now"
+      disabled={syncingNow}
+      onclick={() => calendar.sync()}
+    >
+      <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5v3h-3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
+    </button>
+  {/if}
+{/snippet}
+
+{#snippet viewSwitch()}
+  <div class="segmented" role="tablist" aria-label="View">
+    {#each VIEWS as v}
+      <button
+        role="tab"
+        aria-selected={calendar.view === v}
+        class:on={calendar.view === v}
+        title={`${viewNames[v]} (${v[0].toUpperCase()})`}
+        onclick={() => calendar.setView(v)}
+      >
+        {viewNames[v]}
+      </button>
+    {/each}
+  </div>
+{/snippet}
+
 <div class="space" bind:clientWidth={width}>
   <div class="panes">
     {#if !narrow}
@@ -154,32 +233,7 @@
           <MiniMonth />
         {/if}
 
-        <div class="calendars">
-          {#each accounts as a (a.id)}
-            <section>
-              <h3 title={a.name}>{a.name}</h3>
-              <ul>
-                {#each a.calendars as c (c.id)}
-                  {@const on = calendar.isShown(a.id, c.id)}
-                  <li>
-                    <label class="cal" style:--cal={c.color}>
-                      <input
-                        type="checkbox"
-                        checked={on}
-                        onchange={() => calendar.toggle(a.id, c.id)}
-                        aria-label={`Show ${c.name}`}
-                      />
-                      <span class="check" aria-hidden="true">
-                        <svg viewBox="0 0 12 12" width="9" height="9"><path d="M2.5 6.2l2.2 2.2 4.8-4.8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" /></svg>
-                      </span>
-                      <span class="cal-name" data-key={calendarKey(a.id, c.id)}>{c.name}</span>
-                    </label>
-                  </li>
-                {/each}
-              </ul>
-            </section>
-          {/each}
-        </div>
+        <CalendarList />
 
         <footer>
           <button class="btn btn-ghost btn-sm accounts-btn" onclick={() => (calendar.accounts = "list")}>
@@ -209,62 +263,41 @@
     {/if}
 
     <section class="main">
-      <header class="toolbar">
-        <div class="nav">
-          <button class="btn" onclick={() => calendar.today()} title="Today (T)">Today</button>
-          <div class="arrows">
-            <button class="btn btn-ghost btn-icon" aria-label="Previous" title="Previous (←)" onclick={() => calendar.step(-1)}>
-              <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M10 3 5 8l5 5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" /></svg>
-            </button>
-            <button class="btn btn-ghost btn-icon" aria-label="Next" title="Next (→)" onclick={() => calendar.step(1)}>
-              <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="m6 3 5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" /></svg>
-            </button>
+      {#if phone}
+        <header class="toolbar phone">
+          <div class="top">
+            <h1>{title}</h1>
+            <div class="tools">
+              <button class="btn btn-sm" onclick={() => calendar.today()}>Today</button>
+              {@render accountsButton()}
+              {@render syncButton()}
+              {@render newButton()}
+            </div>
           </div>
-          <h1>{title}</h1>
-        </div>
-        <div class="tools">
-          {#if narrow}
-            <button class="btn btn-ghost btn-icon" aria-label="Calendar accounts" onclick={() => (calendar.accounts = "list")}>
-              <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><circle cx="8" cy="5.5" r="2.6" fill="none" stroke="currentColor" stroke-width="1.5" /><path d="M2.8 13.5c.7-2.4 2.7-3.8 5.2-3.8s4.5 1.4 5.2 3.8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" /></svg>
-            </button>
-          {/if}
-          {#if calendar.writable.length}
-            <button
-              class="btn btn-primary new"
-              title="New Calendar event (C)"
-              onclick={(e) => newEvent(e.currentTarget.getBoundingClientRect())}
-            >
-              <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" /></svg>
-              {narrow ? "" : "New"}
-            </button>
-          {/if}
-          {#if accounts.length}
-            <button
-              class="btn btn-ghost btn-icon"
-              class:spinning={syncingNow}
-              aria-label="Sync now"
-              title="Sync now"
-              disabled={syncingNow}
-              onclick={() => calendar.sync()}
-            >
-              <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5v3h-3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
-            </button>
-          {/if}
-          <div class="segmented" role="tablist" aria-label="View">
-            {#each VIEWS as v}
-              <button
-                role="tab"
-                aria-selected={calendar.view === v}
-                class:on={calendar.view === v}
-                title={`${viewNames[v]} (${v[0].toUpperCase()})`}
-                onclick={() => calendar.setView(v)}
-              >
-                {viewNames[v]}
-              </button>
-            {/each}
+          <div class="bottom">
+            {@render stepButton(-1)}
+            {@render viewSwitch()}
+            {@render stepButton(1)}
           </div>
-        </div>
-      </header>
+        </header>
+      {:else}
+        <header class="toolbar">
+          <div class="nav">
+            <button class="btn" onclick={() => calendar.today()} title="Today (T)">Today</button>
+            <div class="arrows">
+              {@render stepButton(-1)}
+              {@render stepButton(1)}
+            </div>
+            <h1>{title}</h1>
+          </div>
+          <div class="tools">
+            {#if narrow}{@render accountsButton()}{/if}
+            {@render newButton()}
+            {@render syncButton()}
+            {@render viewSwitch()}
+          </div>
+        </header>
+      {/if}
 
       {#if calendar.error}
         <div class="banner" role="alert">
@@ -297,7 +330,9 @@
       {:else if calendar.started}
         <div class="pages" style:transform={turned ? `translateX(${turned}px)` : undefined} bind:clientWidth={pageWidth} {@attach pager}>
           {#if calendar.view === "month"}
-            <MonthGrid />
+            {#if phone}<MonthCompact />{:else}<MonthGrid />{/if}
+          {:else if calendar.view === "week" && phone}
+            <Agenda {days} scrollToday />
           {:else}
             <TimeGrid {days} />
           {/if}
@@ -350,84 +385,6 @@
     padding: var(--space-5) var(--space-5) var(--space-4);
     background: var(--panel-bg);
     min-height: 0;
-  }
-
-  .calendars {
-    flex: 1;
-    min-height: 0;
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-5);
-  }
-
-  h3 {
-    margin: 0 0 var(--space-3) var(--space-3);
-    font-size: var(--text-2xs);
-    font-weight: var(--weight-semibold);
-    color: var(--fg-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  ul {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-  }
-
-  .cal {
-    --c: var(--cal, var(--accent));
-    position: relative;
-    display: flex;
-    align-items: center;
-    gap: var(--space-4);
-    padding: 0.3rem var(--space-3);
-    border-radius: var(--radius-md);
-    font-size: var(--text-sm);
-    cursor: pointer;
-  }
-
-  .cal:hover {
-    background: var(--hover);
-  }
-
-  .cal input {
-    position: absolute;
-    opacity: 0;
-    pointer-events: none;
-  }
-
-  .check {
-    flex: none;
-    width: 0.95rem;
-    height: 0.95rem;
-    border-radius: var(--radius-xs);
-    border: 1.5px solid var(--c);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    color: transparent;
-    transition: background var(--transition-fast);
-  }
-
-  .cal input:checked + .check {
-    background: var(--c);
-    color: var(--surface);
-  }
-
-  .cal input:focus-visible + .check {
-    box-shadow: var(--focus-ring);
-  }
-
-  .cal-name {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 
   .side footer {
@@ -528,6 +485,53 @@
     color: var(--fg);
     font-weight: var(--weight-medium);
     box-shadow: var(--shadow-sm);
+  }
+
+  /* A phone's: the date and what to do with it over a full-width view switch
+     between the arrows, every target a thumb's size. */
+  .toolbar.phone {
+    flex-direction: column;
+    align-items: stretch;
+    flex-wrap: nowrap;
+    gap: var(--space-4);
+    padding: var(--space-4) var(--pad-x) var(--space-4);
+  }
+
+  .phone .top,
+  .phone .bottom {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+  }
+
+  .phone h1 {
+    flex: 1;
+    margin: 0;
+    font-size: var(--text-2xl);
+  }
+
+  .phone .tools {
+    flex: none;
+    gap: var(--space-1);
+  }
+
+  .phone .tools .btn-sm {
+    margin-right: var(--space-2);
+  }
+
+  .phone .new {
+    margin-left: var(--space-2);
+  }
+
+  .phone .segmented {
+    flex: 1;
+  }
+
+  .phone .segmented button {
+    flex: 1;
+    padding: 0.4rem 0;
+    font-size: var(--text-md);
   }
 
   .spinning svg {

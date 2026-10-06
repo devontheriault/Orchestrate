@@ -9,6 +9,7 @@ import assert from "node:assert/strict";
 import type { CalendarEvent } from "$lib/api";
 import {
   addMonths,
+  agendaFor,
   ago,
   dayKey,
   hiddenOn,
@@ -19,6 +20,7 @@ import {
   meetingName,
   monthWeeks,
   placeBeside,
+  shortViewTitle,
   stepCursor,
   viewDays,
   viewRange,
@@ -261,4 +263,39 @@ test("a zone note only for a zone that keeps other time", () => {
   assert.equal(zoneNote(tokyo, "America/Halifax", true, "en-US")?.replace(/\u202f/g, " "), "7:00 AM in Tokyo");
   const same = { ...tokyo, time_zone: "America/Halifax" };
   assert.equal(zoneNote(same, "Canada/Atlantic", true, "en-US"), null);
+});
+
+test("a day's list: all-day ones first, then by start, the longer first", () => {
+  const day = new Date(2026, 10, 1);
+  const lunch = ev(at("2026-11-01T12:00"), at("2026-11-01T13:00"), "lunch");
+  const standup = ev(at("2026-11-01T09:30"), at("2026-11-01T10:00"), "standup");
+  const pairing = ev(at("2026-11-01T09:30"), at("2026-11-01T11:00"), "pairing");
+  const trip = ev("2026-10-30", "2026-11-03", "trip");
+  const overnight = ev(at("2026-10-31T22:00"), at("2026-11-01T02:00"), "overnight");
+  const conference = ev(at("2026-10-31T09:00"), at("2026-11-02T17:00"), "conference");
+  const tomorrow = ev(at("2026-11-02T00:00"), at("2026-11-02T01:00"), "tomorrow");
+  const yesterday = ev("2026-10-31", "2026-11-01", "yesterday");
+  const rows = agendaFor([lunch, standup, pairing, trip, overnight, conference, tomorrow, yesterday], day);
+  assert.deepEqual(
+    rows.map((r) => [r.event.title, r.allDay, r.continuesBefore, r.continuesAfter]),
+    [
+      ["trip", true, true, true],
+      ["conference", true, true, true],
+      ["overnight", false, true, false],
+      ["pairing", false, false, false],
+      ["standup", false, false, false],
+      ["lunch", false, false, false],
+    ],
+  );
+});
+
+test("a phone's headings drop what it can do without", () => {
+  const now = new Date(2026, 9, 6);
+  const title = (view: "day" | "week" | "month", d: Date) =>
+    shortViewTitle(view, d, 0, now, "en-US").replace(/[  ]/g, " ");
+  assert.equal(title("day", new Date(2026, 9, 6)), "Tue, Oct 6");
+  assert.equal(title("week", new Date(2026, 9, 6)), "Oct 4 – 10");
+  assert.equal(title("week", new Date(2026, 8, 30)), "Sep 27 – Oct 3");
+  assert.equal(title("month", new Date(2026, 9, 6)), "October 2026");
+  assert.equal(title("day", new Date(2027, 0, 4)), "Mon, Jan 4, 2027");
 });

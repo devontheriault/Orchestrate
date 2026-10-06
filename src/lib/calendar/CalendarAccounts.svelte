@@ -8,12 +8,16 @@
    * Signing in needs an app registered with the provider. A build can come
    * with one (see docs/calendar-accounts.md); without it, the user registers
    * their own and pastes it here.
+   *
+   * A phone has no side panel, so here it also shows or hides each calendar.
    */
   import { openUrl } from "@tauri-apps/plugin-opener";
   import { api, type CalendarAccount } from "$lib/api";
   import Link from "$lib/markdown/Link.svelte";
   import { hosts } from "$lib/state/hosts.svelte";
+  import { viewport } from "$lib/layout/viewport.svelte";
   import { calendar } from "./calendar.svelte";
+  import CalendarList from "./CalendarList.svelte";
   import { ago } from "./layout";
 
   const DOCS = "https://github.com/devontheriault/DevCode/blob/main/docs/calendar-accounts.md";
@@ -138,13 +142,17 @@
 >
   <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="cal-accounts-title">
     <header>
-      <h2 id="cal-accounts-title">Calendar accounts</h2>
+      <h2 id="cal-accounts-title">{viewport.phone ? "Calendars" : "Calendar accounts"}</h2>
       <button class="btn btn-ghost btn-icon" aria-label="Close" onclick={close}>
         <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
           <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
         </svg>
       </button>
     </header>
+
+    {#if viewport.phone && overview?.accounts.length}
+      <div class="shown"><CalendarList /></div>
+    {/if}
 
     {#if overview?.accounts.length}
       <ul class="list">
@@ -338,6 +346,11 @@
     margin: 0;
     font-size: var(--text-2xl);
     font-weight: var(--weight-semibold);
+  }
+
+  /* The checks line up with the dialog's edge, not their rows'. */
+  .shown {
+    margin: 0 calc(-1 * var(--space-3));
   }
 
   .list {
