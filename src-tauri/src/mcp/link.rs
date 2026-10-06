@@ -26,20 +26,27 @@ pub struct Host {
     socket: PathBuf,
     /// What its machine calls itself, from its Hello.
     name: Arc<str>,
+    /// The Agent this server serves, when it is a Turn's (see
+    /// [`super::AGENT_ENV`]).
+    agent: Option<Arc<str>>,
 }
 
 impl Host {
     /// The Host for this state directory, or why it can't be reached.
     pub async fn local() -> Result<Self, String> {
         let socket = paths::host_socket().map_err(|e| e.to_string())?;
-        Self::at(socket).await
+        let agent = std::env::var(super::AGENT_ENV)
+            .ok()
+            .filter(|id| !id.is_empty());
+        Self::at(socket, agent).await
     }
 
     /// The Host listening on `socket`, checked by asking it once.
-    async fn at(socket: PathBuf) -> Result<Self, String> {
+    async fn at(socket: PathBuf, agent: Option<String>) -> Result<Self, String> {
         let mut host = Self {
             socket,
             name: Arc::from(""),
+            agent: agent.map(Arc::from),
         };
         let hello = host.ask(None).await?;
         host.name = Arc::from(hello.as_str().unwrap_or_default());
@@ -49,6 +56,16 @@ impl Host {
     /// What the Host's machine calls itself, as a window labels its Agents.
     pub fn name(&self) -> &str {
         &self.name
+    }
+
+    /// The id of the Agent whose Turn this server serves, or why there is
+    /// none, for a tool that acts as that Agent.
+    pub fn agent(&self) -> Result<&str, String> {
+        self.agent.as_deref().ok_or_else(|| {
+            "only an Orchestrate Agent can do this, from one of its own Turns; this MCP \
+             client isn't one"
+                .into()
+        })
     }
 
     /// Ask the Host what a window would, as `{"method": method, "args": args}`

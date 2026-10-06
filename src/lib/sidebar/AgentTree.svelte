@@ -11,6 +11,7 @@
   import { tagColor } from "$lib/theme/tags";
   import { rowDetail } from "./agentRow";
   import { glide, measure } from "./flip";
+  import { members, teams, working, type Team } from "./teams";
   import MailIcon from "$lib/mail/MailIcon.svelte";
 
   let {
@@ -68,6 +69,14 @@
     return store.isDelivered(a) ? "delivered" : a.state;
   }
 
+  /**
+   * A Lead's Helpers sit in its Bucket, under it, so the team is never split
+   * across headings (ADR 0019). While any of it works, all of it is Running.
+   */
+  function teamBucket(team: Team): Bucket {
+    return working(team) ? "running" : bucketOf(team.lead);
+  }
+
   const agents = $derived(store.agentsForProject(projectId));
 
   /**
@@ -77,11 +86,11 @@
   const spansHosts = $derived(new Set(agents.map((a) => a.host)).size > 1);
 
   const grouped = $derived.by(() => {
-    const groups: Partial<Record<Bucket, Agent[]>> = {};
-    for (const a of agents) (groups[bucketOf(a)] ??= []).push(a);
+    const groups: Partial<Record<Bucket, Team[]>> = {};
+    for (const t of teams(agents)) (groups[teamBucket(t)] ??= []).push(t);
     return bucketOrder
       .filter((b) => groups[b]?.length)
-      .map((b) => ({ bucket: b, agents: groups[b]! }));
+      .map((b) => ({ bucket: b, teams: groups[b]!, agents: groups[b]!.flatMap(members) }));
   });
 
   /**
@@ -130,10 +139,15 @@
 
   /**
    * The rows a bucket shows. A folded one still shows the agent that is on
-   * screen, so the selection is never hidden and folding is never refused.
+   * screen, so the selection is never hidden and folding is never refused. A
+   * Helper on screen brings its Lead, which says whose it is.
    */
-  function shown(bucket: Bucket, group: Agent[]): Agent[] {
-    return isOpen(bucket) ? group : group.filter((a) => a.id === store.selectedAgentId);
+  function shown(bucket: Bucket, group: Team[]): Team[] {
+    if (isOpen(bucket)) return group;
+    const on = (a: Agent) => a.id === store.selectedAgentId;
+    return group
+      .filter((t) => members(t).some(on))
+      .map((t) => ({ lead: t.lead, helpers: t.helpers.filter(on) }));
   }
 
   function detail(a: Agent): string {
@@ -227,7 +241,7 @@
     <span class="plus" aria-hidden="true">+</span> New agent
   </button>
 
-  {#each grouped as { bucket, agents: group } (bucket)}
+  {#each grouped as { bucket, teams: groupTeams, agents: group } (bucket)}
     {@const open = isOpen(bucket)}
     <div class="group">
       <div
@@ -295,7 +309,7 @@
           onkeydown={(e) => e.key === "Escape" && (confirmingClear = false)}
         >
           <p class="clear-title" id={`clear-title-${projectId}`}>
-            Clear {plural(group.length, "agent")}?
+            Clear {plural(group.filter((a) => store.isDelivered(a)).length, "agent")}?
           </p>
           <p class="clear-sub">
             Merged work will be deleted.
@@ -310,53 +324,66 @@
           </div>
         </div>
       {/if}
-      {#each shown(bucket, group) as a (a.id)}
-        <div
-          class="agent"
-          data-flip={`agent:${a.id}`}
-          class:selected={store.selectedAgentId === a.id}
-          class:running={a.state === "running"}
-          class:doomed={bucket === "delivered" && (confirmingClear || !!bulkClear)}
-          class:away={!hosts.reachable(a.host)}
-          onclick={() => pick(a.id)}
-          role="button"
-          tabindex="0"
-          onkeydown={(e) => e.key === "Enter" && pick(a.id)}
-          title={`${a.task.prompt}\n\n${a.id}${a.model ? ` · ${models.name(a.model)}` : ""}`}
-        >
-          <span class="name">
-            {#if tagColor(a.color)}<span
-                class="tag"
-                style:background={tagColor(a.color)}
-                title={`Tagged ${a.color}`}
-              ></span>{/if}{#if a.read_mail}<span
-                class="read-mail"
-                title="Handed mail: it only reads and suggests"
-                ><MailIcon name="mail" /></span
-              >{/if}{store.agentName(a)}{#if spansHosts}<span class="host"
-                >{hosts.label(a.host)}</span
-              >{/if}
-          </span>
-          {#if a.state === "running"}
-            <span class="age live" title="Working for {runTime(a)}">{runTime(a)}</span>
-          {:else}
-            <span class="age" title="Spawned {relTime(a.spawned_at)} ago"
-              >{relTime(a.spawned_at)}</span
-            >
-          {/if}
-          <!-- An agent on a Host that can't be reached is shown as it was last
-               seen; the line under it says why it isn't live. -->
-          <span class="detail" class:failed={a.state === "failed"}
-            >{hosts.problem(a.host) ?? detail(a)}</span
-          >
-          {#if a.state === "running" && a.model}
-            <span class="model">{models.name(a.model)}</span>
-          {/if}
-        </div>
+      {#each shown(bucket, groupTeams) as team (team.lead.id)}
+        {@render row(team.lead, bucket)}
+        {#if team.helpers.length}
+          <div class="helpers">
+            {#each team.helpers as helper (helper.id)}
+              {@render row(helper, bucket)}
+            {/each}
+          </div>
+        {/if}
       {/each}
     </div>
   {/each}
 </div>
+
+{#snippet row(a: Agent, bucket: Bucket)}
+  <div
+    class="agent"
+    data-flip={`agent:${a.id}`}
+    class:selected={store.selectedAgentId === a.id}
+    class:running={a.state === "running"}
+    class:doomed={bucket === "delivered" &&
+      store.isDelivered(a) &&
+      (confirmingClear || !!bulkClear)}
+    class:away={!hosts.reachable(a.host)}
+    onclick={() => pick(a.id)}
+    role="button"
+    tabindex="0"
+    onkeydown={(e) => e.key === "Enter" && pick(a.id)}
+    title={`${a.task.prompt}\n\n${a.id}${a.model ? ` · ${models.name(a.model)}` : ""}`}
+  >
+    <span class="name">
+      {#if tagColor(a.color)}<span
+          class="tag"
+          style:background={tagColor(a.color)}
+          title={`Tagged ${a.color}`}
+        ></span>{/if}{#if a.read_mail}<span
+          class="read-mail"
+          title="Handed mail: it only reads and suggests"
+          ><MailIcon name="mail" /></span
+        >{/if}{store.agentName(a)}{#if spansHosts}<span class="host"
+          >{hosts.label(a.host)}</span
+        >{/if}
+    </span>
+    {#if a.state === "running"}
+      <span class="age live" title="Working for {runTime(a)}">{runTime(a)}</span>
+    {:else}
+      <span class="age" title="Spawned {relTime(a.spawned_at)} ago"
+        >{relTime(a.spawned_at)}</span
+      >
+    {/if}
+    <!-- An agent on a Host that can't be reached is shown as it was last
+         seen; the line under it says why it isn't live. -->
+    <span class="detail" class:failed={a.state === "failed"}
+      >{hosts.problem(a.host) ?? detail(a)}</span
+    >
+    {#if a.state === "running" && a.model}
+      <span class="model">{models.name(a.model)}</span>
+    {/if}
+  </div>
+{/snippet}
 
 <style>
   .tree {
@@ -721,7 +748,14 @@
     color: color-mix(in srgb, var(--failed) 80%, var(--fg-muted));
   }
 
-  /* Which machine it's on, after the name, when the project spans several. */
+  /* A Lead's Helpers (ADR 0019), set in under it behind a thread, so the team
+     reads as one piece of work. */
+  .helpers {
+    margin-left: var(--space-5);
+    padding-left: var(--space-1);
+    border-left: var(--border-width) solid var(--border);
+  }
+
   /* Handed mail (ADR 0018): it only reads and suggests, for good. Leads the
      name like the tag, so a long name's ellipsis can't hide it. */
   .read-mail {
@@ -730,6 +764,7 @@
     vertical-align: -0.1em;
   }
 
+  /* Which machine it's on, after the name, when the project spans several. */
   .host {
     margin-left: var(--space-3);
     font-size: var(--text-2xs);

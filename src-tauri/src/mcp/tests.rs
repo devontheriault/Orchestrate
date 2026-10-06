@@ -45,6 +45,13 @@ fn mcp_child() -> Command {
     cmd
 }
 
+/// As [`mcp_child`], serving a Turn of the Agent `agent`.
+fn mcp_child_for(agent: &str) -> Command {
+    let mut cmd = mcp_child();
+    cmd.env(AGENT_ENV, agent);
+    cmd
+}
+
 /// A Host serving this state directory's socket, as `--host` would but in
 /// this process, its Turns run by `claude`.
 fn host_with(claude: &str) -> tokio::task::JoinHandle<()> {
@@ -299,7 +306,7 @@ fn every_tool_has_its_own_name_and_an_object_for_arguments() {
 #[test]
 fn a_turn_may_call_the_reading_tools_without_asking() {
     let _env = StateEnv::new();
-    let args = turn_args();
+    let args = turn_args("a3f9c1de");
     let at = args.iter().position(|a| a == "--allowedTools").unwrap();
     let allowed: HashSet<&str> = args[at + 1].split(',').collect();
     let reading: HashSet<String> = tools()
@@ -391,7 +398,7 @@ async fn an_mcp_client_finds_and_edits_a_note_over_stdio() {
 #[test]
 fn a_turn_runs_this_binary_against_this_state_directory() {
     let _env = StateEnv::new();
-    let config: Value = serde_json::from_str(&turn_config().unwrap()).unwrap();
+    let config: Value = serde_json::from_str(&turn_config("a3f9c1de").unwrap()).unwrap();
     let server = &config["mcpServers"][SERVER_NAME];
     assert_eq!(server["command"], json!(std::env::current_exe().unwrap()));
     assert_eq!(server["args"], json!(["--mcp"]));
@@ -399,4 +406,194 @@ fn a_turn_runs_this_binary_against_this_state_directory() {
         server["env"]["ORCHESTRATE_STATE_DIR"],
         json!(paths::state_dir().unwrap())
     );
+    // So a tool that acts as the Agent knows which one it is.
+    assert_eq!(server["env"][AGENT_ENV], "a3f9c1de");
+}
+
+/// A Project added and an Agent spawned on it through the Host, as a window
+/// would: the Project's repository, and the Agent's id.
+async fn spawn_through(host: &Host, prompt: &str) -> (tempfile::TempDir, String) {
+    let repo = init_repo().await;
+    let project = host
+        .call(
+            "add_project",
+            json!({ "name": "Shop", "path": repo.path(), "setUp": false }),
+        )
+        .await
+        .unwrap();
+    let agent = host
+        .call(
+            "spawn_agent",
+            json!({
+                "projectId": project["id"],
+                "prompt": prompt,
+                "attachments": [],
+                "model": null,
+                "effort": null,
+                "permissionMode": null,
+                "options": {},
+            }),
+        )
+        .await
+        .unwrap();
+    (repo, agent["id"].as_str().unwrap().to_owned())
+}
+
+/// Every Agent on the Host, once none is working.
+async fn when_settled(host: &Host) -> Vec<Value> {
+    let settled = async {
+        loop {
+            let agents: Vec<Value> = host.call_as("list_agents", json!({})).await.unwrap();
+            if agents.iter().all(|a| a["state"] != "running") {
+                return agents;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    };
+    tokio::time::timeout(PATIENCE, settled)
+        .await
+        .expect("an Agent never stopped working")
+}
+
+/// A Lead's Turn spawns a Helper over MCP, waits for it, hears its answer and
+/// gives it more to do (ADR 0019). It reaches only its own Helpers, and a
+/// client that isn't an Agent's Turn can't lead at all.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_lead_spawns_a_helper_and_hears_back_over_stdio() {
+    let _env = StateEnv::new();
+    paths::ensure_dirs().unwrap();
+    let claude = write_script(
+        r#"#!/bin/sh
+echo '{"type":"result","subtype":"success","result":"Wrote the parser."}'
+exit 0
+"#,
+    );
+    let serving = host_with(&claude);
+    let host = Host::local().await.unwrap();
+    let (_repo, lead) = spawn_through(&host, "Build the compiler").await;
+    when_settled(&host).await;
+
+    let client =
+        ().serve(TokioChildProcess::new(mcp_child_for(&lead)).unwrap())
+            .await
+            .expect("the server should start");
+
+    let spawned = call(
+        &client,
+        "spawn_helper",
+        json!({ "task": "Write the parser" }),
+    )
+    .await;
+    assert_ne!(spawned.is_error, Some(true), "{}", text(&spawned));
+    let spawned: Value = serde_json::from_str(&text(&spawned)).unwrap();
+    let helper = spawned["id"].as_str().unwrap().to_owned();
+    assert!(
+        spawned["branch"].as_str().unwrap().starts_with("cw/agent-"),
+        "{spawned}"
+    );
+
+    let reports = call(&client, "wait_for_helpers", json!({})).await;
+    assert_ne!(reports.is_error, Some(true), "{}", text(&reports));
+    let reports: Value = serde_json::from_str(&text(&reports)).unwrap();
+    assert_eq!(reports.as_array().unwrap().len(), 1, "{reports}");
+    assert_eq!(reports[0]["id"], helper);
+    assert_eq!(reports[0]["state"], "completed");
+    assert_eq!(reports[0]["answer"], "Wrote the parser.");
+
+    let agents: Value =
+        serde_json::from_str(&text(&call(&client, "list_agents", json!({})).await)).unwrap();
+    let listed = agents
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| a["id"] == helper.as_str())
+        .unwrap();
+    assert_eq!(listed["lead"], lead.as_str());
+
+    let more = call(
+        &client,
+        "send_to_helper",
+        json!({ "helper": helper, "message": "Now add tests" }),
+    )
+    .await;
+    assert_ne!(more.is_error, Some(true), "{}", text(&more));
+    when_settled(&host).await;
+    let status: Value = serde_json::from_str(&text(
+        &call(&client, "agent_status", json!({ "agent": helper })).await,
+    ))
+    .unwrap();
+    assert_eq!(status["turns"], 2);
+
+    // The Lead is no Helper of its own.
+    let not_mine = call(
+        &client,
+        "send_to_helper",
+        json!({ "helper": lead, "message": "hello" }),
+    )
+    .await;
+    assert_eq!(not_mine.is_error, Some(true));
+    assert!(
+        text(&not_mine).contains("none of your Helpers"),
+        "{}",
+        text(&not_mine)
+    );
+    client.cancel().await.unwrap();
+
+    let plain =
+        ().serve(TokioChildProcess::new(mcp_child()).unwrap())
+            .await
+            .expect("the server should start");
+    let refused = call(&plain, "spawn_helper", json!({ "task": "Anything" })).await;
+    assert_eq!(refused.is_error, Some(true));
+    assert!(
+        text(&refused).contains("only an Orchestrate Agent"),
+        "{}",
+        text(&refused)
+    );
+    plain.cancel().await.unwrap();
+    serving.abort();
+}
+
+/// Stopping a Lead stops the job: its working Helpers stop with it, and no
+/// other Agent does.
+#[tokio::test(flavor = "multi_thread")]
+async fn stopping_a_lead_stops_its_helpers() {
+    let _env = StateEnv::new();
+    paths::ensure_dirs().unwrap();
+    let claude = write_script(
+        r#"#!/bin/sh
+exec sleep 30
+"#,
+    );
+    let serving = host_with(&claude);
+    let host = Host::local().await.unwrap();
+    let (_repo, lead) = spawn_through(&host, "Build the compiler").await;
+    let (_other, bystander) = spawn_through(&host, "Something else").await;
+    for part in ["Write the parser", "Write the checker"] {
+        host.call(
+            "spawn_helper",
+            json!({ "leadId": lead, "prompt": part, "model": null, "effort": null }),
+        )
+        .await
+        .unwrap();
+    }
+
+    host.call("stop_agent", json!({ "agentId": lead }))
+        .await
+        .unwrap();
+    let agents: Vec<Value> = host.call_as("list_agents", json!({})).await.unwrap();
+    for a in &agents {
+        let want = if a["id"] == bystander.as_str() {
+            "running"
+        } else {
+            "stopped"
+        };
+        assert_eq!(a["state"], want, "{a}");
+    }
+    assert_eq!(agents.len(), 4);
+
+    host.call("stop_agent", json!({ "agentId": bystander }))
+        .await
+        .unwrap();
+    serving.abort();
 }

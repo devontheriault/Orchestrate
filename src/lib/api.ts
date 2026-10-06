@@ -118,6 +118,11 @@ export type Agent = {
    */
   resolves?: Resolution | null;
   /**
+   * Set on a Helper: the Lead that Spawned it over MCP, by its id on the
+   * Helper's own Host (ADR 0019). The sidebar lists it under that Lead.
+   */
+  lead_id?: string | null;
+  /**
    * What the user has said that the agent wasn't free to hear yet, oldest
    * first. Kept by the Host, which sends the next one when a Turn Completes.
    */

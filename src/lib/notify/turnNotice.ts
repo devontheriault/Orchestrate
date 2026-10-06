@@ -14,7 +14,8 @@ export type Notice = { title: string; body: string };
  * - Failed: a failed Turn is a thing to read, and any queue is held behind it.
  *
  * A Stop is the user's own doing, and an Orphan is the Host going away; a
- * rename or a queue edit on an idle agent isn't a Turn ending at all.
+ * rename or a queue edit on an idle agent isn't a Turn ending at all. A Helper
+ * that Completes is its Lead's to hear about, not the user's (ADR 0019).
  */
 export function turnNotice(before: Agent | undefined, after: Agent, name: string): Notice | null {
   if (before?.state !== "running" || after.state === "running") return null;
@@ -24,6 +25,7 @@ export function turnNotice(before: Agent | undefined, after: Agent, name: string
     : "";
   switch (after.state) {
     case "completed":
+      if (after.lead_id && !held) return null;
       return held
         ? {
             title: `${name}: queue held`,
