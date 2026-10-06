@@ -217,7 +217,7 @@
   }
 </script>
 
-<div class="grid" style:--days={days.length} style:--scrollbar={`${scrollbar}px`}>
+<div class="grid" class:single={days.length === 1} style:--days={days.length} style:--scrollbar={`${scrollbar}px`}>
   <div class="row head">
     <div class="corner" title="Times are in this machine's zone">{zone}</div>
     {#each days as day, i (day.getTime())}
@@ -340,11 +340,7 @@
             >
               <span class="title">{p.event.title || "(No title)"}</span>
               <span class="time">
-                {timeLabel(moving ? moving.start : bounds(p.event).start, calendar.hour12)}{#if !short && p.event.location}<span
-                    class="where"
-                  >
-                    · {p.event.location}</span
-                  >{/if}
+                {timeLabel(moving ? moving.start : bounds(p.event).start, calendar.hour12)}{#if !short && p.event.location}{` · ${p.event.location}`}{/if}
               </span>
               {#if p.event.can_edit && !p.event.draft_id && !p.continuesAfter}
                 <span class="grip" aria-hidden="true"></span>
@@ -799,5 +795,19 @@
 
   .short .time {
     flex: 0 1 auto;
+  }
+
+  /* Wide enough for the current time's label, which a phone's larger type outgrows. */
+  :global(html[data-frame="mobile"]) .grid {
+    --gutter: 4.2rem;
+  }
+
+  /* A phone's day has the width for text a hand's length away can read. */
+  :global(html[data-frame="mobile"]) .single .block {
+    font-size: var(--text-sm);
+  }
+
+  :global(html[data-frame="mobile"]) .single .time {
+    font-size: var(--text-xs);
   }
 </style>

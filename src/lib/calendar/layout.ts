@@ -298,6 +298,47 @@ export function layoutBars(events: CalendarEvent[], days: Date[]): { bars: Bar[]
   return { bars, lanes: taken.length };
 }
 
+/** A Calendar event as a line in a day's list, the phone's week and month. */
+export type AgendaRow = {
+  event: CalendarEvent;
+  /** All day, or a day or longer: said as "All day" rather than as times. */
+  allDay: boolean;
+  start: Date;
+  end: Date;
+  /** Began the day before, or carries on into the next. */
+  continuesBefore: boolean;
+  continuesAfter: boolean;
+};
+
+/**
+ * The Calendar events on `day`, in the order a list reads them: the all-day
+ * ones first, then the rest by when they start, the longer first.
+ */
+export function agendaFor(events: CalendarEvent[], day: Date): AgendaRow[] {
+  const dayStart = startOfDay(day);
+  const next = addDays(dayStart, 1);
+  return events
+    .map((event) => ({ event, ...bounds(event) }))
+    .filter(({ start, end }) =>
+      start < next && (end > dayStart || (end.getTime() === start.getTime() && start >= dayStart)),
+    )
+    .map(({ event, start, end }) => ({
+      event,
+      allDay: inTopStrip(event),
+      start,
+      end,
+      continuesBefore: start < dayStart,
+      continuesAfter: end > next,
+    }))
+    .sort(
+      (a, b) =>
+        Number(b.allDay) - Number(a.allDay) ||
+        a.start.getTime() - b.start.getTime() ||
+        b.end.getTime() - a.end.getTime() ||
+        a.event.title.localeCompare(b.event.title),
+    );
+}
+
 /** How many bars on day `col` sit in lanes from `shown` down: the "+3 more". */
 export function hiddenOn(bars: Bar[], col: number, shown: number): number {
   return bars.filter((b) => b.lane >= shown && b.col <= col && col < b.col + b.span).length;
@@ -380,6 +421,31 @@ export function viewTitle(view: View, cursor: Date, weekStart: number, locale?: 
     year: "numeric",
   });
   return range.formatRange(days[0], days[6]);
+}
+
+/**
+ * The heading where a phone has room for less: "October 2026", "Oct 4 – 10",
+ * "Tue, Oct 6". The year goes when it's this one.
+ */
+export function shortViewTitle(
+  view: View,
+  cursor: Date,
+  weekStart: number,
+  now: Date,
+  locale?: string,
+): string {
+  if (view === "month") {
+    return cursor.toLocaleDateString(locale, { month: "long", year: "numeric" });
+  }
+  const year = cursor.getFullYear() === now.getFullYear() ? undefined : "numeric";
+  if (view === "day") {
+    return cursor.toLocaleDateString(locale, { weekday: "short", month: "short", day: "numeric", year });
+  }
+  const days = viewDays("week", cursor, weekStart);
+  return new Intl.DateTimeFormat(locale, { month: "short", day: "numeric", year }).formatRange(
+    days[0],
+    days[6],
+  );
 }
 
 /** A time of day, the way this locale writes one: "9:30 AM" or "09:30". */
