@@ -46,6 +46,15 @@
    * slides past it, and should come back the way the user left it.
    */
   const toggled = new SvelteMap<string, boolean>();
+
+  /**
+   * The Sub-agent each Agent's transcript is opened into, by agent, with
+   * where the Agent's own transcript stood, to go back to.
+   */
+  const inside = new SvelteMap<
+    string,
+    { id: string; top: number; following: boolean; start: number }
+  >();
 </script>
 
 <script lang="ts">
@@ -61,7 +70,17 @@
   import GrowingLines from "$lib/code/GrowingLines.svelte";
   import Copyable from "$lib/code/Copyable.svelte";
   import ShellCommand from "./ShellCommand.svelte";
-  import { buildRows, humanize, keepUnchanged, systemLabel, type Row, type ToolCall } from "./rows";
+  import {
+    SUBAGENT_TOOLS,
+    buildRows,
+    buildSubagentRows,
+    humanize,
+    isRunning,
+    keepUnchanged,
+    systemLabel,
+    type Row,
+    type ToolCall,
+  } from "./rows";
   import {
     bashCommand,
     bashOutputLanguage,
@@ -72,6 +91,8 @@
     groupTargets,
     readLines,
     resultText,
+    subagentProgress,
+    subagentType,
     truncate,
   } from "./toolCalls";
 
@@ -81,13 +102,27 @@
   let streamEl: HTMLDivElement | undefined = $state();
 
   /**
+   * The transcript on show: the Agent's own, or one of its Sub-agents' once
+   * the user has opened it. A Sub-agent that's gone, as after a `/clear`,
+   * leaves the Agent's.
+   */
+  const opened = $derived(store.selectedAgentId ? inside.get(store.selectedAgentId) : undefined);
+  const built = $derived.by(() => {
+    const evs = store.eventsForSelected;
+    if (opened) {
+      const sub = buildSubagentRows(evs, opened.id);
+      if (sub.call) return sub;
+    }
+    return { call: undefined, rows: buildRows(evs) };
+  });
+  const subagent = $derived(built.call);
+
+  /**
    * Rebuilt on every event, but keeping last time's Row wherever it came out
    * the same, so only what the event changed re-renders.
    */
   let lastRows: Row[] = [];
-  const rows: Row[] = $derived.by(
-    () => (lastRows = keepUnchanged(lastRows, buildRows(store.eventsForSelected))),
-  );
+  const rows: Row[] = $derived.by(() => (lastRows = keepUnchanged(lastRows, built.rows)));
 
   /**
    * The first Row on the page. Infinity while following, so the page slides
@@ -195,6 +230,37 @@
     start = Infinity;
     stickToBottom();
   });
+
+  /**
+   * Opens a Sub-agent's transcript in place of the Agent's, at its newest
+   * output like any other, keeping where the Agent's stood to come back to.
+   */
+  function openSubagent(c: ToolCall) {
+    const agent = store.selectedAgentId;
+    if (!agent || !streamEl) return;
+    inside.set(agent, { id: c.id, top: streamEl.scrollTop, following, start });
+    following = true;
+    start = Infinity;
+    // A shorter page pulls scrollTop up with it, which isn't the user
+    // scrolling up.
+    lastScrollTop = 0;
+    stickToBottom();
+  }
+
+  /** Back to the Agent's own transcript, where the user left it. */
+  async function closeSubagent() {
+    const agent = store.selectedAgentId;
+    const was = agent ? inside.get(agent) : undefined;
+    if (!agent || !was) return;
+    inside.delete(agent);
+    following = was.following;
+    start = was.following ? Infinity : was.start;
+    await tick();
+    const el = streamEl;
+    if (!el) return;
+    el.scrollTop = following ? el.scrollHeight : was.top;
+    lastScrollTop = el.scrollTop;
+  }
 
   /**
    * The newest Bash call in the transcript. It opens itself, so the command
@@ -333,7 +399,59 @@
   {/if}
 {/snippet}
 
+<!-- A Sub-agent the Agent sent off, as a card that opens its transcript:
+     what it was asked to do, what kind it is, and how far it has got. -->
+{#snippet subagentCard(c: ToolCall)}
+  <button class="subagent" onclick={() => openSubagent(c)} title="Open this sub-agent's transcript">
+    {#if isRunning(c)}
+      <span class="sa-state"><span class="status-dot status-running running-dot"></span></span>
+    {:else}
+      <span class="sa-state sa-mark" class:err={c.isError}>{c.isError ? "✗" : "✓"}</span>
+    {/if}
+    <span class="sa-desc">{callTarget(c.name, c.input) || "Sub-agent"}</span>
+    <span class="sa-type">{subagentType(c)}</span>
+    <span class="sa-progress">{subagentProgress(c)}</span>
+    <svg class="sa-open" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+      <path
+        d="M6 3l5 5-5 5"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.8"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      />
+    </svg>
+  </button>
+{/snippet}
+
 <div class="stream-wrap">
+  {#if subagent}
+    <!-- Where the user is: inside one of the Agent's Sub-agents, with the
+         way back to the Agent's own transcript. -->
+    <div class="sub-bar">
+      <button class="sub-back" onclick={closeSubagent} title="Back to the agent's own transcript">
+        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+          <path
+            d="M10 3L5 8l5 5"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+        <span class="sub-agent-name"
+          >{store.selectedAgent ? store.agentName(store.selectedAgent) : "Agent"}</span
+        >
+      </button>
+      <span class="sub-sep" aria-hidden="true">/</span>
+      {#if isRunning(subagent)}
+        <span class="status-dot status-running" title="still running"></span>
+      {/if}
+      <span class="sub-desc">{callTarget(subagent.name, subagent.input) || "Sub-agent"}</span>
+      <span class="sa-type">{subagentType(subagent)}</span>
+    </div>
+  {/if}
   <div
     class="stream"
     bind:this={streamEl}
@@ -372,6 +490,11 @@
           <div class="block prompt-block">{#if row.attachments.length}<div class="prompt-files"><Attachments paths={row.attachments} /></div>{/if}<LinkedText text={row.text} /></div>
         {:else if row.kind === "text"}
           <div class="block text"><Markdown text={row.text} /></div>
+        {:else if row.kind === "tools" && SUBAGENT_TOOLS.has(row.name)}
+          <!-- Sub-agents sent off together sit together, each opening on its own. -->
+          <div class="block subagents">
+            {#each row.calls as c (c.key)}{@render subagentCard(c)}{/each}
+          </div>
         {:else if row.kind === "tools"}
           {@const open = isOpen(row.key, row.calls.some(opensItself))}
           <details class="block tool" {@attach autoOpen(open)} ontoggle={remember(row.key)}>
@@ -531,6 +654,133 @@
   @keyframes to-bottom-in {
     from { opacity: 0; transform: translate(-50%, 0.3rem); }
     to { opacity: 1; transform: translate(-50%, 0); }
+  }
+
+  /* Above the Sub-agent's transcript, reading as a path: the Agent, then the
+     Sub-agent inside it. */
+  .sub-bar {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    min-width: 0;
+    padding: 0.45rem var(--pad-x);
+    border-bottom: 1px solid var(--border);
+    font-size: var(--text-md);
+  }
+
+  .sub-back {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+    max-width: 40%;
+    flex: none;
+    padding: 0.2rem 0.45rem 0.2rem 0.3rem;
+    margin-left: -0.3rem;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--fg-muted);
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .sub-back:hover {
+    background: var(--hover);
+    color: var(--fg);
+  }
+
+  .sub-back svg { flex: none; }
+
+  .sub-agent-name,
+  .sub-desc {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .sub-sep { color: var(--fg-muted); }
+
+  .sub-desc {
+    color: var(--fg);
+    font-weight: var(--weight-medium);
+  }
+
+  .sa-type {
+    flex: none;
+    padding: 0.1rem 0.4rem;
+    border-radius: var(--radius-pill);
+    background: var(--hover);
+    color: var(--fg-muted);
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    line-height: var(--leading-snug);
+  }
+
+  /* Sub-agents sent off together, one card each. */
+  .subagents {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .subagent {
+    display: grid;
+    grid-template-columns: 1rem minmax(0, auto) auto 1fr auto;
+    align-items: center;
+    column-gap: var(--space-3);
+    row-gap: 0.15rem;
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    background: var(--panel-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    color: var(--fg);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color var(--duration-fast) var(--ease);
+  }
+
+  .subagent:hover { border-color: var(--accent); }
+  .subagent:hover .sa-open { color: var(--accent); }
+
+  .sa-state {
+    grid-row: 1 / 3;
+    display: grid;
+    place-items: center;
+    font-size: var(--text-sm);
+    color: var(--success);
+  }
+
+  .sa-state .running-dot { margin: 0; }
+  .sa-mark.err { color: var(--danger-text); }
+
+  .sa-desc {
+    font-size: var(--text-md);
+    font-weight: var(--weight-medium);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .sa-progress {
+    grid-column: 2 / 5;
+    grid-row: 2;
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    color: var(--fg-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .sa-open {
+    grid-column: 5;
+    grid-row: 1 / 3;
+    color: var(--fg-muted);
   }
 
   .hint {

@@ -6,7 +6,7 @@
 import { formatDuration } from "$lib/format";
 import { languageOf } from "$lib/code/highlight.svelte";
 import { outputLanguage, terminalText } from "./shell";
-import type { ToolCall } from "./rows";
+import { isRunning, type ToolCall } from "./rows";
 
 function basename(path: string): string {
   return path.split("/").filter(Boolean).pop() ?? path;
@@ -37,6 +37,7 @@ export function callTarget(name: string, input: unknown): string {
     case "Grep":
     case "Glob":
       return str(o.pattern);
+    case "Agent":
     case "Task":
       return str(o.description);
     case "Skill":
@@ -96,6 +97,29 @@ export function groupElapsed(calls: ToolCall[]): string {
   const pool = running.length ? running : calls;
   const slowest = pool.reduce((a, b) => (b.elapsedSeconds > a.elapsedSeconds ? b : a));
   return elapsedLabel(slowest);
+}
+
+/** The kind of Sub-agent a call started: `Explore`, `Plan`, or the general one. */
+export function subagentType(c: ToolCall): string {
+  const t = (c.input as { subagent_type?: unknown } | null)?.subagent_type;
+  return typeof t === "string" && t.trim() ? t.trim() : "general-purpose";
+}
+
+/**
+ * How far a Sub-agent has got: how many tools it has called and, while it's
+ * still at work, what it's doing now.
+ */
+export function subagentProgress(c: ToolCall): string {
+  const n = c.steps ?? 0;
+  const running = isRunning(c);
+  const count = n
+    ? `${n} tool ${n === 1 ? "call" : "calls"}`
+    : running
+      ? "Starting"
+      : "No tool calls";
+  if (!running || !c.lastStep) return count;
+  const target = truncate(callTarget(c.lastStep, c.lastStepInput), 60);
+  return `${count} · ${c.lastStep}${target ? ` ${target}` : ""}`;
 }
 
 /** A Bash call's command, if that's what `c` is. */

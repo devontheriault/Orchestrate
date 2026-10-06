@@ -111,6 +111,10 @@ _Avoid_: Parent (Base's avoided word), Orchestrator (the app's own name), Manage
 An Agent a Lead Spawned, recorded with its Lead as `lead_id`. It is otherwise an ordinary Agent with its own Worktree, branch, Session and transcript, which the user can watch, Stop, Resume or Discard. Its branch and Base are the Lead's current commit, and it takes the Lead's Mode and Options. Each Turn is told in a short system prompt that it works for a Lead, should Commit its work on its own branch, and reports back in its final answer. A Helper can't Spawn Helpers, and a Lead has at most eight working at once. In the sidebar it sits under its Lead, in the Lead's Bucket. Completing doesn't notify the user, since the Lead hears of it, but Failing does.
 _Avoid_: Sub-agent (Claude Code's own Agent tool, which shares the Agent's Worktree), Child, Worker, Teammate.
 
+**Sub-agent**:
+A fresh conversation Claude Code starts inside one of an Agent's Turns, through its own Agent tool (`Task` in older versions), to do part of the work and report back. It runs in the Agent's process and Worktree, so it isn't an Agent of the app: it can't be Stopped, Resumed or Merged on its own. Its events come down the Agent's stream, each naming the call that started it. The Agent's transcript keeps them out and shows each Sub-agent as a card under that call. Opening the card shows the Sub-agent's own transcript, from its prompt to its report.
+_Avoid_: Helper (an Agent of the app's that a Lead Spawned), Child, Task (the Agent's unit of work).
+
 **Session**:
 The Claude Code conversation history behind an Agent, named by the UUID we mint at Spawn and pass as `--session-id`. Claude Code owns the transcript; we only keep the ID, and Resume hands it back via `--resume`. A Session is scoped to the directory it started in, which is why it survives exactly as long as the Agent's Worktree does.
 _Avoid_: using it as a synonym for Agent (an Agent is the thing the user talks to; the Session is the history that makes talking again possible), Thread, History, Context.
