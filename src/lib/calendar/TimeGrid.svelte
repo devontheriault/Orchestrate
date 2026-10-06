@@ -97,8 +97,8 @@
   }
 
   // ---- making one
-  /** A new Calendar event being pressed out on day `day`, from `a` to `b` minutes. */
-  let making = $state<{ day: number; a: number; b: number } | null>(null);
+  /** A new Calendar event being pressed out on day `day`, from `a` to `b` minutes, by a press at `x`, `y`. */
+  let making = $state<{ day: number; a: number; b: number; x: number; y: number } | null>(null);
   let makingEl: HTMLElement | undefined = $state();
 
   function minuteAt(col: HTMLElement, y: number): number {
@@ -111,11 +111,21 @@
     const col = e.currentTarget as HTMLElement;
     col.setPointerCapture(e.pointerId);
     const m = minuteAt(col, e.clientY);
-    making = { day: i, a: m, b: m };
+    making = { day: i, a: m, b: m, x: e.clientX, y: e.clientY };
+  }
+
+  /**
+   * Whether a finger has gone sideways: it's turning the page (CalendarSpace's
+   * swipe), not pressing out or moving a Calendar event.
+   */
+  function turningPage(e: PointerEvent, dx: number, dy: number): boolean {
+    return e.pointerType === "touch" && Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy);
   }
 
   function columnMove(e: PointerEvent) {
-    if (making) making.b = minuteAt(e.currentTarget as HTMLElement, e.clientY);
+    if (!making) return;
+    if (turningPage(e, e.clientX - making.x, e.clientY - making.y)) making = null;
+    else making.b = minuteAt(e.currentTarget as HTMLElement, e.clientY);
   }
 
   function columnUp() {
@@ -182,6 +192,10 @@
     if (!drag) return;
     drag.dx = e.clientX - drag.x0;
     drag.dy = e.clientY - drag.y0;
+    if (!drag.moved && turningPage(e, drag.dx, drag.dy)) {
+      drag = null;
+      return;
+    }
     if (Math.abs(drag.dx) > 4 || Math.abs(drag.dy) > 4) drag.moved = true;
   }
 

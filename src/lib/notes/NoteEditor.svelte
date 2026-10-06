@@ -5,6 +5,7 @@
    * no note open, a calm page that says how to start one.
    */
   import Markdown from "$lib/markdown/Markdown.svelte";
+  import { goBack } from "$lib/layout/PhoneStack.svelte";
   import { dismissOnMove, menuStyle, placeMenu, stepActive, type Placement } from "$lib/menus/menu";
   import { DEFAULT_EFFORT, DEFAULT_MODE, DEFAULT_MODEL } from "$lib/picks";
   import { store } from "$lib/state/store.svelte";
@@ -188,7 +189,8 @@
   {#if open}
     <header>
       {#if phone}
-        <button class="btn btn-ghost back" onclick={() => notes.close()} aria-label="Back to notes"
+        <button class="btn btn-ghost back" onclick={() => goBack("notes") || notes.close()}
+          aria-label="Back to notes"
           >‹</button
         >
       {/if}
