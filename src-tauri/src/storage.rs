@@ -296,6 +296,7 @@ mod tests {
             unpushed: false,
             push_error: None,
             resolves: None,
+            lead_id: None,
             queue: vec![],
         }
     }

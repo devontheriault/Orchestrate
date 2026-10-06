@@ -96,6 +96,9 @@ pub enum Error {
     #[error("{0}")]
     Plugins(String),
 
+    #[error("cannot spawn a Helper: {0}")]
+    CannotLead(String),
+
     #[error("the Host is restarting to update; try again in a moment")]
     HostClosing,
 

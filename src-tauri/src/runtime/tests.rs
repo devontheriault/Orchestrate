@@ -448,8 +448,8 @@ async fn no_picked_model_passes_no_model_flag() {
     assert!(!args.contains("--effort"), "{args}");
 }
 
-/// Every Turn is handed the app's MCP server, ahead of a flag so the variadic
-/// options can't take what follows them.
+/// Every Turn is handed the app's MCP server, naming its own Agent, ahead of
+/// a flag so the variadic options can't take what follows them.
 #[tokio::test]
 async fn every_turn_is_handed_the_mcp_server() {
     let _env = StateEnv::new();
@@ -457,26 +457,24 @@ async fn every_turn_is_handed_the_mcp_server() {
     let project = sample_project(repo.path().to_path_buf());
     let args_log = std::env::temp_dir().join(format!("cw-args-{}.txt", new_id()));
     let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_recording(&args_log));
-    let mcp = crate::mcp::turn_args();
-    assert!(!mcp.is_empty());
-    let rt = AgentRuntime {
-        mcp_args: Arc::new(mcp.clone()),
-        ..rt
-    };
+    let rt = AgentRuntime { mcp: true, ..rt };
 
-    rt.spawn(
-        &project,
-        "hello".into(),
-        vec![],
-        None,
-        None,
-        None,
-        AgentOptions::default(),
-    )
-    .await
-    .unwrap();
+    let agent = rt
+        .spawn(
+            &project,
+            "hello".into(),
+            vec![],
+            None,
+            None,
+            None,
+            AgentOptions::default(),
+        )
+        .await
+        .unwrap();
     wait_for_exit(&mut rx).await;
 
+    let mcp = crate::mcp::turn_args(&agent.id);
+    assert!(!mcp.is_empty());
     let args = std::fs::read_to_string(&args_log).unwrap();
     assert!(
         args.contains(&format!("{} --permission-mode", mcp.join(" "))),
@@ -1158,6 +1156,7 @@ async fn resume_is_refused_for_an_agent_with_no_session() {
         unpushed: false,
         push_error: None,
         resolves: None,
+        lead_id: None,
         queue: vec![],
     };
     storage::save_agent(&a).unwrap();
@@ -1249,6 +1248,7 @@ async fn adopt_orphans_transitions_running() {
         unpushed: false,
         push_error: None,
         resolves: None,
+        lead_id: None,
         queue: vec![],
     };
     storage::save_agent(&a).unwrap();
@@ -1834,4 +1834,161 @@ async fn an_agent_handed_mail_stays_locked_whatever_mode_is_picked() {
     );
     assert!(!free.contains("--restricted"), "{free}");
     assert!(!free.contains("--tools"), "{free}");
+}
+
+/// A Helper picks up where its Lead's branch is, and runs no looser than its
+/// Lead: its Mode and Options, and its Model unless the Lead picked another
+/// (ADR 0019). Each Turn tells it it's a Helper, and denies it the tools a
+/// Lead uses.
+#[tokio::test]
+async fn a_helper_starts_from_its_leads_commit_and_runs_as_it_does() {
+    let _env = StateEnv::new();
+    let repo = init_repo().await;
+    let project = sample_project(repo.path().to_path_buf());
+    let args_log = std::env::temp_dir().join(format!("cw-args-{}.txt", new_id()));
+    // The Lead commits a file; its Helper, cut from that commit, finds it.
+    let (rt, mut rx) = AgentRuntime::with_bin(write_script(&format!(
+        r#"#!/bin/sh
+echo "$@" >> {log}
+if [ ! -f lead.txt ]; then
+  echo lead > lead.txt
+  git add -A && git commit -qm lead
+fi
+exit 0
+"#,
+        log = args_log.display()
+    )));
+    let options = AgentOptions {
+        advisor: Some("opus".into()),
+        output_style: None,
+    };
+    rt.spawn(
+        &project,
+        "build the thing".into(),
+        vec![],
+        Some("claude-opus-5-5".into()),
+        Some("high".into()),
+        Some("bypassPermissions".into()),
+        options.clone(),
+    )
+    .await
+    .unwrap();
+    let lead = wait_for_exit(&mut rx).await;
+    let lead_tip = git(repo.path(), &["rev-parse", &lead.branch]).await;
+
+    let helper = rt
+        .spawn_helper(
+            &project,
+            &lead,
+            "write the parser".into(),
+            None,
+            Some("low".into()),
+        )
+        .await
+        .unwrap();
+    assert_eq!(helper.lead_id.as_deref(), Some(lead.id.as_str()));
+    assert_eq!(helper.task.prompt, "write the parser");
+    assert_eq!(helper.base_commit.as_deref(), Some(lead_tip.as_str()));
+    assert!(helper.worktree_path.join("lead.txt").exists());
+    assert_eq!(helper.model.as_deref(), Some("claude-opus-5-5"));
+    assert_eq!(helper.effort.as_deref(), Some("low"));
+    assert_eq!(helper.mode(), "bypassPermissions");
+    assert_eq!(helper.options, options);
+    wait_for_exit(&mut rx).await;
+    assert_eq!(
+        storage::load_agent(&helper.id).unwrap().lead_id,
+        Some(lead.id.clone()),
+        "the Lead is recorded"
+    );
+
+    let args = std::fs::read_to_string(&args_log).unwrap();
+    let lines: Vec<&str> = args.lines().collect();
+    assert_eq!(lines.len(), 2, "{args}");
+    assert!(!lines[0].contains("--append-system-prompt"), "{}", lines[0]);
+    assert!(!lines[0].contains("--disallowedTools"), "{}", lines[0]);
+    let helper_turn = lines[1];
+    assert!(
+        helper_turn.contains(&format!(
+            "--append-system-prompt You are a Helper: another Orchestrate Agent, your Lead (id {})",
+            lead.id
+        )),
+        "{helper_turn}"
+    );
+    assert!(
+        helper_turn.contains("--disallowedTools mcp__orchestrate__spawn_helper,"),
+        "{helper_turn}"
+    );
+}
+
+/// Only an Agent that is neither Mail-locked nor a Helper itself may lead.
+#[tokio::test]
+async fn a_mail_locked_agent_or_a_helper_cannot_lead() {
+    let _env = StateEnv::new();
+    let repo = init_repo().await;
+    let project = sample_project(repo.path().to_path_buf());
+    let (rt, mut rx) = AgentRuntime::with_bin(fake_claude_ok());
+
+    let locked = rt
+        .spawn_with_mail(
+            &project,
+            "read this".into(),
+            None,
+            None,
+            AgentOptions::default(),
+        )
+        .await
+        .unwrap();
+    wait_for_exit(&mut rx).await;
+    let refused = rt
+        .spawn_helper(&project, &locked, "act on it".into(), None, None)
+        .await
+        .unwrap_err();
+    assert!(matches!(refused, Error::CannotLead(_)), "{refused:?}");
+
+    let lead = spawn_on(&rt, &repo).await;
+    wait_for_exit(&mut rx).await;
+    let helper = rt
+        .spawn_helper(&project, &lead, "part one".into(), None, None)
+        .await
+        .unwrap();
+    wait_for_exit(&mut rx).await;
+    let refused = rt
+        .spawn_helper(&project, &helper, "part one, a".into(), None, None)
+        .await
+        .unwrap_err();
+    assert!(matches!(refused, Error::CannotLead(_)), "{refused:?}");
+}
+
+/// A Lead may have only so many Helpers working at once, however many it
+/// asks for together.
+#[tokio::test]
+async fn a_lead_has_at_most_eight_helpers_working() {
+    let _env = StateEnv::new();
+    let repo = init_repo().await;
+    let project = sample_project(repo.path().to_path_buf());
+    let (rt, _rx) = AgentRuntime::with_bin(write_script(
+        r#"#!/bin/sh
+exec sleep 30
+"#,
+    ));
+    let lead = spawn_on(&rt, &repo).await;
+
+    let asking: Vec<_> = (0..MAX_WORKING_HELPERS + 2)
+        .map(|i| {
+            let (rt, project, lead) = (rt.clone(), project.clone(), lead.clone());
+            tokio::spawn(async move {
+                rt.spawn_helper(&project, &lead, format!("part {i}"), None, None)
+                    .await
+            })
+        })
+        .collect();
+    let mut spawned = 0;
+    for asked in asking {
+        match asked.await.unwrap() {
+            Ok(_) => spawned += 1,
+            Err(e) => assert!(matches!(e, Error::CannotLead(_)), "{e:?}"),
+        }
+    }
+    assert_eq!(spawned, MAX_WORKING_HELPERS);
+    rt.shutdown().await;
 }

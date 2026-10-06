@@ -12,8 +12,8 @@ pub type Id = String;
 
 /// Every Agent's branch is named `cw/agent-<id>`. The prefix is how the rest of
 /// the app tells an Agent's branch from one of the user's own — the Merge picker
-/// leaves these out, since merging one Agent into another's branch is
-/// multi-agent coordination rather than finishing a piece of work.
+/// leaves these out, since the only Agent whose branch takes another's is a
+/// Lead, which merges its Helpers itself (ADR 0019).
 pub const AGENT_BRANCH_PREFIX: &str = "cw/agent-";
 
 /// The Permission Mode an Agent's Turns run in unless the user picks otherwise:
@@ -220,6 +220,10 @@ pub struct Agent {
     /// Merge was headed for. `None` on every other Agent.
     #[serde(default)]
     pub resolves: Option<Resolution>,
+    /// Set on a Helper: the Lead that Spawned it over MCP (ADR 0019). `None`
+    /// on every Agent the user Spawned.
+    #[serde(default)]
+    pub lead_id: Option<Id>,
     /// What the user has said to the Agent that it wasn't free to hear yet,
     /// oldest first. Drained one message per clean Complete; held by a Stop or
     /// a Fail. See Queue in CONTEXT.md.
@@ -383,6 +387,7 @@ mod tests {
                     target: "main".into(),
                     push: true,
                 }),
+                lead_id: Some("c5f1e3a0".into()),
                 queue: vec![QueuedMessage {
                     id: "q1".into(),
                     prompt: "then this".into(),
@@ -452,6 +457,7 @@ mod tests {
             "no recorded turn start means readers fall back to spawned_at"
         );
         assert_eq!(a.resolves, None, "an old agent resolves nothing");
+        assert_eq!(a.lead_id, None, "an old agent was Spawned by the user");
         assert_eq!(a.user_title, None, "an old agent has only Claude's title");
         assert_eq!(a.color, None);
         assert_eq!(a.options, AgentOptions::default());

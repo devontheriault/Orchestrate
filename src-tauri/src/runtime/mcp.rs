@@ -1,10 +1,12 @@
-//! The Agents Space's MCP tools (see `crate::mcp` for how tools work). They
-//! only read. Spawning, sending to and Merging an Agent over MCP wait on a
-//! decision of their own. A Mail-locked Agent's Task, Title and answers are
-//! never given out (ADR 0018): they come from mail, and the Agent asking may
-//! not be locked.
+//! The Agents Space's MCP tools (see `crate::mcp` for how tools work). Any
+//! client may read the Agents. An Agent may also lead (ADR 0019): Spawn
+//! Helpers, wait for them, send them follow-ups and Stop them, acting only on
+//! its own. Nothing here Merges. A Mail-locked Agent's Task, Title and answers
+//! are never given out (ADR 0018): they come from mail, and the Agent asking
+//! may not be locked.
 
 use std::path::PathBuf;
+use std::time::Duration;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -14,6 +16,18 @@ use time::OffsetDateTime;
 
 use crate::domain::{Agent, AgentState, Project};
 use crate::mcp::{Host, NoArgs, Tool};
+
+/// The tools a Lead uses on its Helpers. A Helper's Turns aren't offered
+/// them, since a Helper can't lead.
+pub const LEAD_TOOLS: [&str; 4] = [
+    "spawn_helper",
+    "wait_for_helpers",
+    "send_to_helper",
+    "stop_helper",
+];
+
+/// How often `wait_for_helpers` looks again while a Helper is working.
+const WAIT_POLL: Duration = Duration::from_secs(2);
 
 pub fn tools() -> Vec<Tool> {
     vec![
@@ -37,7 +51,100 @@ pub fn tools() -> Vec<Tool> {
              what it reported back about its work.",
             agent_last_answer,
         ),
+        Tool::writes(
+            "spawn_helper",
+            "Start a Helper: another Orchestrate Agent that works on one part of your task \
+             while you and other Helpers work on others. Use it to split work that can go \
+             in parallel. Each Helper gets its own Git worktree, on a branch cut from your \
+             branch's latest commit, so commit first anything it should build on, and give \
+             each one a piece that doesn't touch the same files as another's. It runs in \
+             your permission mode, commits its work on its own branch, and shows under you \
+             in the user's sidebar. Then call wait_for_helpers, and merge each finished \
+             Helper's branch into yours with `git merge <branch>`. At most 8 work at once.",
+            spawn_helper,
+        ),
+        Tool::reads(
+            "wait_for_helpers",
+            "Wait until your Helpers have finished their Turns, then report each one: its \
+             State, branch, worktree and final answer. Waits for all of them unless you \
+             name some. After `minutes` it reports anyway, with the ones still working \
+             marked running, and you can call it again.",
+            wait_for_helpers,
+        ),
+        Tool::writes(
+            "send_to_helper",
+            "Give one of your Helpers a follow-up, to correct it or hand it more: it starts \
+             a new Turn now if it has finished, or as soon as its current one ends. Then \
+             wait_for_helpers again.",
+            send_to_helper,
+        ),
+        Tool::writes(
+            "stop_helper",
+            "Stop one of your Helpers mid-Turn. Its work so far stays in its worktree, and \
+             send_to_helper sets it going again.",
+            stop_helper,
+        ),
     ]
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct NewHelper {
+    /// What the Helper is to do, complete in itself: it sees none of your
+    /// conversation, only this and the code at your branch's latest commit.
+    task: String,
+    /// The model it runs on, as `claude --model` takes it: an alias such as
+    /// `sonnet`, or a full model name. Leave it out to use yours.
+    model: Option<String>,
+    /// How hard it works: `low`, `medium`, `high`, `xhigh` or `max`. Leave it
+    /// out to use yours.
+    effort: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct Waiting {
+    /// Which of your Helpers to wait for, by id or Title. Leave it out to wait
+    /// for all of them.
+    helpers: Option<Vec<String>>,
+    /// How long to wait before reporting anyway, in minutes: 10 unless you say,
+    /// and at most 30.
+    minutes: Option<u64>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct FollowUp {
+    /// The Helper's id, as spawn_helper gave it, or its exact Title.
+    helper: String,
+    /// What to tell it.
+    message: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct WhichHelper {
+    /// The Helper's id, as spawn_helper gave it, or its exact Title.
+    helper: String,
+}
+
+/// A Helper as `spawn_helper` reports it.
+#[derive(Serialize)]
+struct Spawned {
+    id: String,
+    branch: String,
+    worktree: PathBuf,
+}
+
+/// A Helper as `wait_for_helpers` reports it.
+#[derive(Serialize)]
+struct Report {
+    id: String,
+    title: String,
+    state: AgentState,
+    branch: String,
+    worktree: PathBuf,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fail_reason: Option<String>,
+    /// The final answer of its last Turn, once it isn't working.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    answer: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -54,6 +161,9 @@ struct Listed {
     state: AgentState,
     project: Option<String>,
     host: String,
+    /// The Lead that Spawned it, for a Helper.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    lead: Option<String>,
 }
 
 impl Listed {
@@ -67,6 +177,7 @@ impl Listed {
                 .find(|p| p.id == a.project_id)
                 .map(|p| p.name.clone()),
             host: host.name().to_owned(),
+            lead: a.lead_id.clone(),
         }
     }
 }
@@ -163,6 +274,131 @@ async fn agent_last_answer(host: Host, which: WhichAgent) -> Result<String, Stri
     })
 }
 
+async fn spawn_helper(host: Host, new: NewHelper) -> Result<Spawned, String> {
+    let helper: Agent = host
+        .call_as(
+            "spawn_helper",
+            json!({
+                "leadId": host.agent()?,
+                "prompt": new.task,
+                "model": new.model,
+                "effort": new.effort,
+            }),
+        )
+        .await?;
+    Ok(Spawned {
+        id: helper.id,
+        branch: helper.branch,
+        worktree: helper.worktree_path,
+    })
+}
+
+async fn wait_for_helpers(host: Host, waiting: Waiting) -> Result<Vec<Report>, String> {
+    let lead = host.agent()?.to_owned();
+    let patience = Duration::from_secs(60 * waiting.minutes.unwrap_or(10).clamp(1, 30));
+    let until = tokio::time::Instant::now() + patience;
+    loop {
+        let agents: Vec<Agent> = host.call_as("list_agents", json!({})).await?;
+        let helpers = helpers_of(&agents, &lead);
+        if helpers.is_empty() {
+            return Err("you have no Helpers; spawn_helper starts one".into());
+        }
+        let waited_for = match &waiting.helpers {
+            None => helpers,
+            Some(keys) => keys
+                .iter()
+                .map(|key| own_helper(&helpers, key).cloned())
+                .collect::<Result<_, _>>()?,
+        };
+        let working = waited_for.iter().any(|a| a.state == AgentState::Running);
+        if !working || tokio::time::Instant::now() >= until {
+            let mut reports = Vec::with_capacity(waited_for.len());
+            for a in waited_for {
+                reports.push(report(&host, a).await?);
+            }
+            return Ok(reports);
+        }
+        tokio::time::sleep(WAIT_POLL).await;
+    }
+}
+
+async fn report(host: &Host, a: Agent) -> Result<Report, String> {
+    // A Helper is never Mail-locked, since its Lead can't be; held back all
+    // the same, as every tool holds back a locked Agent's answers.
+    let answer = if a.state == AgentState::Running || a.read_mail {
+        None
+    } else {
+        host.call_as("agent_last_answer", json!({ "agentId": a.id }))
+            .await?
+    };
+    Ok(Report {
+        title: title(&a),
+        id: a.id,
+        state: a.state,
+        branch: a.branch,
+        worktree: a.worktree_path,
+        fail_reason: a.fail_reason,
+        answer,
+    })
+}
+
+async fn send_to_helper(host: Host, follow_up: FollowUp) -> Result<String, String> {
+    let lead = host.agent()?;
+    let agents: Vec<Agent> = host.call_as("list_agents", json!({})).await?;
+    let helper = own_helper(&helpers_of(&agents, lead), &follow_up.helper)?.clone();
+    let sent: Agent = host
+        .call_as(
+            "send_to_helper",
+            json!({ "leadId": lead, "helperId": helper.id, "prompt": follow_up.message }),
+        )
+        .await?;
+    Ok(if sent.queue.is_empty() {
+        format!("“{}” is working on it.", title(&helper))
+    } else {
+        format!(
+            "“{}” is still working, so it gets this as soon as its current Turn ends.",
+            title(&helper)
+        )
+    })
+}
+
+async fn stop_helper(host: Host, which: WhichHelper) -> Result<String, String> {
+    let lead = host.agent()?;
+    let agents: Vec<Agent> = host.call_as("list_agents", json!({})).await?;
+    let helper = own_helper(&helpers_of(&agents, lead), &which.helper)?.clone();
+    if helper.state != AgentState::Running {
+        return Ok(format!("“{}” wasn't working.", title(&helper)));
+    }
+    host.call(
+        "stop_helper",
+        json!({ "leadId": lead, "helperId": helper.id }),
+    )
+    .await?;
+    Ok(format!(
+        "Stopped “{}”. Its work so far is in {}.",
+        title(&helper),
+        helper.worktree_path.display()
+    ))
+}
+
+/// The Helpers `lead` Spawned, oldest first.
+fn helpers_of(agents: &[Agent], lead: &str) -> Vec<Agent> {
+    let mut helpers: Vec<Agent> = agents
+        .iter()
+        .filter(|a| a.lead_id.as_deref() == Some(lead))
+        .cloned()
+        .collect();
+    helpers.sort_by_key(|a| a.spawned_at);
+    helpers
+}
+
+/// The one of `helpers` that `key` names, by id or else by Title.
+fn own_helper<'a>(helpers: &'a [Agent], key: &str) -> Result<&'a Agent, String> {
+    find_in(helpers, key, || {
+        format!("none of your Helpers has the id or Title “{}”.", key.trim())
+    })
+}
+
 /// Every Agent on the Host, and its Projects to name them by.
 async fn read(host: &Host) -> Result<(Vec<Agent>, Vec<Project>), String> {
     let agents = host.call_as("list_agents", json!({}));
@@ -172,6 +408,21 @@ async fn read(host: &Host) -> Result<(Vec<Agent>, Vec<Project>), String> {
 
 /// The Agent `key` names, by id or else by Title.
 fn find<'a>(agents: &'a [Agent], key: &str) -> Result<&'a Agent, String> {
+    find_in(agents, key, || {
+        format!(
+            "no Agent on this Host has the id or Title “{}”. list_agents names them all.",
+            key.trim()
+        )
+    })
+}
+
+/// The one of `agents` that `key` names, by id or else by Title, or `missing`
+/// when none does.
+fn find_in<'a>(
+    agents: &'a [Agent],
+    key: &str,
+    missing: impl FnOnce() -> String,
+) -> Result<&'a Agent, String> {
     let key = key.trim();
     if let Some(a) = agents.iter().find(|a| a.id == key) {
         return Ok(a);
@@ -182,9 +433,7 @@ fn find<'a>(agents: &'a [Agent], key: &str) -> Result<&'a Agent, String> {
         .collect();
     match named[..] {
         [a] => Ok(a),
-        [] => Err(format!(
-            "no Agent on this Host has the id or Title “{key}”. list_agents names them all."
-        )),
+        [] => Err(missing()),
         _ => Err(format!(
             "{} Agents are called “{key}”; ask for one by id: {}.",
             named.len(),

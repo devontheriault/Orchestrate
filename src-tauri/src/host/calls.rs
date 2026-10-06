@@ -75,6 +75,26 @@ pub enum Call {
         effort: Option<String>,
         options: AgentOptions,
     },
+    /// Spawn a Helper for the Lead `lead_id` (ADR 0019): asked from the
+    /// Lead's own Turn, over MCP. The Host decides whether it may lead.
+    SpawnHelper {
+        lead_id: String,
+        prompt: String,
+        model: Option<String>,
+        effort: Option<String>,
+    },
+    /// Say something to one of the Lead's own Helpers, on the Helper's own
+    /// picks: a new Turn if it is free, its Queue if it is working.
+    SendToHelper {
+        lead_id: String,
+        helper_id: String,
+        prompt: String,
+    },
+    /// Stop one of the Lead's own Helpers.
+    StopHelper {
+        lead_id: String,
+        helper_id: String,
+    },
     /// Put a stopped Agent's committed work on the Project's remote, for an
     /// Agent Spawned on another Host to pick up (ADR 0013).
     HandOff {
@@ -564,6 +584,45 @@ async fn handle(host: &Host, call: Call) -> Result<Value, String> {
                 .map_err(err)?)
         }
 
+        Call::SpawnHelper {
+            lead_id,
+            prompt,
+            model,
+            effort,
+        } => {
+            let lead = storage::load_agent(&lead_id).map_err(err)?;
+            let project = project_of(&lead, "spawn a Helper")?;
+            ok(runtime
+                .spawn_helper(&project, &lead, prompt.trim().to_string(), model, effort)
+                .await
+                .map_err(err)?)
+        }
+
+        Call::SendToHelper {
+            lead_id,
+            helper_id,
+            prompt,
+        } => {
+            let helper = helper_of(&lead_id, &helper_id)?;
+            let message = QueuedMessage {
+                id: new_id(),
+                prompt: prompt.trim().to_string(),
+                attachments: vec![],
+                model: helper.model,
+                effort: helper.effort,
+                permission_mode: helper.permission_mode,
+            };
+            ok(runtime.send(&helper.id, message).await.map_err(err)?)
+        }
+
+        Call::StopHelper { lead_id, helper_id } => {
+            let helper = helper_of(&lead_id, &helper_id)?;
+            if helper.state != AgentState::Running {
+                return Err(format!("{} isn't working", helper.id));
+            }
+            ok(runtime.stop(&helper.id).await.map_err(err)?)
+        }
+
         Call::HandOff { agent_id } => {
             let agent = storage::load_agent(&agent_id).map_err(err)?;
             let project = project_of(&agent, "hand off")?;
@@ -651,7 +710,25 @@ async fn handle(host: &Host, call: Call) -> Result<Value, String> {
             .await
             .map_err(err)?),
 
-        Call::StopAgent { agent_id } => ok(runtime.stop(&agent_id).await.map_err(err)?),
+        Call::StopAgent { agent_id } => {
+            runtime.stop(&agent_id).await.map_err(err)?;
+            // Stopping a Lead stops the job, so its working Helpers stop too
+            // (ADR 0019). Each takes its own grace period, so all at once.
+            let stopping: Vec<_> = runtime
+                .running()
+                .await
+                .into_iter()
+                .filter(|a| a.lead_id.as_deref() == Some(&agent_id))
+                .map(|helper| {
+                    let runtime = runtime.clone();
+                    tokio::spawn(async move { runtime.stop(&helper.id).await })
+                })
+                .collect();
+            for stop in stopping {
+                let _ = stop.await;
+            }
+            ok(())
+        }
 
         Call::DiscardAgent { agent_id } => ok(discard(&agent_id).await?),
 
@@ -1018,6 +1095,18 @@ fn stopped(agent_id: &str, action: &str) -> Result<Agent, String> {
         ));
     }
     Ok(agent)
+}
+
+/// The Agent `helper_id`, if it is a Helper of `lead_id`'s: a Lead may only
+/// talk to or Stop its own (ADR 0019).
+fn helper_of(lead_id: &str, helper_id: &str) -> Result<Agent, String> {
+    let helper = storage::load_agent(helper_id).map_err(err)?;
+    if helper.lead_id.as_deref() != Some(lead_id) {
+        return Err(format!(
+            "{helper_id} isn't one of this agent's Helpers; it can only reach those it spawned"
+        ));
+    }
+    Ok(helper)
 }
 
 /// The registered Project an Agent belongs to, or an error naming `action` for

@@ -34,6 +34,11 @@ use turn::Continuity;
 /// How long shutdown() waits for supervisor tasks to finish per Agent.
 const SHUTDOWN_TIMEOUT_PER_AGENT: Duration = Duration::from_secs(5);
 
+/// How many Helpers one Lead may have working at once (ADR 0019). Each is a
+/// `claude` spending against the same account, and a model asked to work in
+/// parallel will happily start thirty.
+pub const MAX_WORKING_HELPERS: usize = 8;
+
 /// Every live Agent's handle, by id. Shared with the supervisors, which take
 /// their Agent out when its Turn ends.
 type LiveMap = Arc<RwLock<HashMap<Id, AgentHandle>>>;
@@ -61,14 +66,17 @@ pub struct AgentRuntime {
     emitter: Emitter,
     /// The `claude` binary to invoke. Overridable in tests.
     claude_bin: Arc<String>,
-    /// What each Turn passes `claude` so its Agent can reach the Spaces (see
-    /// [`crate::mcp::turn_args`]). Empty in tests: a fake `claude` has no use
-    /// for it.
-    mcp_args: Arc<Vec<String>>,
+    /// Whether each Turn is handed the app's MCP server, so its Agent can
+    /// reach the Spaces (see [`crate::mcp::turn_args`]). Off in tests: a fake
+    /// `claude` has no use for it.
+    mcp: bool,
     /// Whether a Spawn and a finished Turn spend a second `claude` call naming
     /// the Agent.
     /// Off in most tests, so the fake `claude` sees one invocation per Turn.
     naming: bool,
+    /// Held from counting a Lead's working Helpers until the new one is
+    /// working too, so a Lead Spawning several at once can't pass the limit.
+    spawning_helper: Arc<tokio::sync::Mutex<()>>,
     /// Set once the Host has decided to exit (see [`Self::close_if_idle`]).
     /// Read and written only under the live-map lock, so no Turn can start
     /// between the check that the Host is idle and the exit that follows.
@@ -83,8 +91,9 @@ impl AgentRuntime {
             inner: Arc::new(RwLock::new(HashMap::new())),
             emitter: Emitter::new(tx),
             claude_bin: Arc::new("claude".to_string()),
-            mcp_args: Arc::new(crate::mcp::turn_args()),
+            mcp: true,
             naming: true,
+            spawning_helper: Arc::default(),
             closed: Arc::default(),
         };
         (rt, rx)
@@ -97,7 +106,7 @@ impl AgentRuntime {
         let (rt, rx) = Self::new();
         let rt = Self {
             claude_bin: Arc::new(bin.into()),
-            mcp_args: Arc::default(),
+            mcp: false,
             naming: false,
             ..rt
         };
@@ -269,6 +278,60 @@ impl AgentRuntime {
             target: target.to_owned(),
             push,
         });
+        self.start(project, &from, agent).await
+    }
+
+    /// Spawn a Helper for `lead` on `prompt` (ADR 0019): an Agent in the
+    /// Lead's Project whose branch and Base are the Lead's current commit, so
+    /// it starts from what the Lead has committed and its diff is only its own
+    /// work. It runs in the Lead's Mode and with its Options, on `model` and
+    /// `effort` or else the Lead's, so it never runs looser than its Lead.
+    ///
+    /// Refused for a Mail-locked Lead, whose Task for it could carry the mail
+    /// (ADR 0018); for a Helper, since Helpers don't lead; and for a Lead with
+    /// [`MAX_WORKING_HELPERS`] already working.
+    pub async fn spawn_helper(
+        &self,
+        project: &Project,
+        lead: &Agent,
+        prompt: String,
+        model: Option<String>,
+        effort: Option<String>,
+    ) -> Result<Agent> {
+        let refuse = |why: String| Err(Error::CannotLead(why));
+        if lead.read_mail {
+            return refuse(
+                "this agent was handed mail, and what it writes for a Helper could carry it".into(),
+            );
+        }
+        if lead.lead_id.is_some() {
+            return refuse("a Helper can't spawn Helpers of its own".into());
+        }
+        let _one_at_a_time = self.spawning_helper.lock().await;
+        let working = self
+            .inner
+            .read()
+            .await
+            .values()
+            .filter(|h| h.agent.lead_id.as_deref() == Some(&lead.id))
+            .count();
+        if working >= MAX_WORKING_HELPERS {
+            return refuse(format!(
+                "{working} Helpers are already working, the most one Lead may have; \
+                 wait for some to finish"
+            ));
+        }
+        let from = git::rev_parse(&project.path, &lead.branch).await?;
+        let mut agent = new_agent(
+            project,
+            prompt,
+            model.or_else(|| lead.model.clone()),
+            effort.or_else(|| lead.effort.clone()),
+            lead.permission_mode.clone(),
+        )?;
+        agent.options = lead.options.clone();
+        agent.base_commit = Some(from.clone());
+        agent.lead_id = Some(lead.id.clone());
         self.start(project, &from, agent).await
     }
 
@@ -504,15 +567,8 @@ impl AgentRuntime {
             return Err(Error::HostClosing);
         }
 
-        let child = turn::command(
-            &self.claude_bin,
-            &self.mcp_args,
-            &agent,
-            prompt,
-            attached,
-            how,
-        )
-        .spawn();
+        let child =
+            turn::command(&self.claude_bin, self.mcp, &agent, prompt, attached, how).spawn();
 
         let child = match child {
             Ok(child) => child,
@@ -686,6 +742,7 @@ fn new_agent(
         unpushed: false,
         push_error: None,
         resolves: None,
+        lead_id: None,
         queue: vec![],
     })
 }

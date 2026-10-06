@@ -56,8 +56,16 @@
 //! **Nothing the user couldn't undo.** No tool deletes a note: throwing one
 //! away is the user's, from the Space.
 //!
-//! The Agents tools only read for now. Spawning, sending to or Merging an
-//! Agent over MCP waits on a decision of its own.
+//! **No Merge.** An Agent may lead Helpers and merge their branches into its
+//! own with git (ADR 0019), but bringing work into the Project's branches is
+//! only ever the user's.
+//!
+//! # Who is asking
+//!
+//! A Turn's server is told which Agent it serves, in [`AGENT_ENV`]. A tool
+//! that acts for that Agent, as the Lead tools do, reads it with
+//! [`Host::agent`] and hands it to the Host, which decides what that Agent
+//! may do. Any other client has no Agent, and those tools refuse it.
 
 mod link;
 
@@ -88,6 +96,9 @@ use crate::paths;
 
 /// What the server is called, in a client's list and in every tool's name.
 pub const SERVER_NAME: &str = "orchestrate";
+
+/// The variable a Turn's server finds its Agent's id in (see [`turn_config`]).
+pub const AGENT_ENV: &str = "ORCHESTRATE_AGENT";
 
 /// Every Space's tools, one entry per Space.
 const SPACES: &[fn() -> Vec<Tool>] = &[
@@ -206,8 +217,9 @@ fn text<R: Serialize>(answer: &R) -> String {
 /// What every client is told about the server as a whole.
 const INSTRUCTIONS: &str = "Orchestrate is the app the user runs Claude Code Agents in, \
 beside their Notes, Calendar and Mail. These tools read it, on the user's own machine, and \
-may write the user's notes, which are Markdown files they can see and undo. Nothing here \
-sends anything anywhere: what leaves the machine, the user sends from the app.";
+may write the user's notes, which are Markdown files they can see and undo. An Agent may also \
+spawn helper Agents to work on parts of its task in parallel, each in its own Git worktree. \
+Nothing here sends anything anywhere: what leaves the machine, the user sends from the app.";
 
 struct Server {
     host: Host,
@@ -295,7 +307,7 @@ async fn serve() -> Result<(), String> {
     Ok(())
 }
 
-/// What every Turn passes `claude` so its Agent can use the server, as
+/// What every Turn of `agent` passes `claude` so it can use the server, as
 /// arguments that each end before a flag: both options are variadic.
 ///
 /// `--mcp-config` hands it the server (see [`turn_config`]). Claude Code adds
@@ -310,8 +322,8 @@ async fn serve() -> Result<(), String> {
 ///
 /// Empty when the server can't be described. The Turn then runs without it
 /// rather than not at all.
-pub fn turn_args() -> Vec<String> {
-    let Some(config) = turn_config() else {
+pub fn turn_args(agent: &str) -> Vec<String> {
+    let Some(config) = turn_config(agent) else {
         return vec![];
     };
     vec![
@@ -334,17 +346,23 @@ fn turn_names(writes: bool) -> Vec<String> {
     tools()
         .iter()
         .filter(|t| t.writes == writes)
-        .map(|t| format!("mcp__{SERVER_NAME}__{}", t.name))
+        .map(|t| turn_name(t.name))
         .collect()
 }
 
-/// The server as `claude --mcp-config` takes it: run from this very binary
-/// against this state directory, so an Agent reaches its own Host and no
-/// other. `None` when either can't be found.
+/// One of the server's tools as a Turn names it, `mcp__orchestrate__<tool>`.
+pub fn turn_name(tool: &str) -> String {
+    format!("mcp__{SERVER_NAME}__{tool}")
+}
+
+/// The server as `claude --mcp-config` takes it for a Turn of `agent`: run
+/// from this very binary against this state directory, so an Agent reaches its
+/// own Host and no other, and told which Agent it serves. `None` when the
+/// binary or the directory can't be found.
 ///
 /// It goes inline, as the Options go to `--settings`, so there is no file to
 /// write or leave stale.
-fn turn_config() -> Option<String> {
+fn turn_config(agent: &str) -> Option<String> {
     let exe = this_binary()?;
     // Absolute, since the Turn runs in its Worktree, not where the Host started.
     let state = std::path::absolute(paths::state_dir().ok()?).ok()?;
@@ -355,7 +373,7 @@ fn turn_config() -> Option<String> {
                     "type": "stdio",
                     "command": exe,
                     "args": ["--mcp"],
-                    "env": { "ORCHESTRATE_STATE_DIR": state },
+                    "env": { "ORCHESTRATE_STATE_DIR": state, AGENT_ENV: agent },
                 }
             }
         })

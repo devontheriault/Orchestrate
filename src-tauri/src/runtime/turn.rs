@@ -35,12 +35,27 @@ pub(super) enum Continuity {
     Resumed,
 }
 
+/// What every Turn of a Helper is told on top of Claude Code's own system
+/// prompt (ADR 0019). Its Task stays what the Lead wrote.
+pub(super) fn helper_brief(lead_id: &str) -> String {
+    format!(
+        "You are a Helper: another Orchestrate Agent, your Lead (id {lead_id}), \
+         spawned you to do one part of its task while other Helpers do other parts, \
+         each in its own Git worktree. This worktree is on your own branch, cut from \
+         your Lead's. Keep to the task you were given. When you finish, commit your \
+         work on this branch, since your Lead merges it into its own and uncommitted \
+         work is left behind. Don't push, switch branches, or touch any other branch. \
+         Your final message is the report your Lead reads: say what you did, what you \
+         didn't get to, and anything it needs to know to merge your work."
+    )
+}
+
 /// The `claude` invocation for one Turn of `agent`, run in its Worktree with
 /// `prompt` and any files `attached` to it, and given the app's MCP server
-/// with `mcp_args`.
+/// if `mcp`.
 pub(super) fn command(
     claude_bin: &str,
-    mcp_args: &[String],
+    mcp: bool,
     agent: &Agent,
     prompt: &str,
     attached: &[PathBuf],
@@ -59,8 +74,11 @@ pub(super) fn command(
         cmd.arg("--add-dir").arg(dir);
     }
     // The app's own MCP server, beside the user's and the Project's rather
-    // than instead of them. Its options are variadic too, so a flag follows.
-    cmd.args(mcp_args);
+    // than instead of them, told which Agent it serves. Its options are
+    // variadic too, so a flag follows.
+    if mcp {
+        cmd.args(crate::mcp::turn_args(&agent.id));
+    }
     // The Mode is the Agent's, not this launcher's: `bypassPermissions`
     // lets it work freely inside its Worktree, `plan` holds it to reading
     // and proposing. Unset — a pre-Mode Agent — runs as it always has.
@@ -72,12 +90,19 @@ pub(super) fn command(
     // user's settings files, whose allow rules could hand back what this
     // takes away. A `claude` too old for `--restricted` refuses to start,
     // failing the Turn rather than running it loose.
+    let mut denied = Vec::new();
     if agent.read_mail {
         cmd.args(MAIL_LOCKED);
-        let writing = crate::mcp::writing_tools();
-        if !writing.is_empty() {
-            cmd.arg("--disallowedTools").arg(writing.join(","));
-        }
+        denied.extend(crate::mcp::writing_tools());
+    }
+    // A Helper can't lead Helpers of its own (ADR 0019), so it isn't offered
+    // the tools a Lead uses; the Host would refuse them anyway.
+    if let Some(lead) = &agent.lead_id {
+        cmd.arg("--append-system-prompt").arg(helper_brief(lead));
+        denied.extend(super::mcp::LEAD_TOOLS.map(crate::mcp::turn_name));
+    }
+    if !denied.is_empty() {
+        cmd.arg("--disallowedTools").arg(denied.join(","));
     }
     // No `--model` at all when the user hasn't picked one, so Claude Code's
     // own configured default applies rather than one we guessed.
