@@ -105,6 +105,14 @@ impl Hosts {
         self.links.lock().unwrap().get(id).map(|e| e.link.clone())
     }
 
+    /// Have every link check its Host is still there, and reconnect now if
+    /// not. See [`HostLink::wake`].
+    pub fn wake(&self) {
+        for e in self.links.lock().unwrap().values() {
+            e.link.wake();
+        }
+    }
+
     pub fn list(&self) -> Vec<HostInfo> {
         self.links
             .lock()

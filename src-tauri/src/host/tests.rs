@@ -591,3 +591,94 @@ async fn a_new_agent_is_heard_of_by_every_window_as_it_starts() {
         .await
         .unwrap();
 }
+
+/// A Host that greets each window and then says nothing more, ever — as a
+/// connection looks from a phone that slept through its end. Returns where it
+/// listens, and how many windows have connected.
+async fn silent_host() -> (std::net::SocketAddr, Arc<AtomicUsize>) {
+    let tcp = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = tcp.local_addr().unwrap();
+    let accepted = Arc::new(AtomicUsize::new(0));
+    let counting = accepted.clone();
+    tokio::spawn(async move {
+        // Held open, so the window hears no hang-up either.
+        let mut held = Vec::new();
+        loop {
+            let (mut stream, _) = tcp.accept().await.unwrap();
+            counting.fetch_add(1, Ordering::SeqCst);
+            let hello = line(&Frame::Hello(Hello::new(new_id())));
+            stream.write_all(hello.as_bytes()).await.unwrap();
+            held.push(stream);
+        }
+    });
+    (addr, accepted)
+}
+
+async fn until_connected(link: &HostLink) {
+    tokio::time::timeout(PATIENCE, async {
+        while !matches!(link.status(), Status::Connected { .. }) {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("never connected");
+}
+
+#[tokio::test]
+async fn a_woken_link_drops_a_connection_the_host_no_longer_answers_on() {
+    let (addr, accepted) = silent_host().await;
+    let link = remote_link(addr);
+    until_connected(&link).await;
+    // Past the Hello, and into following the connection.
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    link.wake();
+    tokio::time::timeout(PATIENCE, async {
+        while accepted.load(Ordering::SeqCst) < 2 {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("kept the dead connection");
+}
+
+#[tokio::test]
+async fn a_woken_link_keeps_a_connection_the_host_answers_on() {
+    let _env = StateEnv::new();
+    let socket = paths::host_socket().unwrap();
+    let vet: Vet = Arc::new(|_| Box::pin(async { Ok(()) }));
+    let (_host, addr) = host_on_tcp(&socket, &fake_claude_ok(), vet).await;
+    let changes = Arc::new(AtomicUsize::new(0));
+    let link = {
+        let changes = changes.clone();
+        HostLink::new(
+            Target::Remote {
+                address: addr.to_string(),
+            },
+            Arc::new(move |name: &str, _: Value| {
+                if name == "host-status" {
+                    changes.fetch_add(1, Ordering::SeqCst);
+                }
+            }),
+        )
+    };
+    let (_stop, stopped) = tokio::sync::watch::channel(false);
+    tokio::spawn(link.clone().run(stopped));
+    link.call("list_agents", json!({})).await.unwrap();
+    let before = changes.load(Ordering::SeqCst);
+
+    link.wake();
+    // Longer than a woken link waits for its answer.
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    assert_eq!(changes.load(Ordering::SeqCst), before, "it reconnected");
+    assert!(matches!(link.status(), Status::Connected { .. }));
+}
+
+#[tokio::test]
+async fn a_host_answers_a_ping() {
+    let _env = StateEnv::new();
+    let socket = paths::host_socket().unwrap();
+    let (_host, _serving) = host_on(&socket, &fake_claude_ok());
+    let (mut window, _) = Window::open(&socket).await;
+    assert_eq!(window.call("ping", json!({})).await, Ok(json!(null)));
+}

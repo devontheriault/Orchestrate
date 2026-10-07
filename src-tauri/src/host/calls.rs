@@ -404,6 +404,10 @@ pub enum Call {
     /// every protocol version: it is how a window that can't talk to an older
     /// or newer Host gets it out of the way.
     ShutdownWhenIdle {},
+    /// Nothing: a window checking its connection is still alive. Any answer
+    /// will do, so a Host from before this call, which says it can't read it,
+    /// answers just as well.
+    Ping {},
 }
 
 /// A Project as a window sees it: the record, and where its remote is. The
@@ -1018,6 +1022,8 @@ async fn handle(host: &Host, call: Call) -> Result<Value, String> {
             host.shut_down_when_idle();
             ok(())
         }
+
+        Call::Ping {} => ok(()),
     }
 }
 

@@ -49,6 +49,13 @@ pub fn hosts(hosts: State<'_, Arc<Hosts>>) -> Vec<HostInfo> {
     hosts.list()
 }
 
+/// The window is back in front of the user: have every Host link check it is
+/// still connected, rather than show what it last heard as current.
+#[tauri::command]
+pub fn wake_hosts(hosts: State<'_, Arc<Hosts>>) {
+    hosts.wake();
+}
+
 /// Add another machine's Host by its Tailscale name.
 #[tauri::command]
 pub fn add_host(hosts: State<'_, Arc<Hosts>>, name: String) -> Result<HostInfo, String> {

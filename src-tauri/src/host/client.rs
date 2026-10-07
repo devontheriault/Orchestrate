@@ -16,9 +16,11 @@ use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use serde_json::{json, Value};
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
+use tokio::io::{
+    AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader, Lines, ReadHalf,
+};
 use tokio::net::TcpStream;
-use tokio::sync::{mpsc, oneshot, watch};
+use tokio::sync::{mpsc, oneshot, watch, Notify as Nudge};
 
 use super::local;
 use super::protocol::{build_id, Frame, Hello, Request, PROTOCOL};
@@ -31,6 +33,20 @@ const START_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// How long to wait for a remote Host to answer before counting it offline.
 const REMOTE_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// How long a connection may go without a word from the Host before the
+/// window asks whether it is still there. A connection can die without either
+/// end hearing of it — a phone suspended in the background, or a laptop that
+/// slept or changed network — and would otherwise sit there looking connected
+/// while the Agents' news goes nowhere.
+const QUIET: Duration = Duration::from_secs(15);
+
+/// How long the Host gets to answer that, before the connection counts as dead.
+const ANSWER: Duration = Duration::from_secs(10);
+
+/// The same, when the window has just come back in front of the user: better
+/// to reconnect for nothing than to show them stale Agents.
+const WAKE_ANSWER: Duration = Duration::from_secs(4);
 
 const LOST: &str = "lost the connection to the Host";
 
@@ -100,6 +116,8 @@ struct Inner {
     status: watch::Sender<Status>,
     conn: watch::Sender<Option<Arc<Conn>>>,
     next_id: AtomicU64,
+    /// Rung by [`HostLink::wake`].
+    wake: Nudge,
 }
 
 /// Where a call's answer goes.
@@ -171,12 +189,20 @@ impl HostLink {
                 status: watch::channel(Status::Connecting { error: None }).0,
                 conn: watch::channel(None).0,
                 next_id: AtomicU64::new(UNANSWERED + 1),
+                wake: Nudge::new(),
             }),
         }
     }
 
     pub fn status(&self) -> Status {
         self.inner.status.borrow().clone()
+    }
+
+    /// The window is back in front of the user, or back on a network: check
+    /// the connection now rather than at the next heartbeat, and if there is
+    /// none, try for one now rather than at the end of the backoff.
+    pub fn wake(&self) {
+        self.inner.wake.notify_waiters();
     }
 
     /// Stay connected for as long as the window lives, or until `stop`.
@@ -217,7 +243,11 @@ impl HostLink {
                     backoff = (backoff * 2).min(Duration::from_secs(most));
                 }
             }
-            tokio::time::sleep(backoff).await;
+            tokio::select! {
+                _ = tokio::time::sleep(backoff) => {},
+                // Back in front of the user: start over from short waits.
+                _ = self.inner.wake.notified() => backoff = Duration::from_millis(200),
+            }
         }
     }
 
@@ -373,7 +403,7 @@ impl HostLink {
                     });
                 }
                 // Nothing to say to it; wait for it to go.
-                while let Ok(Some(_)) = lines.next_line().await {}
+                self.follow(&mut lines, &out, |_| {}).await;
                 writer.abort();
                 return;
             }
@@ -390,17 +420,67 @@ impl HostLink {
             name: hello.name,
         });
 
-        while let Ok(Some(l)) = lines.next_line().await {
+        self.follow(&mut lines, &conn.out, |l| {
             match serde_json::from_str::<Frame>(&l) {
                 Ok(Frame::Reply { id, outcome }) => conn.reply(id, outcome.into()),
                 Ok(Frame::Event { name, payload }) => (self.inner.notify)(&name, payload),
                 Ok(Frame::Hello(_) | Frame::Refused(_)) | Err(_) => {}
             }
-        }
+        })
+        .await;
 
         self.inner.conn.send_replace(None);
         conn.close();
         writer.abort();
+    }
+
+    /// Hand `each` every line the Host sends until the connection ends,
+    /// whether the Host hangs up or stops answering. After [`QUIET`] with
+    /// nothing heard, or on a [`wake`], the Host is pinged: any line back
+    /// proves it is there, and none in time ends the connection, so that
+    /// [`keep_connected`] makes a new one.
+    ///
+    /// [`wake`]: Self::wake
+    /// [`keep_connected`]: Self::keep_connected
+    async fn follow<S: AsyncRead>(
+        &self,
+        lines: &mut Lines<BufReader<ReadHalf<S>>>,
+        out: &mpsc::UnboundedSender<String>,
+        mut each: impl FnMut(String),
+    ) {
+        // Any Host answers this, if only to say it doesn't know the call.
+        let ping = || {
+            let _ = out.send(request(UNANSWERED, "ping", json!({})));
+        };
+        // When the Host must have answered by, while a ping is out.
+        let mut answer_by: Option<tokio::time::Instant> = None;
+        loop {
+            let now = tokio::time::Instant::now();
+            let deadline = answer_by.unwrap_or(now + QUIET);
+            tokio::select! {
+                line = lines.next_line() => match line {
+                    Ok(Some(l)) => {
+                        answer_by = None;
+                        each(l);
+                    }
+                    _ => return,
+                },
+                _ = tokio::time::sleep_until(deadline) => {
+                    if answer_by.is_some() {
+                        return;
+                    }
+                    ping();
+                    answer_by = Some(tokio::time::Instant::now() + ANSWER);
+                }
+                _ = self.inner.wake.notified() => {
+                    if answer_by.is_none() {
+                        ping();
+                    }
+                    let soon = tokio::time::Instant::now() + WAKE_ANSWER;
+                    answer_by = Some(answer_by.map_or(soon, |by| by.min(soon)));
+                }
+            }
+        }
     }
 }
 

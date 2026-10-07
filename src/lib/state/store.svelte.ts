@@ -335,6 +335,7 @@ export class AppStore {
     if (this.started) return;
     this.started = true;
 
+    this.unlisteners.push(hosts.onConnect((id, instance) => this.onConnect(id, instance)));
     // Listening before reading, so nothing that happens between the two is
     // missed. The three are independent, so they're asked for together: each
     // is a round trip, and the window is empty until the read after them.
@@ -343,10 +344,7 @@ export class AppStore {
         events.onAgentEvent(({ agent_id, event }) => {
           this.eventsByAgent.set(agent_id, [...(this.eventsByAgent.get(agent_id) ?? []), event]);
         }),
-        events.onHostStatus(({ host, ...status }) => {
-          hosts.update(host, status as HostStatus);
-          this.onHostStatus(host, status as HostStatus);
-        }),
+        events.onHostStatus(({ host, ...status }) => hosts.update(host, status as HostStatus)),
         events.onAgentStateChanged((raw) => {
           const agent = this.ingest(raw);
           this.catchUpOn(agent);
@@ -366,7 +364,20 @@ export class AppStore {
       ])),
     );
     await hosts.load();
-    for (const h of hosts.list) this.onHostStatus(h.id, h.status);
+
+    // A phone in the background is suspended, and a laptop asleep, and either
+    // can come back to a connection that died meanwhile without a word. The
+    // links find out by themselves within half a minute; coming back on
+    // screen, or onto a network, they check at once.
+    const wake = () => {
+      if (document.visibilityState === "visible") hosts.wake();
+    };
+    document.addEventListener("visibilitychange", wake);
+    window.addEventListener("online", wake);
+    this.unlisteners.push(() => {
+      document.removeEventListener("visibilitychange", wake);
+      window.removeEventListener("online", wake);
+    });
 
     // Not awaited: the model list only fills a picker, and blocking the first
     // paint on a network round-trip would be a poor trade.
@@ -513,20 +524,20 @@ export class AppStore {
   }
 
   /**
-   * Follow the window's connection to a Host. Coming back to it, or to the
-   * one that replaced it, means re-reading everything: whatever the agents did
-   * in between reached the logs but not this window. So does reaching another
-   * machine's Host for the first time.
+   * Follow the window's connection to a Host. Every reconnection means
+   * re-reading everything, to the same Host as much as to the one that
+   * replaced it: whatever the agents did in between reached the logs but not
+   * this window. So does reaching another machine's Host for the first time.
    */
-  private onHostStatus(id: string, status: HostStatus) {
-    if (status.state !== "connected") return;
+  private onConnect(id: string, instance: string) {
     // On a phone the model list waits on whichever Host answers first.
     if (models.error) models.load();
     const previous = this.hostInstances[id];
-    if (previous === status.instance) return;
-    this.hostInstances[id] = status.instance;
+    this.hostInstances[id] = instance;
     // A new local Host adopted its own Orphans; the banner is about those now.
-    if (id === LOCAL && previous !== undefined) this.orphanBannerDismissed = false;
+    if (id === LOCAL && previous !== undefined && previous !== instance) {
+      this.orphanBannerDismissed = false;
+    }
     // The first connection to this machine's Host is the one `start` is
     // already loading from, unless that load gave up waiting for it.
     if (id !== LOCAL || previous !== undefined || !this.loaded) this.resync();
