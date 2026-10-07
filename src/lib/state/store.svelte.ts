@@ -154,6 +154,12 @@ export class AppStore {
    */
   openBuckets = $state<Record<string, Record<string, boolean>>>({});
 
+  /**
+   * Leads whose Helpers the user has folded away in the sidebar, by the Lead's
+   * id. Unset means open. Kept here for the same reason as `openBuckets`.
+   */
+  foldedTeams = $state<Record<string, boolean>>({});
+
   /** Which body the detail pane shows for the selected agent. */
   detailTab = $state<"output" | "diff">("output");
 

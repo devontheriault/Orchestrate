@@ -108,7 +108,7 @@ An Agent that has Spawned other Agents to work on parts of its Task at the same 
 _Avoid_: Parent (Base's avoided word), Orchestrator (the app's own name), Manager, Coordinator.
 
 **Helper**:
-An Agent a Lead Spawned, recorded with its Lead as `lead_id`. It is otherwise an ordinary Agent with its own Worktree, branch, Session and transcript, which the user can watch, Stop, Resume or Discard. Its branch and Base are the Lead's current commit, and it takes the Lead's Mode and Options. Each Turn is told in a short system prompt that it works for a Lead, should Commit its work on its own branch, and reports back in its final answer. A Helper can't Spawn Helpers, and a Lead has at most eight working at once. In the sidebar it sits under its Lead, in the Lead's Bucket. Completing doesn't notify the user, since the Lead hears of it, but Failing does.
+An Agent a Lead Spawned, recorded with its Lead as `lead_id`. It is otherwise an ordinary Agent with its own Worktree, branch, Session and transcript, which the user can watch, Stop, Resume or Discard. Its branch and Base are the Lead's current commit, and it takes the Lead's Mode and Options. Each Turn is told in a short system prompt that it works for a Lead, should Commit its work on its own branch, and reports back in its final answer. A Helper can't Spawn Helpers, and a Lead has at most eight working at once. In the sidebar it sits under its Lead, in the Lead's Bucket, where the user can fold a Lead's Helpers away. Completing doesn't notify the user, since the Lead hears of it, but Failing does.
 _Avoid_: Sub-agent (Claude Code's own Agent tool, which shares the Agent's Worktree), Child, Worker, Teammate.
 
 **Sub-agent**:
