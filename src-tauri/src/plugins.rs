@@ -404,7 +404,6 @@ async fn run(bin: &str, cwd: &Path, args: &[&str], limit: Duration) -> Result<Ou
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
-    crate::process::outside_appimage(&mut cmd);
     let child = cmd
         .spawn()
         .map_err(|e| fail(format!("could not start `claude`: {e}")))?;
