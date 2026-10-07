@@ -1,6 +1,6 @@
 {
   "name": "orchestrate",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "description": "Lightweight control layer for Claude Code — spawn, monitor, and control agents in isolated Git worktrees.",
   "type": "module",
   "scripts": {
