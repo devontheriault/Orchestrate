@@ -4,27 +4,29 @@ use std::ffi::OsStr;
 
 use tokio::process::Command;
 
-/// A [`Command`] for `program`. On Windows the program gets no console window.
+/// A [`Command`] for `program`, with none of an AppImage's environment (see
+/// [`outside_appimage`]). On Windows the program gets no console window.
 /// Neither the window nor the Host has a console, so without this Windows gives
 /// each console program it starts a window of its own, which flashes open and
 /// shut.
 pub fn command(program: impl AsRef<OsStr>) -> Command {
-    #[cfg_attr(not(windows), allow(unused_mut))]
     let mut cmd = Command::new(program);
     #[cfg(windows)]
     {
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
+    outside_appimage(&mut cmd);
     cmd
 }
 
 /// Take back what an AppImage put into `cmd`'s environment. The AppImage's
 /// launcher points `LD_LIBRARY_PATH`, `PYTHONHOME` and the like into its own
 /// mount for the app's sake, and a program started from it inherits them:
-/// the system's `git` then loads the AppImage's libraries and can't fetch over
-/// https. Does nothing outside an AppImage.
-pub fn outside_appimage(cmd: &mut Command) {
+/// the system's `git` then loads the AppImage's libraries and can't fetch or
+/// push over https, and an Agent's own shell can't run much at all. Does
+/// nothing outside an AppImage.
+fn outside_appimage(cmd: &mut Command) {
     let Some(appdir) = std::env::var("APPDIR").ok().filter(|a| !a.is_empty()) else {
         return;
     };
