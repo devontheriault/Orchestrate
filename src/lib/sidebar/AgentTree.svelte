@@ -150,6 +150,24 @@
       .map((t) => ({ lead: t.lead, helpers: t.helpers.filter(on) }));
   }
 
+  /** Whether a Lead's Helpers show under it. Every team starts open. */
+  function teamOpen(team: Team): boolean {
+    return !store.foldedTeams[team.lead.id];
+  }
+
+  function toggleTeam(team: Team) {
+    store.foldedTeams[team.lead.id] = teamOpen(team);
+  }
+
+  /**
+   * The Helpers a team shows. A folded one still shows the Helper on screen,
+   * as a folded bucket does, so the selection is never hidden.
+   */
+  function shownHelpers(team: Team): Agent[] {
+    if (teamOpen(team)) return team.helpers;
+    return team.helpers.filter((a) => a.id === store.selectedAgentId);
+  }
+
   function detail(a: Agent): string {
     return rowDetail(a, store.eventsByAgent.get(a.id) ?? [], {
       delivered: store.isDelivered(a),
@@ -327,8 +345,26 @@
       {#each shown(bucket, groupTeams) as team (team.lead.id)}
         {@render row(team.lead, bucket)}
         {#if team.helpers.length}
+          {@const teamIsOpen = teamOpen(team)}
+          {@const busy = team.helpers.filter((a) => a.state === "running").length}
           <div class="helpers">
-            {#each team.helpers as helper (helper.id)}
+            <!-- Only in an open bucket: a folded one lists just the agent on
+                 screen, so a count here would be of the wrong thing. -->
+            {#if open}
+              <button
+                class="team-fold"
+                aria-expanded={teamIsOpen}
+                onclick={() => toggleTeam(team)}
+                title={`${teamIsOpen ? "Hide" : "Show"} ${store.agentName(team.lead)}'s helpers`}
+              >
+                <span class="chevron" class:open={teamIsOpen} aria-hidden="true">›</span>
+                {plural(team.helpers.length, "helper")}
+                {#if !teamIsOpen && busy}
+                  <span class="busy">· {busy} running</span>
+                {/if}
+              </button>
+            {/if}
+            {#each shownHelpers(team) as helper (helper.id)}
               {@render row(helper, bucket)}
             {/each}
           </div>
@@ -754,6 +790,42 @@
     margin-left: var(--space-5);
     padding-left: var(--space-1);
     border-left: var(--border-width) solid var(--border);
+  }
+
+  /* Folds a Lead's Helpers. Small and quiet, like the bucket headings, so it
+     reads as part of the thread rather than as another agent. */
+  .team-fold {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    width: 100%;
+    padding: 0.2rem 0.5rem;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--fg-muted);
+    font-size: var(--text-2xs);
+    font-variant-numeric: tabular-nums;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .team-fold:hover {
+    background: var(--hover);
+    color: var(--fg);
+  }
+
+  .team-fold:focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring);
+  }
+
+  :global(html[data-frame="mobile"]) .team-fold {
+    padding-block: 0.5rem;
+  }
+
+  .busy {
+    color: var(--running);
   }
 
   /* Handed mail (ADR 0018): it only reads and suggests, for good. Leads the
