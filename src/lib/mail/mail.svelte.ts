@@ -60,7 +60,7 @@ class Mail {
   connected = $derived(this.status?.state === "connected");
   me = $derived(this.status?.account?.email ?? "");
 
-  private unlisten: UnlistenFn | null = null;
+  private unlisten: UnlistenFn[] = [];
   private users = 0;
   private settle: ReturnType<typeof setTimeout> | null = null;
   private noticeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -74,19 +74,26 @@ class Mail {
   async start() {
     this.users++;
     if (this.users > 1) return;
-    this.unlisten = await events.onMailChanged((change) => {
-      if (change.host !== this.host) return;
-      if (change.folder === null) void this.loadStatus();
-      if (change.folder === null || change.folder === this.folder) this.soon();
-    });
+    this.unlisten.push(
+      await events.onMailChanged((change) => {
+        if (change.host !== this.host) return;
+        if (change.folder === null) void this.loadStatus();
+        if (change.folder === null || change.folder === this.folder) this.soon();
+      }),
+      // Back from a time out of touch, anything may have changed.
+      hosts.onConnect((host) => {
+        if (host !== this.host) return;
+        void this.loadStatus();
+        this.soon();
+      }),
+    );
     await this.loadStatus();
   }
 
   stop() {
     this.users = Math.max(0, this.users - 1);
     if (this.users > 0) return;
-    this.unlisten?.();
-    this.unlisten = null;
+    for (const u of this.unlisten.splice(0)) u();
   }
 
   /** Read the list again shortly, once a burst of changes has passed. */

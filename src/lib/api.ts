@@ -778,6 +778,8 @@ export type Machine = {
 export const api = {
   /** Every Host this window knows, and where it stands with each. */
   hosts: () => invoke<HostInfo[]>("hosts"),
+  /** Have every Host link check it is still connected, and reconnect now if not. */
+  wakeHosts: () => invoke<void>("wake_hosts"),
   addHost: (name: string) => invoke<HostInfo>("add_host", { name }),
   /** The user's other machines, as this machine's Tailscale sees them. */
   tailnetMachines: () => invoke<Machine[]>("tailnet_machines"),

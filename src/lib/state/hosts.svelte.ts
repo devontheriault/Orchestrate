@@ -33,12 +33,39 @@ class Hosts {
    */
   several = $derived(this.list.filter((h) => h.status.state === "connected").length > 1);
 
+  /** Each Host connected to now, by its instance. */
+  private connectedTo = new Map<string, string>();
+
+  private connectListeners = new Set<(id: string, instance: string) => void>();
+
   async load() {
     try {
       this.list = await api.hosts();
     } catch {
       // The Rust side always answers; nothing to do if it somehow didn't.
+      return;
     }
+    for (const h of this.list) this.follow(h.id, h.status);
+  }
+
+  /**
+   * Have every link check its connection now, and reconnect at once where
+   * there is none. A connection that turns out dead comes back as a
+   * reconnection, which everything listening to `onConnect` re-reads on.
+   */
+  wake() {
+    api.wakeHosts().catch(() => {});
+  }
+
+  /**
+   * Call `fn` every time the window connects to a Host, the first time
+   * included, with the instance it reached. Whatever happened on that Host
+   * while the window wasn't connected never reached it, so anything that
+   * shows a Host's data reads it again here. Returns how to stop listening.
+   */
+  onConnect(fn: (id: string, instance: string) => void): () => void {
+    this.connectListeners.add(fn);
+    return () => this.connectListeners.delete(fn);
   }
 
   /** A Host's status moved. */
@@ -46,6 +73,19 @@ class Hosts {
     const known = this.list.find((h) => h.id === id);
     if (known) known.status = status;
     else this.list.push({ id, local: id === LOCAL, status });
+    this.follow(id, status);
+  }
+
+  /** Tell `onConnect`'s listeners of a connection, once each. */
+  private follow(id: string, status: HostStatus) {
+    if (status.state !== "connected") {
+      this.connectedTo.delete(id);
+      return;
+    }
+    // A connection is heard both from `load` and as an event.
+    if (this.connectedTo.get(id) === status.instance) return;
+    this.connectedTo.set(id, status.instance);
+    for (const fn of this.connectListeners) fn(id, status.instance);
   }
 
   status(id: string): HostStatus | undefined {
@@ -117,6 +157,7 @@ class Hosts {
     try {
       await api.removeHost(id);
       this.list = this.list.filter((h) => h.id !== id);
+      this.connectedTo.delete(id);
       return null;
     } catch (e) {
       return String(e);

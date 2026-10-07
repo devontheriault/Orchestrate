@@ -160,6 +160,12 @@ class CalendarSpace {
       }),
     ];
     this.stops.push(() => listening.forEach((p) => p.then((un) => un())));
+    // Back from a time out of touch, anything may have changed.
+    this.stops.push(
+      hosts.onConnect((host) => {
+        if (host === this.host) void this.load();
+      }),
+    );
 
     void this.load().then(() => this.sync());
   }

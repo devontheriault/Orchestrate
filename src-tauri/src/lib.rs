@@ -260,6 +260,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::host,
             commands::hosts,
+            commands::wake_hosts,
             commands::add_host,
             commands::tailnet_machines,
             commands::remove_host,

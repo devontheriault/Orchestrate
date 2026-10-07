@@ -106,6 +106,10 @@ class NotesStore {
         if (host !== this.host) return;
         this.changed(paths);
       }),
+      // Back from a time out of touch, anything may have changed.
+      hosts.onConnect((host) => {
+        if (host === this.host) this.changed([]);
+      }),
     );
     await this.refresh();
   }
